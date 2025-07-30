@@ -11,10 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('spaces', function (Blueprint $table) {
-            $table->id();
-            $table->string('location');
-            $table->integer('is_occupied')->default(0); // 0 for available, 1 for occupied
+        Schema::create('routes', function (Blueprint $table) {
+            $table->bigIncrements('route_id');
+            $table->string('name');
+            $table->string('start_location');
+            $table->string('end_location');
+            $table->string('distance')->nullable();
+            $table->string('duration')->nullable();
             $table->timestamps();
         });
     }
@@ -24,6 +27,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('space');
+        Schema::dropIfExists('route');
     }
 };

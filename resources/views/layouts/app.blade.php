@@ -86,10 +86,25 @@
             font-size: 0.95rem;
         }
 
+        .logoutBtn {
+            background: transparent;
+            border: none;
+            font-size: 1rem;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+        }
+
         .main-content {
             margin-left: 260px;
             min-height: 100vh;
             background: #f5f7fa;
+            padding-left: 24px;
+            padding-top: 0;
+            padding-right: 0;
+            padding-bottom: 0;
         }
 
         @media (max-width: 768px) {
@@ -114,16 +129,16 @@
         </div>
         <div class="sidebar-section">
             <div class="sidebar-section-title">MAIN</div>
-            <a href="#" class="sidebar-link">
+            <a href="{{ route('dashboard') }}" class="sidebar-link">
                 <i class="bi bi-speedometer2"></i>
                 Dashboard
             </a>
         </div>
         <div class="sidebar-section">
             <div class="sidebar-section-title">OPERATIONS</div>
-            <a href="#" class="sidebar-link">
+            <a href="{{ route('schedule-management') }}" class="sidebar-link">
                 <i class="bi bi-calendar-event"></i>
-                Schedule Management
+                Bus Schedules
             </a>
             <a href="#" class="sidebar-link">
                 <i class="bi bi-speedometer2"></i>
@@ -131,29 +146,18 @@
             </a>
             <a href="#" class="sidebar-link">
                 <i class="bi bi-clipboard"></i>
-                Terminal Space Rental
-            </a>
-        </div>
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">CUSTOMER SERVICE</div>
-            <a href="#" class="sidebar-link">
-                <i class="bi bi-inbox-fill"></i>
-                Inbox
-            </a>
-            <a href="#" class="sidebar-link">
-                <i class="bi bi-cash-stack"></i>
-                Refund Requests
+                Terminal Rental Management
             </a>
         </div>
         <div class="sidebar-section">
             <div class="sidebar-section-title">COMMUNICATION</div>
             <a href="#" class="sidebar-link">
                 <i class="bi bi-chat-dots-fill"></i>
-                Communication Hub
+                Messages & Announcements
             </a>
         </div>
         <div class="sidebar-footer">
-            <i class="bi bi-gem me-1"></i> Logout
+            <button type="submit" class="logoutBtn"><i class="bi bi-box-arrow-right"> Logout</i></button>
         </div>
     </div>
     <div class="main-content">

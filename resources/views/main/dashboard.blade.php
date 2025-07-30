@@ -15,6 +15,7 @@
         min-width: 220px;
         text-align: center;
     }
+
     .dashboard-icon {
         width: 56px;
         height: 56px;
@@ -26,6 +27,7 @@
         flex-shrink: 0;
         margin-bottom: 0.5rem;
     }
+
     .icon-blue { background: #e3f0fc; color: #2b7be4; }
     .icon-green { background: #eafaf1; color: #1bb76e; }
     .icon-yellow { background: #fffbe5; color: #e6b800; }
@@ -35,11 +37,13 @@
         color: #444;
         margin-bottom: 0.2rem;
     }
+
     .dashboard-value {
         font-size: 1.5rem;
         font-weight: bold;
         letter-spacing: 1px;
     }
+    
 </style>
 
 <div class="container py-4">
@@ -67,7 +71,7 @@
                 </div>
                 <div>
                     <div class="dashboard-label">Available Spaces</div>
-                    <div class="dashboard-value">{{ $stats['available_spaces'] }}</div>
+                    <div class="dashboard-value">{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
                 </div>
             </div>
         </div>
