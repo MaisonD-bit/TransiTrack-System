@@ -13,11 +13,15 @@ return new class extends Migration
     {
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
+            $table->unsignedBigInteger('sender_id'); // foreign key to users
+            $table->unsignedBigInteger('recipient_id')->nullable();
             $table->string('subject');
-            $table->text('content');
-            $table->enum('status', ['unread', 'read', 'archived'])->default('unread');
+            $table->text('body');
+            $table->enum('status', ['unread','read'])
+                  ->default('unread');
             $table->timestamps();
+            $table->foreign('sender_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('recipient_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
 
@@ -26,6 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('message');
+        Schema::dropIfExists('messages');
     }
 };

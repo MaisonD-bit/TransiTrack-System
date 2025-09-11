@@ -2,8 +2,9 @@
 
 @section('content')
 <style>
+
     .dashboard-card {
-        border-radius: 16px;
+
         box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         background: #fff;
         padding: 1.5rem 1rem;
@@ -17,8 +18,8 @@
     }
 
     .dashboard-icon {
-        width: 56px;
-        height: 56px;
+        width: 60px;
+        height: 60px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -28,14 +29,14 @@
         margin-bottom: 0.5rem;
     }
 
-    .icon-blue { background: #e3f0fc; color: #2b7be4; }
-    .icon-green { background: #eafaf1; color: #1bb76e; }
-    .icon-yellow { background: #fffbe5; color: #e6b800; }
-    .icon-purple { background: #f3eafd; color: #a259e6; }
+    .icon-blue { background: #2b7be4; color: #ffffffff; }
+    .icon-green { background: #1bb76e; color: #ffffffff; }
+    .icon-yellow { background: #e6b800; color: #ffffffff; }
+    .icon-purple { background: #a259e6; color: #ffffffff; }
     .dashboard-label {
         font-size: 1rem;
         color: #444;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.5rem;
     }
 
     .dashboard-value {
@@ -47,9 +48,27 @@
 </style>
 
 <div class="container py-4">
-    <h1 class="mb-4 fw-bold" style="font-size:2rem;">Dashboard Overview</h1>
+
+    <div class="d-flex align-items-center">
+        <i class="mb-4 bi bi-speedometer2 me-3 text-primary fs-4"></i>
+        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Dashboard Overview</h1>
+    </div>
 
     <div class="row g-3 justify-content-center">
+
+        <!-- Total Schdules -->
+        <div class="col-12 col-sm-6 col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-icon icon-yellow">
+                    <i class="bi bi-calendar2-week"></i>
+                </div>
+                <div>
+                    <div class="dashboard-label">Total Schedules</div>
+                    <div class="dashboard-value">{{ $stats['total_schedules'] }}</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Active Buses -->
         <div class="col-12 col-sm-6 col-md-3">
             <div class="dashboard-card">
@@ -72,19 +91,6 @@
                 <div>
                     <div class="dashboard-label">Available Spaces</div>
                     <div class="dashboard-value">{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Active Alerts -->
-        <div class="col-12 col-sm-6 col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-icon icon-yellow">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                </div>
-                <div>
-                    <div class="dashboard-label">Active Alerts</div>
-                    <div class="dashboard-value">{{ $stats['active_alerts'] }}</div>
                 </div>
             </div>
         </div>

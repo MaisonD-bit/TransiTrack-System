@@ -3,15 +3,30 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Message extends Model
 {
-    protected $table = 'messages';
+    use HasFactory;
+
     protected $fillable = [
-        'user_id',
+        'sender_id',
+        'recipient_id',
         'subject',
-        'content', 
+        'body',
         'status',
     ];
-}
 
+    /**
+     * Get the sender (User who sent the message).
+     */
+    public function sender()
+    {
+        return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    public function recipient()
+    {
+        return $this->belongsTo(User::class, 'recipient_id');
+    }
+}

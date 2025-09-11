@@ -10,58 +10,70 @@ class RouteCrudController extends Controller
 {
     public function index()
     {
-        $routes = Route::with('busSchedules')->get();
+        $routes = Route::all();
 
-        return view('crud.routes.index', compact('routes'));
+        return view('routes.index', compact('routes'));
     }
 
     public function create()
     {
-        return view('route.create');
+        return view('routes.create');
     }
 
     public function store(Request $request)
     {
-        $request->validate([
+        $data = $request->validate([
             'name' => 'required|string|max:255',
+            'code' => 'required|string|max:50|unique:routes,code',
             'start_location' => 'required|string|max:255',
             'end_location' => 'required|string|max:255',
-            'distance' => 'required|numeric|min:0',
-            'duration' => 'required|integer|min:1',
+            'description' => 'nullable|string',
+            'regular_price' => 'required|numeric|min:0',
+            'aircon_price' => 'nullable|numeric|min:0',
+            'distance_km' => 'required|numeric|min:0',
+            'estimated_duration' => 'required|integer|min:1',
+            'status' => 'required|in:active,inactive',
         ]);
 
-        Route::create($request->all());
+        Route::create($data);
 
         return redirect()->route('routes.index')->with('success', 'Route created successfully.');
     }
 
     public function edit($id)
     {
-        $route = Route::findOrFail($id);
+        $routes = Route::findOrFail($id);
 
-        return view('route.edit', compact('route'));
+        return view('routes.edit', compact('route'));
     }
+
 
     public function update(Request $request, $id)
     {
-        $request->validate([
+        $routes = Route::findOrFail($id);
+
+        $data = $request->validate([
             'name' => 'required|string|max:255',
+            'code' => 'required|string|max:50|unique:routes,code,' . $routes->id,
             'start_location' => 'required|string|max:255',
             'end_location' => 'required|string|max:255',
-            'distance' => 'required|numeric|min:0',
-            'duration' => 'required|integer|min:1',
+            'description' => 'nullable|string',
+            'regular_price' => 'required|numeric|min:0',
+            'aircon_price' => 'nullable|numeric|min:0',
+            'distance_km' => 'required|numeric|min:0',
+            'estimated_duration' => 'required|integer|min:1',
+            'status' => 'required|in:active,inactive',
         ]);
 
-        $route = Route::findOrFail($id);
-        $route->update($request->all());
+        $routes->update($data);
 
         return redirect()->route('routes.index')->with('success', 'Route updated successfully.');
     }
 
     public function destroy($id)
     {
-        $route = Route::findOrFail($id);
-        $route->delete();
+        $routes = Route::findOrFail($id);
+        $routes->delete();
 
         return redirect()->route('routes.index')->with('success', 'Route deleted successfully.');
     }

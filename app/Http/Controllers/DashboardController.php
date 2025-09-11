@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Bus;
-use App\Models\Alert;
 use App\Models\Message;
 use App\Models\Space;
+use App\Models\Schedule;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -20,7 +20,7 @@ public function index()
         'active_busses' => Bus::where('status', 'active')->count(),
         'available_spaces' => $available,
         'total_spaces' => $total,
-        'active_alerts' => Alert::where('status', 'active')->count(),
+        'total_schedules' => Schedule::count(),
         'new_messages' => Message::where('status', 'unread')->count(),
     ];
 

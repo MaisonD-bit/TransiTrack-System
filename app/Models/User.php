@@ -2,33 +2,33 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
-
-    public $timestamps = false;
 
     /**
      * The attributes that are mass assignable.
      *
-     * @var list<string>
+     * @var array<int, string>
      */
     protected $fillable = [
-        'username',
+        'name',
         'email',
         'password',
+        'contact_number',
+        'gender',
+        'role',
+        'photo_url',
     ];
 
     /**
      * The attributes that should be hidden for serialization.
      *
-     * @var list<string>
+     * @var array<int, string>
      */
     protected $hidden = [
         'password',
@@ -36,15 +36,41 @@ class User extends Authenticatable
     ];
 
     /**
-     * Get the attributes that should be cast.
+     * The attributes that should be cast.
      *
-     * @return array<string, string>
+     * @var array<string, string>
      */
-    protected function casts(): array
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'date_of_birth' => 'date',
+        'license_expiry' => 'date',
+    ];
+
+    /**
+     * Get the schedules for the driver.
+     * This is used for users with the 'driver' role.
+     */
+    public function schedules()
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
+        return $this->hasMany(Schedule::class, 'driver_id');
+    }
+
+    /**
+     * Check if the user is a driver
+     */
+    public function isDriver()
+    {
+        return $this->role === 'driver';
+    }
+
+    /**
+     * Get the active schedules for a driver
+     */
+    public function activeSchedules()
+    {
+        return $this->schedules()
+            ->where('status', 'active')
+            ->whereDate('date', today());
     }
 }

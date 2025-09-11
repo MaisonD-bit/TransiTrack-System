@@ -12,24 +12,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('buses', function (Blueprint $table) {
-            $table->bigIncrements('bus_id');
-            $table->string('plate_number');
-            $table->string('company');
-            $table->string('type');
-            $table->enum('rental_status', ['active', 'inactive']);
+            $table->id();
+            $table->string('plate_number')->unique();
+            $table->string('bus_number')->unique();
+            $table->string('model');
             $table->integer('capacity');
-            $table->enum('status', ['active', 'inactive', 'maintenance']);
-
-            $table->unsignedBigInteger('space_id')->nullable();
-            $table->foreign('space_id')->references('space_id')->on('spaces')->onDelete('set null');
-
-            $table->unsignedBigInteger('route_id')->nullable();
-            $table->foreign('route_id')->references('route_id')->on('routes')->onDelete('set null');
-
-            $table->unsignedBigInteger('driver_id')->nullable();
-            $table->foreign('driver_id')->references('driver_id')->on('drivers')->onDelete('set null');
-            
+            $table->string('bus_company')->nullable();
+            $table->enum('accommodation_type', ['air-conditioned','deluxe','super-deluxe']);
+            $table->enum('status', ['active', 'maintenance', 'inactive'])->default('active');
+            $table->text('description')->nullable();
             $table->timestamps();
+            $table->softDeletes();
         });
     }
 
