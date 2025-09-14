@@ -14,29 +14,29 @@
             background: #222;
         }
 
+        :root {
+            --primary: #1a1c30;
+            --secondary: #3498db;
+            --accent: #e74c3c;
+            --light: #ecf0f1;
+            --dark: #1a1c30;
+            --success: #2ecc71;
+            --warning: #f39c12;
+        }
+
         .sidebar {
             position: fixed;
             top: 0;
             left: 0;
             height: 100vh;
             width: 280px;
-            background: #1a1c30;
-            /* background: #2052d9; */
-            color: #fff;
-            padding: 0;
+            background: linear-gradient(to bottom, var(--primary), #1a1c30);
+            padding: 20px 0;
+            box-shadow: 3px 0 10px rgba(0, 0, 0, 0.1);
+            color: white;
             z-index: 100;
             display: flex;
             flex-direction: column;
-        }
-
-        .sidebar-header {
-            padding: 1.5rem 1.2rem 1rem 1.2rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .sidebar-header .bi {
-            font-size: 2rem;
-            margin-right: 0.5rem;
         }
 
         .sidebar-title {
@@ -61,19 +61,19 @@
         .sidebar-link {
             display: flex;
             align-items: center;
-            gap: 0.7rem;
-            color: #fff;
+            gap: 1rem;
+            color: white;
             text-decoration: none;
-            font-size: 1rem;
-            padding: 0.45rem 0;
+            padding: 15px 20px;
             padding-left: 1.2rem;
-            transition: background 0.15s;
+            border-left: 4px solid transparent;
+            transition: all 0.3s;
         }
 
         .sidebar-link:hover,
         .sidebar-link.active {
             background: rgba(255, 255, 255, 0.1);
-            border-left: 4px solid #4e6ef2;
+            border-left: 4px solid var(--secondary);
             color: white;
         }
 
@@ -120,8 +120,45 @@
             z-index: 10;
         }
 
+        .sidebar-link i {
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .sidebar-link span {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            padding: 0 20px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo i {
+            font-size: 28px;
+            margin-right: 10px;
+            color: #fff;
+        }
+
+        .logo h1 {
+            font-size: 22px;
+            font-weight: 600;
+        }
+
         .content-wrapper {
             padding-left: 2rem;
+        }
+
+        .logoutBtn:hover {
+            background-color: white;
+            color: var(--dark);
+            border-radius: 20px;
+            padding: 5px 10px;
+            transition: all 0.3s;
         }
 
         @media (max-width: 768px) {
@@ -140,72 +177,43 @@
 
 <body>
     <div class="sidebar">
-        <div class="sidebar-header d-flex align-items-center">
-            <i class="bi bi-bus-front"></i>
-            <span class="sidebar-title">TransiTrack</span>
+        <div class="logo">
+            <i class="fas fa-bus"></i>
+            <h1>TransiTrack</h1>
         </div>
 
         <div class="sidebar-section">
-            <div class="sidebar-section-title">MAIN</div>
             <a href="{{ route('dashboard') }}" class="sidebar-link {{ request()->routeIs('dashboard') ? 'active' : '' }}">
                 <i class="bi bi-speedometer2"></i>
-                Dashboard
+                <span>Dashboard</span>
             </a>
-        </div>
 
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">TERMINAL OPERATIONS</div>
             <a href="{{ route('schedule-management') }}" class="sidebar-link {{ request()->routeIs('schedule-management') ? 'active' : '' }}">
                 <i class="fas fa-calendar-alt"></i>
-                Bus Schedules
+                <span>Bus Schedules</span>
             </a>
-
-            <a href="{{ route('rental-management') }}" class="sidebar-link {{ request()->routeIs('rental-management') ? 'active' : '' }}">
-                <i class="bi bi-clipboard"></i>
-                Rental Applications
-            </a>
-        </div>
-
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">COMMUNICATION</div>
 
             <a href="{{ route('message-management') }}" class="sidebar-link {{ request()->routeIs('message-management') ? 'active' : '' }}">
                 <i class="bi bi-chat-dots-fill"></i>
-                Messages & Announcements
+                <span>Messages & Announcements</span>
+            </a>
+
+            <a href="#" class="sidebar-link">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+
+            <a href="#" class="sidebar-link">
+                <i class="fas fa-cog"></i>
+                <span>Profile</span>
             </a>
         </div>
-
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">CRUD</div>
-
-            <a href="{{ route('spaces.index') }}" class="sidebar-link">
-                <i class="bi bi-pen"></i>
-                Add Spaces
-            </a>
-
-            <a href="{{ route('routes.index') }}" class="sidebar-link">
-                <i class="bi bi-pen"></i>
-                Add Routes
-            </a>
-
-            <a href="{{ route('bus.index') }}" class="sidebar-link">
-                <i class="bi bi-pen"></i>
-                Add Busses
-            </a>
-
-            <a href="{{ route('schedules.index') }}" class="sidebar-link">
-                <i class="bi bi-pen"></i>
-                Add Schedules
-            </a>
-        </div>
-
-
 
         <div class="sidebar-footer">
             <form action="{{ route('logout') }}" method="POST">
                 @csrf
                 <button type="submit" class="logoutBtn">
-                    <i class="fa-solid fa-right-from-bracket me-2 text-danger">  Logout</i> 
+                    <i class="fa-solid fa-right-from-bracket me-2 text-danger"> Logout</i>
                 </button>
             </form>
         </div>

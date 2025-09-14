@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\Bus;
 use App\Models\Message;
 use App\Models\Space;
@@ -13,8 +14,17 @@ class DashboardController extends Controller
 
 public function index()
 {
+    $query = Schedule::with(['bus', 'driver', 'route']);
+
+    $busSchedules = $query->orderBy('date', 'desc')->paginate(10)->withQueryString();
+
+    $drivers = User::where('role', 'driver')->get();
+
+    $statuses = ['scheduled', 'active', 'completed', 'cancelled'];
+
     $available = Space::where('is_occupied', false)->count();
-    $total     = Space::count();
+
+    $total = Space::count();
 
     $stats = [
         'active_busses' => Bus::where('status', 'active')->count(),
@@ -24,7 +34,7 @@ public function index()
         'new_messages' => Message::where('status', 'unread')->count(),
     ];
 
-    return view('main.dashboard', compact('stats'));
+    return view('main.dashboard', compact('stats', 'busSchedules', 'drivers', 'statuses'));
 }
 
 }

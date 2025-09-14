@@ -3,6 +3,24 @@
 @section('content')
 <style>
 
+    .card {
+        border-radius: 8px;
+        background: white;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .input-group.rounded {
+        padding: 0.25rem 1rem;
+        border: transparent;
+        overflow: hidden;
+    }
+
+    .input-group.rounded input::placeholder {
+        color: #999;
+        font-style: italic;
+    }
+
     .dashboard-card {
 
         box-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -108,5 +126,64 @@
             </div>
         </div>
     </div>
+
+    <div class="container py-4 justify-content-center">
+
+    <div class="d-flex align-items-center">
+        <i class="mb-4 fas fa-calendar-alt me-3 text-primary fs-4"></i>
+        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Bus Schedules</h1>
+    </div>
+
+    {{-- Table --}}
+    <div class="card">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>SCHEDULE ID</th>
+                    <th>BUS</th>
+                    <th>DRIVER</th>
+                    <th>ROUTE</th>
+                    <th>DEPARTURE</th>
+                    <th>ARRIVAL</th>
+                    <th>STATUS</th>
+                    <th>DATE</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($busSchedules as $busSchedule)
+                <tr>
+                    <td>{{ $busSchedule->id }}</td>
+                    <td>{{ $busSchedule->bus->plate_number ?? '-' }}</td>
+                    <td>{{ $busSchedule->driver->name ?? '-' }}</td>
+                    <td>{{ $busSchedule->route->name ?? '-' }}</td>
+                    <td>
+                        {{ $busSchedule->date->format('Y-m-d') }}<br>
+                        <span class="text-primary">{{ $busSchedule->start_time }}</span>
+                    </td>
+                    <td>
+                        {{ $busSchedule->date->format('Y-m-d') }}<br>
+                        <span class="text-success">{{ $busSchedule->end_time }}</span>
+                    </td>
+                    <td>{{ ucfirst(str_replace('_', ' ', $busSchedule->status)) }}</td>
+                    <td>{{ $busSchedule->date->format('F d, Y') }}</td>
+                </tr>
+                @empty
+                <tr>
+                    <td colspan="8" class="text-center text-muted">
+                        <div class="text-center py-3">
+                            <i class="fas fa-calendar-times fa-3x text-muted"></i>
+                        </div>
+                        <h4>No schedules found</h4>
+                    </td>
+                </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-3">
+        {{ $busSchedules->links() }}
+    </div>
+
 </div>
 @endsection

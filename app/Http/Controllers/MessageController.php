@@ -57,7 +57,7 @@ class MessageController extends Controller
             }
         }
 
-        return redirect()->route('operations.message-management')->with('success', 'Message sent successfully.');
+        return redirect()->route('messages.index')->with('success', 'Message sent successfully.');
     }
 
 
@@ -73,16 +73,6 @@ class MessageController extends Controller
         ) {
             abort(403, 'You are not authorized to view this message.');
         }
-
-        // if (
-        //     $message->sender_id !== Auth::id() &&
-        //     $message->recipient_id !== Auth::id() &&
-        //     !is_null($message->recipient_id)
-        // ) {
-        //     abort(403, 'You are not authorized to view this message.');
-        // }
-
-
 
         // Mark as read if recipient is the current user
         if ($message->status === 'unread' && $message->recipient_id === Auth::id()) {

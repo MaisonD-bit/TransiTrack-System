@@ -39,7 +39,6 @@ class BusSchedulesController extends Controller
             });
         }
 
-
         // Paginate results
         $busSchedules = $query->orderBy('date', 'desc')->paginate(10)->withQueryString();
 

@@ -27,6 +27,7 @@ Route::resource('schedules', ScheduleCrudController::class);
 
 
 Route::middleware(['auth'])->group(function () {
+    
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/schedule-management', [BusSchedulesController::class, 'index'])->name('schedule-management');
     Route::get('/rental-management', [RentalManagementController::class, 'index'])->name('rental-management');
