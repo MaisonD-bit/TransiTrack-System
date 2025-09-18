@@ -24,6 +24,11 @@
             margin-top: 10px;
             display: none;
         }
+
+        .loginBtn button {
+            margin-bottom: 10px;
+        }
+
     </style>
 </head>
 <body>
@@ -73,13 +78,15 @@
                 @enderror
             </div>
 
-            <div class="d-flex align-items-center justify-content-center">
-                <button type="submit" class="btn btn-primary me-2">Login</button>
-                <button type="reset" class="btn btn-outline-secondary me-2">Clear</button>
-                <a href="{{ route('register') }}">Create an account</a>
+            <div class="loginBtn d-flex justify-content-center align-items-center">
+                <button type="submit" class="btn btn-primary me-2"><i class="fas fa-sign-in-alt me-2"></i>Login</button>
+            </div>
+            
+            <div class="create-link d-flex align-items-center justify-content-center">
+                <span class="createAccount-text me-1">Don't have an account?</span>
+                <a href="{{ route('register') }}">Create here!</a>
             </div>
         </form>
     </div>
-
 </div>
 

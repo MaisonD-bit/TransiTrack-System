@@ -22,7 +22,7 @@
     }
 
     .dashboard-card {
-
+        border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         background: #fff;
         padding: 1.5rem 1rem;
@@ -63,67 +63,80 @@
         letter-spacing: 1px;
     }
     
+    .clickable-card {
+        text-decoration: none;
+        color: inherit;
+    }
+
 </style>
 
 <div class="container py-4">
 
     <div class="d-flex align-items-center">
-        <i class="mb-4 bi bi-speedometer2 me-3 text-primary fs-4"></i>
-        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Dashboard Overview</h1>
+        <i class="mb-4 fas fa-tachometer-alt me-3 text-primary fs-4"></i>
+        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Terminal Manager Dashboard</h1>
     </div>
 
     <div class="row g-3 justify-content-center">
 
         <!-- Total Schdules -->
         <div class="col-12 col-sm-6 col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-icon icon-yellow">
-                    <i class="bi bi-calendar2-week"></i>
+            <a href="{{ route('schedule-management') }}" class="clickable-card">
+                <div class="card border-warning dashboard-card">
+                    <div class="dashboard-icon icon-yellow">
+                        <i class="bi bi-calendar2-week"></i>
+                    </div>
+                    <div>
+                        <div class="dashboard-label">Total Schedules</div>
+                        <div class="dashboard-value">{{ $stats['total_schedules'] }}</div>
+                    </div>
                 </div>
-                <div>
-                    <div class="dashboard-label">Total Schedules</div>
-                    <div class="dashboard-value">{{ $stats['total_schedules'] }}</div>
-                </div>
-            </div>
+            </a>
         </div>
 
         <!-- Active Buses -->
         <div class="col-12 col-sm-6 col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-icon icon-blue">
-                    <i class="bi bi-bus-front"></i>
+            <a href="{{ route('schedule-management') }}" class="clickable-card">
+                <div class="card border-primary dashboard-card">
+                    <div class="dashboard-icon icon-blue">
+                        <i class="bi bi-bus-front"></i>
+                    </div>
+                    <div>
+                        <div class="dashboard-label">Active Buses</div>
+                        <div class="dashboard-value">{{ $stats['active_busses'] }}</div>
+                    </div>
                 </div>
-                <div>
-                    <div class="dashboard-label">Active Buses</div>
-                    <div class="dashboard-value">{{ $stats['active_busses'] }}</div>
-                </div>
-            </div>
+            </a>
         </div>
 
         <!-- Available Spaces -->
         <div class="col-12 col-sm-6 col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-icon icon-green">
-                    <i class="bi bi-p-circle-fill"></i>
+            <a href="{{ route('schedule-management') }}" class="clickable-card">
+                <div class="card border-success dashboard-card">
+                    <div class="dashboard-icon icon-green">
+                        <i class="bi bi-p-circle-fill"></i>
+                    </div>
+                    <div>
+                        <div class="dashboard-label">Available Spaces</div>
+                        <div class="dashboard-value">{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
+                    </div>
                 </div>
-                <div>
-                    <div class="dashboard-label">Available Spaces</div>
-                    <div class="dashboard-value">{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
-                </div>
-            </div>
+            </a>
         </div>
 
         <!-- New Messages -->
         <div class="col-12 col-sm-6 col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-icon icon-purple">
-                    <i class="bi bi-envelope-fill"></i>
+            <a href="{{ route('message-management') }}" class="clickable-card">
+                <div class="card border-indigo dashboard-card">
+                    <div class="dashboard-icon icon-purple">
+                        <i class="bi bi-envelope-fill"></i>
+                    </div>
+                    <div>
+                        <div class="dashboard-label">New Messages</div>
+                        <div class="dashboard-value">{{ $stats['new_messages'] }}</div>
+                    </div>
                 </div>
-                <div>
-                    <div class="dashboard-label">New Messages</div>
-                    <div class="dashboard-value">{{ $stats['new_messages'] }}</div>
-                </div>
-            </div>
+            </a>
         </div>
     </div>
 

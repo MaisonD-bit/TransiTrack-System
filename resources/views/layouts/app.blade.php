@@ -105,7 +105,7 @@
             flex-direction: column;
             margin-left: 260px;
             min-height: 100vh;
-            background: #ffffffdb;
+            background: #ffffffff;
             padding: 20px;
             padding-left: 40px;
         }
@@ -118,6 +118,62 @@
             align-items: center;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             z-index: 10;
+            height: 74.19px;
+        }
+
+        .dashboard-card {
+            border: 2px solid #6610f2;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .user-info img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+            object-fit: cover;
+        }
+
+        .user-details {
+            margin-right: 20px;
+            text-align: right;
+        }
+
+        .user-details h4 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .user-details p {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+
+        .notification {
+            position: relative;
+            margin-right: 20px;
+            font-size: 20px;
+            color: var(--dark);
+            cursor: pointer;
+        }
+
+        .notification .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--accent);
+            color: white;
+            font-size: 10px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .sidebar-link i {
@@ -184,8 +240,8 @@
 
         <div class="sidebar-section">
             <a href="{{ route('dashboard') }}" class="sidebar-link {{ request()->routeIs('dashboard') ? 'active' : '' }}">
-                <i class="bi bi-speedometer2"></i>
-                <span>Dashboard</span>
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Manager Panel</span>
             </a>
 
             <a href="{{ route('schedule-management') }}" class="sidebar-link {{ request()->routeIs('schedule-management') ? 'active' : '' }}">

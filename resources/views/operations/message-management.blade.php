@@ -3,7 +3,7 @@
 @section('content')
 <div class="container py-4">
     <div class="row g-4">
-        
+
         <!-- Left: Message History -->
         <div class="col-md-7">
             <div class="card shadow-sm h-100">
@@ -23,8 +23,20 @@
                                     <div>
                                         <h6 class="fw-bold mb-1">{{ $message->subject }}</h6>
                                         <small class="text-muted">
-                                            From: {{ $message->sender->name ?? 'Unknown' }} 
-                                            → {{ $message->recipient ? $message->recipient->name : 'All Operators' }}
+                                            From: 
+                                            {{ $message->sender->name ?? 'Unknown' }}
+                                            @if($message->sender && $message->sender->role)
+                                                <span class="badge bg-primary ms-1">[{{ ucfirst($message->sender->role) }}]</span>
+                                            @endif
+
+                                            →
+                                            
+                                            @if($message->recipient)
+                                                {{ $message->recipient->name }}
+                                                <span class="badge bg-primary ms-1">[{{ ucfirst($message->recipient->role) }}]</span>
+                                            @else
+                                                <span class="badge bg-dark ms-1">All Operators</span>
+                                            @endif
                                         </small><br>
                                         <span class="badge bg-{{ $message->status == 'unread' ? 'warning' : 'success' }}">
                                             {{ ucfirst($message->status) }}
@@ -60,7 +72,14 @@
                             <select name="recipient_id" class="form-select">
                                 <option value="">Send to All Operators</option>
                                 @foreach($users as $user)
-                                    <option value="{{ $user->id }}">{{ $user->name }} ({{ ucfirst($user->role) }})</option>
+                                    <option value="{{ $user->id }}">
+                                        {{ $user->name }}
+                                        @if($user->role === 'operator')
+                                            [Operator]
+                                        @elseif($user->role === 'manager')
+                                            [Manager]
+                                        @endif
+                                    </option>
                                 @endforeach
                             </select>
                         </div>
