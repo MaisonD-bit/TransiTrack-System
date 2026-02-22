@@ -23,7 +23,7 @@ class MessageController extends Controller
         // Get all users except the current one
         $users = User::where('id', '!=', Auth::id())->get();
 
-        return view('operations.message-management', compact('messages', 'users'));
+        return view('operations.message', compact('messages', 'users'));
     }
 
     public function store(Request $request)

@@ -51,7 +51,7 @@ class NewUserMessage extends Notification
     {
         return [
             'message' => 'New message from ' . $this->message->sender->name,
-            'subject' => $this->message->subject,
+            'subject' => $this->message->subject ?? 'No subject',
             'message_id' => $this->message->id,
         ];
     }

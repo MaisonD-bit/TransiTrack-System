@@ -8,8 +8,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Bus extends Model
 {
     use SoftDeletes;
-    
+
     protected $fillable = [
+        'user_id',
         'plate_number',
         'bus_number',
         'model',
@@ -17,25 +18,26 @@ class Bus extends Model
         'bus_company',
         'accommodation_type',
         'status',
+        'terminal', 
         'description'
     ];
-    
+
+    protected $casts = [
+        'capacity' => 'integer',
+    ];
+
     public function schedules()
     {
         return $this->hasMany(Schedule::class);
     }
-    
-    public function isAirConditioned()
+
+    public function routes()
     {
-        return in_array($this->accommodation_type, ['air-conditioned', 'deluxe', 'super-deluxe']);
+        return $this->belongsToMany(Route::class, 'bus_routes');
     }
-    
-    public function getRoutePrice(Route $route)
+
+    public function activeSchedules()
     {
-        if ($this->isAirConditioned() && !is_null($route->aircon_price)) {
-            return $route->aircon_price;
-        }
-        
-        return $route->regular_price;
+        return $this->hasMany(Schedule::class)->where('status', 'active');
     }
 }

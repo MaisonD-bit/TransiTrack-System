@@ -17,9 +17,6 @@ class Message extends Model
         'status',
     ];
 
-    /**
-     * Get the sender (User who sent the message).
-     */
     public function sender()
     {
         return $this->belongsTo(User::class, 'sender_id');

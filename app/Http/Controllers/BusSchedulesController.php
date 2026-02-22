@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Schedule;
 use App\Models\User;
+use App\Models\Route;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class BusSchedulesController extends Controller
 {
@@ -15,6 +17,18 @@ class BusSchedulesController extends Controller
 
         // Start query with eager loading
         $query = Schedule::with(['bus', 'driver', 'route']);
+
+        // Filter by terminal for bus managers
+        $user = Auth::user();
+        if ($user && $user->role === 'northBusManager') {
+            $query->whereHas('bus', function($q) {
+                $q->where('terminal', 'north');
+            });
+        } elseif ($user && $user->role === 'southBusManager') {
+            $query->whereHas('bus', function($q) {
+                $q->where('terminal', 'south');
+            });
+        }
 
         // Apply filters
         if ($request->filled('date')) {
@@ -28,6 +42,10 @@ class BusSchedulesController extends Controller
         if ($request->filled('driver_id')) {
             $query->where('driver_id', $request->input('driver_id'));
         }
+
+        if ($request->filled('route_id')) {
+            $query->where('route_id', $request->input('route_id'));
+        }
         
         // Searach functionality
         if ($request->filled('search')) {
@@ -39,13 +57,30 @@ class BusSchedulesController extends Controller
             });
         }
 
-        // Paginate results
+        // Paginate results to 10 per page
         $busSchedules = $query->orderBy('date', 'desc')->paginate(10)->withQueryString();
 
-        // For filter dropdown
-        $drivers = User::where('role', 'driver')->get(); // Adjust role field as needed
+        // Get drivers and filter by terminal for bus managers
+        $driverQuery = User::where('role', 'driver')->select('id', 'first_name', 'last_name', 'terminal');
+        if ($user && $user->role === 'northBusManager') {
+            $driverQuery->where('terminal', 'north');
+        } elseif ($user && $user->role === 'southBusManager') {
+            $driverQuery->where('terminal', 'south');
+        }
+        $drivers = $driverQuery->get();
+        
+        // Filter routes by terminal for bus managers
+        $routeQuery = Route::where('status', 'active');
+        if ($user && $user->role === 'northBusManager') {
+            $routeQuery->where('terminal', 'north');
+        } elseif ($user && $user->role === 'southBusManager') {
+            $routeQuery->where('terminal', 'south');
+        }
+        $routes = $routeQuery->get();
+        
         $statuses = ['scheduled', 'active', 'completed', 'cancelled'];
+        
 
-        return view('operations.schedule-management', compact('busSchedules', 'drivers', 'statuses'));
+        return view('operations.bus-schedule', compact('busSchedules', 'drivers', 'routes', 'statuses'));
     }
 }

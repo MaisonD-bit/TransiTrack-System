@@ -1,60 +1,79 @@
 @extends('layouts.default')
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal Operations Manager Registration</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+@section('title', 'Register')
 
-    <style>
-        body {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .photo-preview {
-            width: 100px;
-            height: 100px;
-            object-fit: cover;
-            border-radius: 6px;
-            margin-top: 10px;
-            display: none;
-        }
-    </style>
-</head>
-<body>
+@section('content')
 
-<div class="card p-4 my-5" style="width: 100%; max-width: 420px;">
-    <div class="text-center mb-4">
-        <i class="fas fa-bus fa-2x text-primary mb-3"></i>
-        <h3 class="fw-bold text-dark mb-2">Terminal Operations Manager Registration</h3>
-        <div class="badge bg-primary rounded-pill p-2">
-            Create your account to manage terminal operations.
-        </div>
+<div class="register-container">
+    <div class="logo text-center mb-4">
+        <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
+        <h1 class="fw-bold mb-2">TransiTrack</h1>
+        <div class="subtitle p-2"><p>Register your account to manage terminal operations.</p></div>
     </div>
 
     <form action="{{ route('store') }}" method="post" enctype="multipart/form-data">
         @csrf
 
+        <div class="photo-upload-section">
+            <div class="photo-preview-container">
+                <img id="photoPreview" class="photo-preview" src="#" alt="Photo Preview">
+                <label for="photo" class="photo-upload-btn">
+                    <i class="fas fa-camera me-1"></i> Upload Photo
+                </label>
+                <input type="file"
+                        id="photo"
+                        name="photo"
+                        class="photo-upload-input"
+                        accept="image/jpeg, image/png, image/jpg"
+                        onchange="previewImage(event)">
+            </div>
+            <small class="d-block mt-2">Allowed formats: JPG, JPEG, PNG. Max size: 2MB</small>
+            @error('photo')
+            <small class="text-danger">{{ $message }}</small>
+            @enderror
+        </div>
+
         <div class="form-group mb-3">
-            <label for="name" class="form-label fw-semibold">
-              <i class="fas fa-user me-2"></i>Full Name
+                <label for="terminal" class="form-label fw-semibold"><i class="fas fa-map-marker-alt me-2"></i>Select Terminal</label>
+                <label class="required" for="required">*</label>
+                <select name="terminal"
+                        id="terminal"
+                        class="terminal-select form-control"
+                        required>
+                    <option value="" disabled selected>-- Choose your operating terminal --</option>
+                    <option value="north">North Terminal (SM City)</option>
+                    <option value="south">South Terminal</option>
+                </select>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="first_name" class="form-label fw-semibold">
+            <i class="fas fa-user me-2"></i>First Name
             </label>
-            <input type="text" name="name" class="form-control" value="{{ old('name') }}">
-            @error('name')
+            <label class="required" for="required">*</label>
+            <input type="text" name="first_name" class="form-control" value="{{ old('first_name') }}" placeholder="Ben">
+            @error('first_name')
+            <small class="text-danger">{{ $message }}</small>
+            @enderror
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="last_name" class="form-label fw-semibold">
+            <i class="fas fa-user me-2"></i>Last Name
+            </label>
+            <label class="required" for="required">*</label>
+            <input type="text" name="last_name" class="form-control" value="{{ old('last_name') }}" placeholder="Milton">
+            @error('last_name')
             <small class="text-danger">{{ $message }}</small>
             @enderror
         </div>
 
         <div class="form-group mb-3">
             <label for="email" class="form-label fw-semibold">
-              <i class="fas fa-envelope me-2"></i>Email
+            <i class="fas fa-envelope me-2"></i>Email
             </label>
-            <input type="email" name="email" class="form-control" value="{{ old('email') }}">
+            <label class="required" for="required">*</label>
+            <input type="email" name="email" class="form-control" value="{{ old('email') }}" placeholder="youremail@sample.com">
             @error('email')
             <small class="text-danger">{{ $message }}</small>
             @enderror
@@ -62,9 +81,10 @@
 
         <div class="form-group mb-3">
             <label for="password" class="form-label fw-semibold">
-              <i class="fa-solid fa-lock me-2"></i>Password
+            <i class="fa-solid fa-lock me-2"></i>Password
             </label>
-            <input type="password" name="password" class="form-control">
+            <label class="required" for="required">*</label>
+            <input type="password" name="password" class="form-control" placeholder="Create a strong password">
             @error('password')
             <small class="text-danger">{{ $message }}</small>
             @enderror
@@ -72,9 +92,10 @@
 
         <div class="form-group mb-3">
             <label for="password_confirmation" class="form-label fw-semibold">
-              <i class="fa-solid fa-lock me-2"></i>Confirm Password
+            <i class="fa-solid fa-lock me-2"></i>Confirm Password
             </label>
-            <input type="password" name="password_confirmation" class="form-control">
+            <label class="required" for="required">*</label>
+            <input type="password" name="password_confirmation" class="form-control" placeholder="Confirm your password">
             @error('password')
             <small class="text-danger">{{ $message }}</small>
             @enderror
@@ -82,9 +103,10 @@
 
         <div class="form-group mb-3">
             <label for="contact_number" class="form-label fw-semibold">
-              <i class="fa-solid fa-phone me-2"></i>Contact Number
+            <i class="fa-solid fa-phone me-2"></i>Contact Number
             </label>
-            <input type="text" name="contact_number" class="form-control" value="{{ old('contact_number') }}">
+            <label class="required" for="required">*</label>
+            <input type="text" name="contact_number" class="form-control" value="{{ old('contact_number') }}" placeholder="09123456789">
             @error('contact_number')
             <small class="text-danger">{{ $message }}</small>
             @enderror
@@ -92,8 +114,9 @@
 
         <div class="form-group mb-3">
             <label for="gender" class="form-label fw-semibold">
-              <i class="fa-solid fa-person"></i><i class="fa-solid fa-person-dress me-2"></i>Gender
-            </label><br>
+            <i class="fa-solid fa-person"></i><i class="fa-solid fa-person-dress me-2"></i>Gender
+            </label>
+            <label class="required" for="required">*</label><br>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="gender" value="male"
                     {{ old('gender') == 'male' ? 'checked' : '' }}>
@@ -109,48 +132,34 @@
             @enderror
         </div>
 
-        <input type="hidden" name="role" value="manager">
-
-        <div class="form-group mb-3">
-            <label for="photo" class="form-label fw-semibold">
-                <i class="fas fa-camera me-2"></i>Upload Photo
-            </label>
-            <input type="file"
-                   class="form-control @error('photo') is-invalid @enderror"
-                   id="photo"
-                   name="photo"
-                   accept="image/jpeg, image/png, image/jpg"
-                   onchange="previewPhoto(event)">
-            <small class="text-muted">Allowed formats: JPG, JPEG, PNG. Max size: 2MB</small>
-            @error('photo')
-            <div class="text-danger">{{ $message }}</div>
-            @enderror
-            <div class="mt-2 text-center">
-                <img id="photoPreview" class="photo-preview" alt="Photo preview">
-            </div>
-        </div>
-
-        <button type="submit" class="btn btn-primary w-100">Register</button>
+        <button type="submit" class="btn btn-primary w-100">Register as Manager</button>
 
         <div class="text-center mt-3">
             <a href="{{ route('login') }}">Already have an account?</a>
         </div>
     </form>
+
+    <div class="footer mt-4">
+        North & South Terminal Operations • Cebu, Philippines
+    </div>
 </div>
 
 <script>
-    function previewPhoto(event) {
-        const preview = document.getElementById('photoPreview');
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                preview.src = e.target.result;
-                preview.style.display = 'block';
+    function previewImage(event) {
+            const preview = document.getElementById('photoPreview');
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                }
+                reader.readAsDataURL(file);
+            } else {
+                preview.style.display = 'none';
+                preview.src = '#';
             }
-            reader.readAsDataURL(file);
         }
-    }
 </script>
-</body>
-</html>
+
+@endsection

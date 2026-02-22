@@ -11,7 +11,7 @@ class UserController extends Controller
     public function login()
     {
         if (Auth::check()) {
-            return redirect()->route('adashboard')->with('success', 'Logged In!');
+            return redirect()->route('dashboard')->with('success', 'Logged In!');
         }
 
         return view('users.login');
@@ -33,39 +33,53 @@ class UserController extends Controller
         ]);
 
         if (Auth::attempt(['email' => $request->email, 'password' => $request->password])) {
-            $request->session()->regenerate();
-
-            return redirect()->intended(route('dashboard'));
+            $user = Auth::user();
+            
+            if ($user->role === 'northBusManager' || $user->role === 'southBusManager') {
+                $request->session()->regenerate();
+                return redirect()->intended(route('dashboard'));
+            }
+            
+            Auth::logout();
+            return redirect()->back()->withErrors(['email' => 'Only terminal managers are authorized to access.']);
         }
 
-        return redirect()->back()->withErrors(['name' => 'User does not exist in the system!',]);
+        return redirect()->back()->withErrors(['email' => 'Invalid email or password.']);
     }
 
     public function store(Request $request)
     {
         $valid = $request->validate([
-            'name' => 'required|string|max:255',
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users|max:255',
             'password' => 'required|string|min:6|confirmed',
             'contact_number' => 'required|string|max:50',
             'gender' => 'required|in:male,female',
-            'role' => 'required|in:manager',
+            'terminal' => 'required|in:north,south',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
         ]);
 
+        $name = $request->first_name . ' ' . $request->last_name;
+        
+        // Automatically assign role based on terminal
+        $role = $request->terminal === 'north' ? 'northBusManager' : 'southBusManager';
 
         $photoPath = null;
         if ($request->hasFile('photo')) {
-            $photoPath = $request->file('photo')->store('operators', 'public');
+            $photoPath = $request->file('photo')->store('managers', 'public');
         }
 
         User::create([
-            'name' => $request->name,
+            'name' => $name,
+            'first_name' => $request->first_name,
+            'last_name' => $request->last_name,
             'email' => $request->email,
             'password' => bcrypt($request->password),
             'contact_number' => $request->contact_number,
             'gender' => $request->gender,
-            'role' => 'manager',
+            'role' => $role,
+            'terminal' => $request->terminal,
             'photo_url' => $photoPath,
         ]);
 
