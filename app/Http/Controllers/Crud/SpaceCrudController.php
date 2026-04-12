@@ -11,8 +11,7 @@ class SpaceCrudController extends Controller
     public function index()
     {
         $spaces = Space::with('busSchedules')->get();
-
-        return view('spaces.index', compact('spaces'));
+        return view('operations.space', compact('spaces'));
     }
 
     public function create()

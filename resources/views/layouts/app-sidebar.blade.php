@@ -241,7 +241,7 @@
                 <span>Chat</span>
             </a>
 
-            <a href="#" class="sidebar-link {{ request()->routeIs('') ? 'active' : '' }}">
+            <a href="{{ route('spaces.index') }}" class="sidebar-link {{ request()->routeIs('spaces.*') ? 'active' : '' }}">
                 <i class="fas fa-map-marker-alt"></i>
                 <span>Spaces</span>
             </a>

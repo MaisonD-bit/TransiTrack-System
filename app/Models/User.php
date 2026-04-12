@@ -10,6 +10,7 @@ use GetStream\StreamChat\Client as StreamChat;
 class User extends Authenticatable
 {
     use HasFactory, Notifiable;
+    protected $table = 'managers';
 
     /**
      * The attributes that are mass assignable.

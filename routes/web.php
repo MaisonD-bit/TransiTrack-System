@@ -7,6 +7,8 @@ use App\Http\Controllers\BusSchedulesController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\Crud\SpaceCrudController;
+use App\Http\Controllers\TerminalSpaceController;
         
 // Register and Login Routes
 Route::get('login', [UserController::class, 'login'])->name('login');
@@ -24,6 +26,29 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/messages', [MessageController::class, 'index'])->name('messages');
     Route::post('/messages', [MessageController::class, 'store'])->name('messages.store');
     Route::get('/messages/{id}', [MessageController::class, 'show'])->name('messages.show');
+
+    Route::get('/spaces', [TerminalSpaceController::class, 'index'])->name('spaces.index');
+    Route::get('/spaces/create', [SpaceCrudController::class, 'create'])->name('spaces.create');
+    Route::post('/spaces', [SpaceCrudController::class, 'store'])->name('spaces.store');
+    Route::get('/spaces/{id}/edit', [SpaceCrudController::class, 'edit'])->name('spaces.edit');
+    Route::get('/spaces/{id}', [SpaceCrudController::class, 'show'])->name('spaces.show');
+    Route::put('/spaces/{id}', [SpaceCrudController::class, 'update'])->name('spaces.update');
+    Route::delete('/spaces/{id}', [SpaceCrudController::class, 'destroy'])->name('spaces.destroy');
+
+    Route::prefix('api/terminal')->group(function () {
+        Route::get('/drivers', [TerminalSpaceController::class, 'getDrivers']);
+        Route::post('/occupy', [TerminalSpaceController::class, 'occupy']);
+        Route::post('/release', [TerminalSpaceController::class, 'release']);
+        Route::post('/add-time', [TerminalSpaceController::class, 'addTime']);
+        Route::post('/cancel', [TerminalSpaceController::class, 'cancel']);
+        Route::post('/update-space', [TerminalSpaceController::class, 'updateSpace']);  
+        Route::get('/history/{spaceId}', [TerminalSpaceController::class, 'getHistory']);
+        Route::get('/history-all', [TerminalSpaceController::class, 'getAllHistory']);
+        Route::get('/check-expired', [TerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
+        Route::get('/spaces', [TerminalSpaceController::class, 'getSpaces']);
+        Route::get('/history-detail/{id}', [TerminalSpaceController::class, 'getHistoryDetail']);
+        Route::post('/check-expired', [TerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
+    });
 
     // Chat Routes
     Route::get('/chat', [ChatController::class, 'index'])->name('chat');

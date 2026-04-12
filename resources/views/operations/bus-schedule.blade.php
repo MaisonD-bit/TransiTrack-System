@@ -80,50 +80,110 @@
     </form>
 
     {{-- Table --}}
-    <div class="card">
-        <table class="table table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th>SCHEDULE ID</th>
-                    <th>BUS</th>
-                    <th>DRIVER</th>
-                    <th>ROUTE</th>
-                    <th>DEPARTURE</th>
-                    <th>ARRIVAL</th>
-                    <th>STATUS</th>
-                    <th>DATE</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($busSchedules as $busSchedule)
-                <tr>
-                    <td>{{ $busSchedule->id }}</td>
-                    <td>{{ $busSchedule->bus->plate_number ?? '-' }}</td>
-                    <td>{{ $busSchedule->driver->name ?? '-' }}</td>
-                    <td>{{ $busSchedule->route->name ?? '-' }}</td>
-                    <td>
-                        {{ $busSchedule->date->format('Y-m-d') }}<br>
-                        <span class="text-primary">{{ $busSchedule->start_time }}</span>
-                    </td>
-                    <td>
-                        {{ $busSchedule->date->format('Y-m-d') }}<br>
-                        <span class="text-success">{{ $busSchedule->end_time }}</span>
-                    </td>
-                    <td>{{ ucfirst(str_replace('_', ' ', $busSchedule->status)) }}</td>
-                    <td>{{ $busSchedule->date->format('F d, Y') }}</td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="8" class="text-center text-muted">
-                        <div class="text-center py-3">
-                            <i class="fas fa-calendar-times fa-3x text-muted"></i>
-                        </div>
-                        <h4>No schedules found</h4>
-                    </td>
-                </tr>
-                @endforelse
-            </tbody>
-        </table>
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            @if($busSchedules->count() > 0)
+            <div class="table-responsive">
+                <table class="table table-hover align-middle" id="schedulesTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Route</th>
+                            <th>Driver</th>
+                            <th>Bus</th>
+                            <th>Departure</th>
+                            <th>Arrival</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($busSchedules as $schedule)
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-primary bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                        <i class="fas fa-route text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold">{{ $schedule->route->name ?? 'N/A' }}</div>
+                                        <small class="text-muted">{{ $schedule->route->code ?? 'N/A' }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-info bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                        <i class="fas fa-user text-info"></i>
+                                    </div>
+                                    {{ $schedule->driver->name ?? 'N/A' }}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="bg-success bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                        <i class="fas fa-bus text-success"></i>
+                                    </div>
+                                    <div>
+                                        <span class="fw-semibold">{{ $schedule->bus->plate_number ?? 'N/A' }}</span>
+                                        <br><small class="text-muted">{{ $schedule->bus->model ?? 'N/A' }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
+                                    <small class="text-primary">{{ $schedule->start_time }}</small>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
+                                    <small class="text-success">{{ $schedule->end_time }}</small>
+                                </div>
+                            </td>
+                            <td>
+                                @switch($schedule->status)
+                                    @case('active')
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-play me-1"></i>Active
+                                        </span>
+                                        @break
+                                    @case('scheduled')
+                                        <span class="badge bg-primary">
+                                            <i class="fas fa-clock me-1"></i>Scheduled
+                                        </span>
+                                        @break
+                                    @case('completed')
+                                        <span class="badge bg-secondary">
+                                            <i class="fas fa-check me-1"></i>Completed
+                                        </span>
+                                        @break
+                                    @case('cancelled')
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-times me-1"></i>Cancelled
+                                        </span>
+                                        @break
+                                    @default
+                                        <span class="badge bg-secondary">{{ ucfirst($schedule->status) }}</span>
+                                @endswitch
+                            </td>
+                            <td>
+                                <span class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('M d, Y') }}</span>
+                                <br><small class="text-muted">{{ \Carbon\Carbon::parse($schedule->date)->format('l') }}</small>
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @else
+            <div class="text-center py-5">
+                <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                <h4 class="text-muted">No Schedules Yet</h4>
+                <p class="text-muted">No bus schedules available at this moment.</p>
+            </div>
+            @endif
+        </div>
     </div>
     
     <div class="mt-3">

@@ -35,7 +35,7 @@ class UserController extends Controller
         if (Auth::attempt(['email' => $request->email, 'password' => $request->password])) {
             $user = Auth::user();
             
-            if ($user->role === 'northBusManager' || $user->role === 'southBusManager') {
+            if ($user->role === 'terminalManager') {
                 $request->session()->regenerate();
                 return redirect()->intended(route('dashboard'));
             }
@@ -52,7 +52,7 @@ class UserController extends Controller
         $valid = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users|max:255',
+            'email' => 'required|email|unique:managers|max:255',
             'password' => 'required|string|min:6|confirmed',
             'contact_number' => 'required|string|max:50',
             'gender' => 'required|in:male,female',
@@ -62,9 +62,6 @@ class UserController extends Controller
 
         $name = $request->first_name . ' ' . $request->last_name;
         
-        // Automatically assign role based on terminal
-        $role = $request->terminal === 'north' ? 'northBusManager' : 'southBusManager';
-
         $photoPath = null;
         if ($request->hasFile('photo')) {
             $photoPath = $request->file('photo')->store('managers', 'public');
@@ -78,7 +75,7 @@ class UserController extends Controller
             'password' => bcrypt($request->password),
             'contact_number' => $request->contact_number,
             'gender' => $request->gender,
-            'role' => $role,
+            'role' => 'terminalManager', 
             'terminal' => $request->terminal,
             'photo_url' => $photoPath,
         ]);
