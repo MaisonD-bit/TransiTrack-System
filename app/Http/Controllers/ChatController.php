@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use GetStream\StreamChat\Client as StreamChat;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ChatController extends Controller
 {
@@ -13,10 +15,14 @@ class ChatController extends Controller
 
     public function __construct()
     {
-        $this->streamClient = new StreamChat(
-            env('STREAM_API_KEY'),
-            env('STREAM_API_SECRET')
-        );
+        $apiKey = (string) env('STREAM_API_KEY', '');
+        $apiSecret = (string) env('STREAM_API_SECRET', '');
+
+        $this->streamClient = null;
+
+        if ($apiKey !== '' && $apiSecret !== '') {
+            $this->streamClient = new StreamChat($apiKey, $apiSecret);
+        }
     }
 
     public function index()
@@ -24,15 +30,32 @@ class ChatController extends Controller
         /** @var User */
         $user = Auth::user();
 
-        $this->streamClient->upsertUser($user->getStreamUserData());
+        $streamApiKey = (string) env('STREAM_API_KEY', '');
+        $streamToken = '';
+        $streamUnavailable = false;
 
-        $streamToken = $user->getStreamToken();
+        if (!$this->streamClient || $streamApiKey === '') {
+            $streamUnavailable = true;
+        } else {
+            try {
+                $this->streamClient->upsertUser($user->getStreamUserData());
+                $streamToken = $user->getStreamToken();
+            } catch (\Throwable $e) {
+                Log::warning('Stream chat unavailable in ChatController@index', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $streamUnavailable = true;
+            }
+        }
 
         return view('operations.chat', [
-            'streamApiKey' => env('STREAM_API_KEY'),
+            'streamApiKey' => $streamApiKey,
             'streamToken' => $streamToken,
             'userId' => (string)$user->id,
             'userName' => $user->name,
+            'streamUnavailable' => $streamUnavailable,
         ]);
     }
 
@@ -45,16 +68,53 @@ class ChatController extends Controller
             'members' => 'required|array',
         ]);
 
+        if (!$this->streamClient) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Chat service is currently unavailable.'
+            ], 503);
+        }
+
         try {
             $currentUserId = (string)Auth::id();
-            
+            $memberIds = collect($request->members)
+                ->map(fn($memberId) => (string) $memberId)
+                ->push($currentUserId)
+                ->unique()
+                ->values();
+
+            $managerUsers = User::whereIn('id', $memberIds)->get();
+            $operatorUsers = DB::table('users')
+                ->whereIn('id', $memberIds)
+                ->where('role', 'bus_operator')
+                ->get();
+
+            $streamUsers = [];
+
+            foreach ($managerUsers as $user) {
+                $streamUsers[] = $user->getStreamUserData();
+            }
+
+            foreach ($operatorUsers as $user) {
+                $streamUsers[] = [
+                    'id' => (string) $user->id,
+                    'name' => $user->name,
+                    'role' => 'user',
+                    'image' => $user->photo_url ?? null,
+                ];
+            }
+
+            if (!empty($streamUsers)) {
+                $this->streamClient->upsertUsers($streamUsers);
+            }
+
             $channel = $this->streamClient->channel(
                 $request->type,
                 $request->id,
                 [
                     'name' => $request->name,
                     'created_by' => ['id' => $currentUserId],
-                    'members' => array_map('strval', array_merge($request->members, [Auth::id()])),
+                    'members' => $memberIds->all(),
                 ]
             );
 
@@ -68,7 +128,7 @@ class ChatController extends Controller
                     'type' => $request->type,
                 ]
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
                 'error' => $e->getMessage()
@@ -79,23 +139,49 @@ class ChatController extends Controller
     public function getUsers()
     {
         $currentUser = Auth::user();
-        
-        $query = User::where('id', '!=', Auth::id());
-        
+
+        $managerQuery = User::where('id', '!=', Auth::id());
+
+        // Prefer same-terminal managers, but fall back to all managers when none are available.
         if ($currentUser && $currentUser->terminal) {
-            $query->where('terminal', $currentUser->terminal);
+            $sameTerminalManagers = (clone $managerQuery)->where('terminal', $currentUser->terminal);
+            $managerQuery = $sameTerminalManagers->exists() ? $sameTerminalManagers : $managerQuery;
         }
-        
-        $users = $query->select(['id', 'first_name', 'last_name', 'photo_url', 'role'])
+
+        $managers = $managerQuery
+            ->select(['id', 'first_name', 'last_name', 'photo_url', 'role', 'terminal'])
             ->get()
             ->map(function ($user) {
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
                     'photo_url' => $user->photo_url,
-                    'role' => $user->role
+                    'role' => $user->role,
+                    'formatted_role' => $user->formatted_role,
+                    'terminal' => $user->terminal,
+                    'source' => 'manager',
                 ];
             });
+
+        $busOperators = DB::table('users')
+            ->where('role', 'bus_operator')
+            ->where('status', 'active')
+            ->select(['id', 'name', 'first_name', 'last_name', 'photo_url', 'role', 'company_name'])
+            ->get()
+            ->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'photo_url' => $user->photo_url,
+                    'role' => $user->role,
+                    'formatted_role' => 'Bus Operator',
+                    'terminal' => null,
+                    'company_name' => $user->company_name ?? null,
+                    'source' => 'bus_operator',
+                ];
+            });
+
+        $users = $managers->merge($busOperators)->values();
 
         return response()->json($users);
     }
@@ -106,12 +192,33 @@ class ChatController extends Controller
             'user_ids' => 'required|array',
         ]);
 
+        if (!$this->streamClient) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Chat service is currently unavailable.'
+            ], 503);
+        }
+
         try {
-            $users = User::whereIn('id', $request->user_ids)->get();
-            
+            $managerUsers = User::whereIn('id', $request->user_ids)->get();
+            $operatorUsers = DB::table('users')
+                ->whereIn('id', $request->user_ids)
+                ->where('role', 'bus_operator')
+                ->get();
+
             $streamUsers = [];
-            foreach ($users as $user) {
+
+            foreach ($managerUsers as $user) {
                 $streamUsers[] = $user->getStreamUserData();
+            }
+
+            foreach ($operatorUsers as $user) {
+                $streamUsers[] = [
+                    'id' => (string) $user->id,
+                    'name' => $user->name,
+                    'role' => 'user',
+                    'image' => $user->photo_url ?? null,
+                ];
             }
 
             // Upsert users in Stream (server-side)
@@ -121,7 +228,7 @@ class ChatController extends Controller
                 'success' => true,
                 'message' => 'Users registered successfully!'
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
                 'error' => $e->getMessage()

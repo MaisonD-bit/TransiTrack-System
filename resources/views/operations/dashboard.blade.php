@@ -24,7 +24,7 @@
 
     .dashboard-card {
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         background: #fff;
         padding: 1.5rem 1rem;
         display: flex;
@@ -48,10 +48,26 @@
         margin-bottom: 0.5rem;
     }
 
-    .icon-blue { background: #2b7be4; color: #ffffffff; }
-    .icon-green { background: #1bb76e; color: #ffffffff; }
-    .icon-yellow { background: #e6b800; color: #ffffffff; }
-    .icon-purple { background: #a259e6; color: #ffffffff; }
+    .icon-blue {
+        background: #2b7be4;
+        color: #ffffffff;
+    }
+
+    .icon-green {
+        background: #1bb76e;
+        color: #ffffffff;
+    }
+
+    .icon-yellow {
+        background: #e6b800;
+        color: #ffffffff;
+    }
+
+    .icon-purple {
+        background: #a259e6;
+        color: #ffffffff;
+    }
+
     .dashboard-label {
         font-size: 1rem;
         color: #444;
@@ -63,10 +79,14 @@
         font-weight: bold;
         letter-spacing: 1px;
     }
-    
+
     .clickable-card {
         text-decoration: none;
         color: inherit;
+    }
+
+    .border-indigo {
+        border: 1px solid #a259e6 !important;
     }
 </style>
 
@@ -142,118 +162,118 @@
 
     <div class="container py-4 justify-content-center">
 
-    <div class="d-flex align-items-center">
-        <i class="mb-4 fas fa-calendar-alt me-3 text-primary fs-4"></i>
-        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Recent Bus Schedules</h1>
-    </div>
+        <div class="d-flex align-items-center">
+            <i class="mb-4 fas fa-calendar-alt me-3 text-primary fs-4"></i>
+            <h1 class="mb-4 fw-bold" style="font-size:2rem;">Recent Bus Schedules</h1>
+        </div>
 
-    {{-- Table --}}
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Recent Schedules</h5>
-        </div>
-        <div class="card-body">
-            @if($busSchedules->count() > 0)
-            <div class="table-responsive">
-                <table class="table table-hover align-middle" id="schedulesTable">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Route</th>
-                            <th>Driver</th>
-                            <th>Bus</th>
-                            <th>Departure</th>
-                            <th>Arrival</th>
-                            <th>Status</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($busSchedules as $schedule)
-                        <tr>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="bg-primary bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
-                                        <i class="fas fa-route text-primary"></i>
+        {{-- Table --}}
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Recent Schedules</h5>
+            </div>
+            <div class="card-body">
+                @if($busSchedules->count() > 0)
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle" id="schedulesTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Route</th>
+                                <th>Driver</th>
+                                <th>Bus</th>
+                                <th>Departure</th>
+                                <th>Arrival</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($busSchedules as $schedule)
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                            <i class="fas fa-route text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold">{{ $schedule->route->name ?? 'N/A' }}</div>
+                                            <small class="text-muted">{{ $schedule->route->code ?? 'N/A' }}</small>
+                                        </div>
                                     </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-info bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                            <i class="fas fa-user text-info"></i>
+                                        </div>
+                                        {{ $schedule->driver->name ?? 'N/A' }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-success bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
+                                            <i class="fas fa-bus text-success"></i>
+                                        </div>
+                                        <div>
+                                            <span class="fw-semibold">{{ $schedule->bus->plate_number ?? 'N/A' }}</span>
+                                            <br><small class="text-muted">{{ $schedule->bus->model ?? 'N/A' }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
                                     <div>
-                                        <div class="fw-bold">{{ $schedule->route->name ?? 'N/A' }}</div>
-                                        <small class="text-muted">{{ $schedule->route->code ?? 'N/A' }}</small>
+                                        <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
+                                        <small class="text-primary">{{ $schedule->start_time }}</small>
                                     </div>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="bg-info bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
-                                        <i class="fas fa-user text-info"></i>
-                                    </div>
-                                    {{ $schedule->driver->name ?? 'N/A' }}
-                                </div>
-                            </td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="bg-success bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
-                                        <i class="fas fa-bus text-success"></i>
-                                    </div>
+                                </td>
+                                <td>
                                     <div>
-                                        <span class="fw-semibold">{{ $schedule->bus->plate_number ?? 'N/A' }}</span>
-                                        <br><small class="text-muted">{{ $schedule->bus->model ?? 'N/A' }}</small>
+                                        <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
+                                        <small class="text-success">{{ $schedule->end_time }}</small>
                                     </div>
-                                </div>
-                            </td>
-                            <td>
-                                <div>
-                                    <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
-                                    <small class="text-primary">{{ $schedule->start_time }}</small>
-                                </div>
-                            </td>
-                            <td>
-                                <div>
-                                    <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('Y-m-d') }}</div>
-                                    <small class="text-success">{{ $schedule->end_time }}</small>
-                                </div>
-                            </td>
-                            <td>
-                                @switch($schedule->status)
+                                </td>
+                                <td>
+                                    @switch($schedule->status)
                                     @case('active')
-                                        <span class="badge bg-success">
-                                            <i class="fas fa-play me-1"></i>Active
-                                        </span>
-                                        @break
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-play me-1"></i>Active
+                                    </span>
+                                    @break
                                     @case('scheduled')
-                                        <span class="badge bg-primary">
-                                            <i class="fas fa-clock me-1"></i>Scheduled
-                                        </span>
-                                        @break
+                                    <span class="badge bg-primary">
+                                        <i class="fas fa-clock me-1"></i>Scheduled
+                                    </span>
+                                    @break
                                     @case('completed')
-                                        <span class="badge bg-secondary">
-                                            <i class="fas fa-check me-1"></i>Completed
-                                        </span>
-                                        @break
+                                    <span class="badge bg-secondary">
+                                        <i class="fas fa-check me-1"></i>Completed
+                                    </span>
+                                    @break
                                     @case('cancelled')
-                                        <span class="badge bg-danger">
-                                            <i class="fas fa-times me-1"></i>Cancelled
-                                        </span>
-                                        @break
+                                    <span class="badge bg-danger">
+                                        <i class="fas fa-times me-1"></i>Cancelled
+                                    </span>
+                                    @break
                                     @default
-                                        <span class="badge bg-secondary">{{ ucfirst($schedule->status) }}</span>
-                                @endswitch
-                            </td>
-                            <td>
-                                <span class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('M d, Y') }}</span>
-                                <br><small class="text-muted">{{ \Carbon\Carbon::parse($schedule->date)->format('l') }}</small>
-                            </td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+                                    <span class="badge bg-secondary">{{ ucfirst($schedule->status) }}</span>
+                                    @endswitch
+                                </td>
+                                <td>
+                                    <span class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->date)->format('M d, Y') }}</span>
+                                    <br><small class="text-muted">{{ \Carbon\Carbon::parse($schedule->date)->format('l') }}</small>
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                @else
+                <div class="text-center py-5">
+                    <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                    <h4 class="text-muted">No Schedules Yet</h4>
+                    <p class="text-muted">No bus schedules available at this moment.</p>
+                </div>
+                @endif
             </div>
-            @else
-            <div class="text-center py-5">
-                <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
-                <h4 class="text-muted">No Schedules Yet</h4>
-                <p class="text-muted">No bus schedules available at this moment.</p>
-            </div>
-            @endif
         </div>
-    </div>
-@endsection
+        @endsection

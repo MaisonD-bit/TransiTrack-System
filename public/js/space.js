@@ -5,7 +5,10 @@ let tooltipSticky = false;
 let isEditMode = false;
 let selectedSpaceElement = null;
 let expirationCheckInterval = null;
+let tooltipCountdownTimer = null;
+let currentHistoryPage = 1; // Track current history page for smooth updates
 const occupiedSpaces = new Map();
+const spaceExpirationTimes = new Map(); // Track expiration times for each space
 const historyRecords = [];
 const spaceMapping = {}; // Map to store element references
 
@@ -112,6 +115,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         el.setAttribute('fill', '#dc3545');
                         el.classList.remove('cls-9');
                         el.classList.add('occupied-bay');
+                        // Store expiration time for occupied spaces
+                        if (space.available_at) {
+                            spaceExpirationTimes.set(spaceId, new Date(space.available_at).getTime());
+                        }
                     } else {
                         el.setAttribute('fill', '#35d335');
                         el.classList.add('cls-9');
@@ -230,6 +237,16 @@ function updateTooltip(spaceElement) {
         statusEl.textContent = 'Occupied';
         statusEl.classList.add('occupied');
         timeEl.style.display = 'inline';
+        
+        // Clear any existing countdown timer for tooltip
+        if (tooltipCountdownTimer) {
+            clearInterval(tooltipCountdownTimer);
+            tooltipCountdownTimer = null;
+        }
+        
+        // Start countdown timer for tooltip
+        startTooltipCountdown(spaceId, timeEl);
+        
         // ADD COMPLETE button here
         actionsEl.innerHTML = `
             <button class="tooltip-btn" onclick="editSpaceMode(event); event.stopPropagation();">EDIT</button>
@@ -240,11 +257,72 @@ function updateTooltip(spaceElement) {
         statusEl.textContent = 'Available';
         statusEl.classList.remove('occupied');
         timeEl.style.display = 'none';
+        
+        // Clear countdown when switching to available space
+        if (tooltipCountdownTimer) {
+            clearInterval(tooltipCountdownTimer);
+            tooltipCountdownTimer = null;
+        }
+        
         actionsEl.innerHTML = `
             <button class="tooltip-btn" onclick="editSpaceMode(event); event.stopPropagation();">EDIT</button>
             <button class="tooltip-btn" onclick="occupySpace(event); event.stopPropagation();">OCCUPY</button>
         `;
     }
+}
+
+function startTooltipCountdown(spaceId, timeEl) {
+    // Fetch current space data to get expiration time
+    fetch('/api/terminal/spaces')
+        .then(res => res.json())
+        .then(spacesData => {
+            const space = spacesData.find(s => s.space_id === spaceId);
+            if (space && (space.expiration_time || space.available_at)) {
+                const expirationTime = new Date(space.expiration_time || space.available_at).getTime();
+                spaceExpirationTimes.set(spaceId, expirationTime);
+                updateTooltipTimer(spaceId, timeEl);
+            } else {
+                timeEl.textContent = 'N/A';
+            }
+        })
+        .catch(err => {
+            console.error('Error fetching space data:', err);
+            timeEl.textContent = 'N/A';
+        });
+}
+
+function updateTooltipTimer(spaceId, timeEl) {
+    // Clear existing timer
+    if (tooltipCountdownTimer) {
+        clearInterval(tooltipCountdownTimer);
+    }
+    
+    const updateDisplay = () => {
+        const expirationTime = spaceExpirationTimes.get(spaceId);
+        if (!expirationTime) {
+            timeEl.textContent = 'N/A';
+            return;
+        }
+        
+        const now = Date.now();
+        const diff = expirationTime - now;
+        
+        if (diff <= 0) {
+            timeEl.textContent = '00:00';
+            clearInterval(tooltipCountdownTimer);
+            tooltipCountdownTimer = null;
+        } else {
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            timeEl.textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+        }
+    };
+    
+    // Update immediately
+    updateDisplay();
+    
+    // Update every second
+    tooltipCountdownTimer = setInterval(updateDisplay, 1000);
 }
 
 function completeSpaceFromTooltip(e) {
@@ -281,7 +359,8 @@ function completeSpaceFromTooltip(e) {
                     spaceElement.classList.add('cls-9');
                 }
                 occupiedSpaces.delete(spaceId);
-                loadHistoryFromDatabase();
+                spaceExpirationTimes.delete(spaceId);
+                loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
                 alert('Error: ' + data.message);
@@ -307,6 +386,10 @@ function closeTooltip() {
     const tooltip = document.getElementById('tooltip');
     tooltipSticky = false;
     tooltip.style.display = 'none';
+    if (tooltipCountdownTimer) {
+        clearInterval(tooltipCountdownTimer);
+        tooltipCountdownTimer = null;
+    }
     if (currentSpace) {
         currentSpace.classList.remove('space-bay-hovered');
     }
@@ -353,8 +436,9 @@ function loadSpacesFromDatabase() {
 
 function fillCompanyOperator() {
     const driverId = document.getElementById('panelDriver').value;
-    // Driver selected, now populate operator dropdown
+    // Driver selected, now populate operator dropdown and fetch driver's routes
     if (driverId) {
+        // Fetch operators
         fetch(`/api/terminal/drivers`)
             .then(response => response.json())
             .then(data => {
@@ -371,9 +455,31 @@ function fillCompanyOperator() {
                 });
             })
             .catch(error => console.error('Error fetching operators:', error));
+
+        // Fetch driver's assigned routes
+        fetch(`/api/terminal/driver-routes/${driverId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.routes.length > 0) {
+                    // Set the first route as the selected route
+                    const selectedRoute = data.routes[0];
+                    document.getElementById('panelRouteName').value = selectedRoute.name;
+                    window.selectedDriverRoute = selectedRoute.name;
+                } else {
+                    document.getElementById('panelRouteName').value = '';
+                    window.selectedDriverRoute = null;
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching driver routes:', error);
+                document.getElementById('panelRouteName').value = '';
+                window.selectedDriverRoute = null;
+            });
     } else {
         document.getElementById('panelOperator').innerHTML = '<option value="">-- Select Operator --</option>';
         document.getElementById('panelCompany').value = '';
+        document.getElementById('panelRouteName').value = '';
+        window.selectedDriverRoute = null;
     }
 }
 
@@ -499,7 +605,7 @@ function occupySpace(e) {
     document.getElementById('panelTimeMinutes').addEventListener('input', updateCountdown);
     document.getElementById('panelRouteName').closest('.form-group').style.display = 'none';
     document.getElementById('panelSpaceId').closest('.form-group').style.display = 'none';
-    document.getElementById('panelAccommodationType').closest('.form-group').style.display = 'none'; // ADD THIS
+    document.getElementById('panelAccommodationType').closest('.form-group').style.display = 'none'; // HIDE accommodation type (already set in edit mode)
     document.getElementById('durationSection').style.display = 'flex';
     document.getElementById('driverSection').style.display = 'flex';
     document.getElementById('companyOperatorSection').style.display = 'grid';
@@ -531,6 +637,7 @@ function closePanel() {
 
     document.getElementById('panelRouteName').closest('.form-group').style.display = 'flex';
     document.getElementById('panelSpaceId').closest('.form-group').style.display = 'flex';
+    document.getElementById('panelAccommodationType').closest('.form-group').style.display = 'none';
     document.getElementById('durationSection').style.display = 'none';
     document.getElementById('driverSection').style.display = 'none';
     document.getElementById('companyOperatorSection').style.display = 'none';
@@ -539,6 +646,10 @@ function closePanel() {
     document.getElementById('spacePanel').classList.remove('show');
     document.getElementById('svgWrapper').classList.remove('with-panel');
     if (countdownTimer) clearInterval(countdownTimer);
+    if (tooltipCountdownTimer) {
+        clearInterval(tooltipCountdownTimer);
+        tooltipCountdownTimer = null;
+    }
     currentSpace = null;
     selectedSpaceElement = null;
     isEditMode = false;
@@ -580,7 +691,7 @@ function markSpaceComplete() {
                 selectedSpaceElement.classList.remove('occupied-bay');
                 selectedSpaceElement.style.fill = '#35d335'; // Green
                 closePanel();
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
             } else {
                 alert('Error: ' + data.message);
             }
@@ -623,8 +734,16 @@ function saveSpaceOccupancy() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                // Update expiration time if provided
+                if (data.expiration_time) {
+                    spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
+                    // Refresh tooltip if it's currently showing this space
+                    if (currentSpace && currentSpace.getAttribute('data-space-id') === spaceId) {
+                        updateTooltip(currentSpace);
+                    }
+                }
                 alert(`✓ Added ${mins} minutes to space`);
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
                 alert('Error: ' + (data.message || 'Failed to add time'));
@@ -662,7 +781,7 @@ function saveSpaceOccupancy() {
                 selectedSpaceElement.setAttribute('data-route', newRouteName);
                 selectedSpaceElement.setAttribute('data-accommodation-type', accType);
                 alert('Space updated successfully!');
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
                 alert('Error: ' + (data.message || 'Failed to update space'));
@@ -696,7 +815,9 @@ function saveSpaceOccupancy() {
             space_id: spaceId,
             driver_id: parseInt(driverId),
             operator_id: parseInt(operatorId),
-            duration_minutes: mins
+            duration_minutes: mins,
+            route_name: window.selectedDriverRoute || null,
+            accommodation_type: document.getElementById('panelAccommodationType').value || null
         };
 
         console.log('Sending occupy request:', occupyPayload);
@@ -710,25 +831,30 @@ function saveSpaceOccupancy() {
             },
             body: JSON.stringify(occupyPayload)
         })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Occupy response:', data);
+        .then(response => response.json().then(data => ({ status: response.status, data })))
+        .then(({ status, data }) => {
+            console.log('Occupy response:', data, 'Status:', status);
             
-            if (data.success) {
+            if (status === 200 || data.success) {
                 selectedSpaceElement.setAttribute('fill', '#dc3545');
                 selectedSpaceElement.classList.remove('cls-9');
                 selectedSpaceElement.classList.add('occupied-bay');
                 
+                // Set expiration time if provided
+                if (data.expiration_time) {
+                    spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
+                }
+                
                 alert('Space occupied successfully!');
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to occupy space'));
+                let errorMsg = data.message || 'Failed to occupy space';
+                if (data.errors) {
+                    console.error('Validation errors:', data.errors);
+                    errorMsg += '\n' + Object.entries(data.errors).map(([key, msgs]) => `${key}: ${msgs.join(', ')}`).join('\n');
+                }
+                alert('Error: ' + errorMsg);
             }
         })
         .catch(error => {
@@ -759,8 +885,9 @@ function releaseSpace() {
             currentSpace.classList.remove('occupied-bay');
             currentSpace.classList.add('cls-9');
             occupiedSpaces.delete(spaceId);
+            spaceExpirationTimes.delete(spaceId);
 
-            loadHistoryFromDatabase();
+            loadHistoryFromDatabase(currentHistoryPage);
             updateTooltip(currentSpace);
             closePanel();
         }
@@ -804,7 +931,8 @@ function cancelSpaceOccupancy(e) {
                     spaceElement.classList.add('cls-9');
                 }
                 occupiedSpaces.delete(spaceId);
-                loadHistoryFromDatabase();
+                spaceExpirationTimes.delete(spaceId);
+                loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
                 alert('Error: ' + data.message);
@@ -856,19 +984,26 @@ function addHistory(spaceId, route, action, details) {
 }
 
 function loadHistoryFromDatabase(page = 1) {
-    const dateFilter = document.getElementById('dateFilter')?.value || '';
+    const searchFilter = document.getElementById('searchFilter')?.value || '';
+    const dateFromFilter = document.getElementById('dateFromFilter')?.value || '';
+    const dateToFilter = document.getElementById('dateToFilter')?.value || '';
     const statusFilter = document.getElementById('statusFilter')?.value || '';
-    const routeNameFilter = document.getElementById('routeNameFilter')?.value || '';
+    const driverFilter = document.getElementById('driverFilter')?.value || '';
+    const routeFilter = document.getElementById('routeFilter')?.value || '';
 
     const params = new URLSearchParams();
-    if (dateFilter) params.append('date', dateFilter);
+    if (searchFilter) params.append('search', searchFilter);
+    if (dateFromFilter) params.append('date_from', dateFromFilter);
+    if (dateToFilter) params.append('date_to', dateToFilter);
     if (statusFilter) params.append('action', statusFilter);
-    if (routeNameFilter) params.append('route_name', routeNameFilter);
+    if (driverFilter) params.append('driver_id', driverFilter);
+    if (routeFilter) params.append('route_name', routeFilter);
     params.append('page', page);
 
     fetch(`/api/terminal/history-all?${params.toString()}`)
         .then(response => response.json())
         .then(data => {
+            currentHistoryPage = data.current_page; // Track current page
             updateHistoryTable(data.data || []);
             updateHistoryPagination(data);
         })
@@ -920,13 +1055,21 @@ function updateHistoryTable(records = []) {
         // ALWAYS show View button only
         const actionButtons = `<button class="btn btn-sm btn-info" onclick="showHistoryDetail(${record.id})" style="padding: 4px 8px; font-size: 11px;"><i class="fas fa-eye me-1"></i>View</button>`;
         
+        // Determine time released display - show N/A for 'edited' action
+        let timeReleasedDisplay = 'Ongoing';
+        if (record.action === 'edited') {
+            timeReleasedDisplay = 'N/A';
+        } else if (record.time_released) {
+            timeReleasedDisplay = new Date(record.time_released).toLocaleString();
+        }
+        
         row.innerHTML = `
             <td>${record.space_id}</td>
             <td>${record.route_name || 'N/A'}</td>
             <td>${record.driver_name || 'N/A'}</td>
             <td><span class="badge" style="background-color: ${actionBadgeColor};">${record.action.toUpperCase()}</span></td>
             <td>${new Date(record.time_occupied).toLocaleString()}</td>
-            <td>${record.time_released ? new Date(record.time_released).toLocaleString() : 'Ongoing'}</td>
+            <td>${timeReleasedDisplay}</td>
             <td>${actionButtons}</td>
         `;
         
@@ -958,7 +1101,7 @@ function completeOccupancy(spaceId, recordId, buttonEl) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
                 
                 // Update UI - find and turn space green
                 const spaceEl = document.querySelector(`[data-space-id="${spaceId}"]`);
@@ -1007,7 +1150,7 @@ function cancelOccupancyFromHistory(spaceId, recordId, buttonEl) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                loadHistoryFromDatabase();
+                loadHistoryFromDatabase(currentHistoryPage);
                 
                 // Update UI - find and turn space green
                 const spaceEl = document.querySelector(`[data-space-id="${spaceId}"]`);
@@ -1045,7 +1188,10 @@ function showHistoryDetail(recordId) {
             let notesLabel = 'Notes';
             let notesValue = 'N/A';
             
-            if (record.action === 'released') {
+            if (record.action === 'occupied') {
+                notesLabel = 'Duration Notes';
+                notesValue = record.additional_notes || 'N/A';
+            } else if (record.action === 'released') {
                 notesLabel = 'Release Notes';
                 notesValue = record.additional_notes || 'Manually released';
             } else if (record.action === 'cancelled') {
@@ -1136,15 +1282,68 @@ function getActionColor(action) {
 
 function initializeDateFilter() {
     const today = new Date().toISOString().split('T')[0];
-    const dateFilter = document.getElementById('dateFilter');
+    const dateFromFilter = document.getElementById('dateFromFilter');
+    const dateToFilter = document.getElementById('dateToFilter');
     
-    if (!dateFilter) return;
+    if (dateFromFilter) {
+        dateFromFilter.value = today;
+        dateFromFilter.max = today;
+    }
     
-    // Set default value to today
-    dateFilter.value = today;
+    if (dateToFilter) {
+        dateToFilter.value = today;
+        dateToFilter.max = today;
+    }
+
+    // Populate driver and route dropdowns
+    populateDriverFilter();
+    populateRouteFilter();
     
-    // Only lock MAX to today (allows past dates, blocks future)
-    dateFilter.max = today;
+    // Load history with today's date by default
+    loadHistoryFromDatabase();
+}
+
+function populateDriverFilter() {
+    fetch('/api/terminal/history-all')
+        .then(response => response.json())
+        .then(data => {
+            const driverFilter = document.getElementById('driverFilter');
+            if (!driverFilter || !data.data) return;
+
+            const drivers = new Map();
+            data.data.forEach(record => {
+                if (record.driver_name && record.driver_id) {
+                    drivers.set(record.driver_id, record.driver_name);
+                }
+            });
+
+            // Create options from the map
+            drivers.forEach((name, id) => {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = name;
+                driverFilter.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading drivers:', error));
+}
+
+function populateRouteFilter() {
+    fetch('/api/terminal/routes')
+        .then(response => response.json())
+        .then(routes => {
+            const routeFilter = document.getElementById('routeFilter');
+            if (!routeFilter || !routes) return;
+
+            // Create options from the routes array
+            routes.forEach(route => {
+                const option = document.createElement('option');
+                option.value = route;
+                option.textContent = route;
+                routeFilter.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading routes:', error));
 }
 
 function checkAndReleaseExpiredSpaces() {
@@ -1162,11 +1361,12 @@ function checkAndReleaseExpiredSpaces() {
                         spaceEl.classList.add('cls-9');
                         spaceEl.setAttribute('fill', '#35d335');
                         spaceEl.setAttribute('data-status', 'available');
+                        spaceExpirationTimes.delete(spaceId);
                         console.log(`✓ Updated space ${spaceId} to available (green)`);
                     }
                 });
                 
-                // Reload history to show the auto-releases
+                // Reload history - show page 1 for auto-released items
                 loadHistoryFromDatabase(1);
             }
         })
@@ -1175,4 +1375,25 @@ function checkAndReleaseExpiredSpaces() {
 
 function refreshSpaces() {
     location.reload();
+}
+
+function downloadHistoryData() {
+    const searchFilter = document.getElementById('searchFilter')?.value || '';
+    const dateFromFilter = document.getElementById('dateFromFilter')?.value || '';
+    const dateToFilter = document.getElementById('dateToFilter')?.value || '';
+    const statusFilter = document.getElementById('statusFilter')?.value || '';
+    const driverFilter = document.getElementById('driverFilter')?.value || '';
+    const routeFilter = document.getElementById('routeFilter')?.value || '';
+
+    const params = new URLSearchParams();
+    if (searchFilter) params.append('search', searchFilter);
+    if (dateFromFilter) params.append('date_from', dateFromFilter);
+    if (dateToFilter) params.append('date_to', dateToFilter);
+    if (statusFilter) params.append('action', statusFilter);
+    if (driverFilter) params.append('driver_id', driverFilter);
+    if (routeFilter) params.append('route_name', routeFilter);
+    params.append('export', 'csv'); // Request CSV format
+
+    // Redirect to the download URL
+    window.location.href = `/api/terminal/history-all?${params.toString()}`;
 }

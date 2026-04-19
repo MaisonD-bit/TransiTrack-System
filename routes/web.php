@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\UserController;
@@ -9,7 +10,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\Crud\SpaceCrudController;
 use App\Http\Controllers\TerminalSpaceController;
-        
+
 // Register and Login Routes
 Route::get('login', [UserController::class, 'login'])->name('login');
 Route::post('login', [UserController::class, 'authenticate'])->name('authenticate');
@@ -41,11 +42,13 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/release', [TerminalSpaceController::class, 'release']);
         Route::post('/add-time', [TerminalSpaceController::class, 'addTime']);
         Route::post('/cancel', [TerminalSpaceController::class, 'cancel']);
-        Route::post('/update-space', [TerminalSpaceController::class, 'updateSpace']);  
+        Route::post('/update-space', [TerminalSpaceController::class, 'updateSpace']);
         Route::get('/history/{spaceId}', [TerminalSpaceController::class, 'getHistory']);
         Route::get('/history-all', [TerminalSpaceController::class, 'getAllHistory']);
         Route::get('/check-expired', [TerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
         Route::get('/spaces', [TerminalSpaceController::class, 'getSpaces']);
+        Route::get('/routes', [TerminalSpaceController::class, 'getRoutes']);
+        Route::get('/driver-routes/{driverId}', [TerminalSpaceController::class, 'getDriverRoutes']);
         Route::get('/history-detail/{id}', [TerminalSpaceController::class, 'getHistoryDetail']);
         Route::post('/check-expired', [TerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
     });
@@ -65,6 +68,3 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('logout', [UserController::class, 'logout'])->name('logout');
 });
-
-
-

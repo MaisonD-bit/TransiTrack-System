@@ -18,6 +18,7 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $fillable = [
+        'user_id',
         'name',
         'first_name',
         'last_name',
@@ -94,7 +95,15 @@ class User extends Authenticatable
      */
     public function getFormattedRoleAttribute()
     {
-        return match($this->role) {
+        if ($this->role === 'terminalManager') {
+            return match ($this->terminal) {
+                'north' => 'North Bus Terminal Manager',
+                'south' => 'South Bus Terminal Manager',
+                default => 'Bus Terminal Manager',
+            };
+        }
+
+        return match ($this->role) {
             'northBusManager' => 'North Bus Manager',
             'southBusManager' => 'South Bus Manager',
             default => ucfirst($this->role)
@@ -104,7 +113,7 @@ class User extends Authenticatable
     /**
      * Generate a Stream Chat token for the user
      */
-    public function getStreamToken() : string
+    public function getStreamToken(): string
     {
         $client = new StreamChat(
             env('STREAM_API_KEY'),
@@ -120,9 +129,9 @@ class User extends Authenticatable
     public function getStreamUserData(): array
     {
         // Map your app roles to Stream Chat roles
-        $streamRole = match($this->role) {
+        $streamRole = match ($this->role) {
             'admin', 'northBusManager', 'southBusManager' => 'admin',
-            'operator' => 'operator',
+            'bus_operator' => 'user',
             'driver' => 'driver',
             default => 'user',
         };
@@ -134,5 +143,4 @@ class User extends Authenticatable
             'image' => $this->photo_url ?? null,
         ];
     }
-
 }
