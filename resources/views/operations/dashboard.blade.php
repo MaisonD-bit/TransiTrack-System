@@ -1,13 +1,12 @@
 @extends('layouts.app-sidebar')
 
-@section ('title', 'Dashboard')
+@section ('title', 'Manager Dashboard')
 
 @section('content')
 <style>
     .card {
         border-radius: 8px;
         background: white;
-        padding: 1rem;
         margin-bottom: 1rem;
     }
 
@@ -94,7 +93,7 @@
 
     <div class="d-flex align-items-center">
         <i class="mb-4 fas fa-tachometer-alt me-3 text-primary fs-4"></i>
-        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Dashboard</h1>
+        <h1 class="mb-4 fw-bold" style="font-size:2rem;">Overview</h1>
     </div>
 
     <div class="row g-3 justify-content-center">
@@ -138,7 +137,7 @@
                     </div>
                     <div>
                         <div class="dashboard-label">Available Spaces</div>
-                        <div class="dashboard-value">{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
+                        <div class="dashboard-value" data-available-spaces>{{ $stats['available_spaces'] }} / {{ $stats['total_spaces'] }}</div>
                     </div>
                 </div>
             </a>
@@ -276,4 +275,267 @@
                 @endif
             </div>
         </div>
+
+        <!-- Analytics Section -->
+        <div class="mt-5">
+            <div class="d-flex align-items-center">
+                <i class="mb-4 fas fa-chart-pie me-3 text-primary fs-4"></i>
+                <h1 class="mb-4 fw-bold" style="font-size:2rem;">Analytics</h1>
+            </div>
+
+            <div class="row g-3">
+                <!-- Schedule Status Distribution -->
+                <div class="col-12 col-lg-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-pie-chart me-2"></i>Schedule Status Distribution</h5>
+                        </div>
+                        <div class="card-body d-flex justify-content-center align-items-center" style="min-height: 350px;">
+                            <canvas id="scheduleStatusChart" style="max-height: 300px; max-width: 300px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bus Utilization -->
+                <div class="col-12 col-lg-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-bus me-2"></i>Bus Utilization Metrics</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-4">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-semibold">Fleet Utilization</span>
+                                    <span class="fw-bold text-primary">{{ $analytics['bus_utilization'] }}%</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-primary" role="progressbar" style="width: {{ $analytics['bus_utilization'] }}%;" aria-valuenow="{{ $analytics['bus_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
+                                        <small class="fw-bold">{{ $analytics['bus_utilization'] }}%</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row text-center mt-4">
+                                <div class="col-6 mb-3">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="fs-4 fw-bold text-success">{{ $analytics['buses_in_service'] }}</div>
+                                        <small class="text-muted">Buses In Service</small>
+                                    </div>
+                                </div>
+                                <div class="col-6 mb-3">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="fs-4 fw-bold text-secondary">{{ $analytics['total_buses'] }}</div>
+                                        <small class="text-muted">Total Fleet</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Schedule Status Stats -->
+                            <div class="mt-4 pt-3 border-top">
+                                <h6 class="mb-3"><i class="fas fa-tasks me-2"></i>Schedule Summary</h6>
+                                <div class="row g-2">
+                                    <div class="col-6 col-md-6">
+                                        <div class="d-flex align-items-center">
+                                            <div class="bg-success bg-opacity-10 rounded p-2 me-2">
+                                                <i class="fas fa-check text-success"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold">{{ $analytics['status_counts']['completed'] ?? 0 }}</div>
+                                                <small class="text-muted">Completed</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-6">
+                                        <div class="d-flex align-items-center">
+                                            <div class="bg-primary bg-opacity-10 rounded p-2 me-2">
+                                                <i class="fas fa-play text-primary"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold">{{ $analytics['status_counts']['active'] ?? 0 }}</div>
+                                                <small class="text-muted">Active</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-6">
+                                        <div class="d-flex align-items-center">
+                                            <div class="bg-warning bg-opacity-10 rounded p-2 me-2">
+                                                <i class="fas fa-clock text-warning"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold">{{ $analytics['status_counts']['scheduled'] ?? 0 }}</div>
+                                                <small class="text-muted">Scheduled</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-6">
+                                        <div class="d-flex align-items-center">
+                                            <div class="bg-danger bg-opacity-10 rounded p-2 me-2">
+                                                <i class="fas fa-times text-danger"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold">{{ $analytics['status_counts']['cancelled'] ?? 0 }}</div>
+                                                <small class="text-muted">Cancelled</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Space Utilization -->
+                <div class="col-12 col-lg-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-parking me-2"></i>Space Utilization</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-4">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="fw-semibold">Terminal Occupancy</span>
+                                    <span class="fw-bold text-warning">{{ $analytics['space_utilization'] }}%</span>
+                                </div>
+                                <div class="progress" style="height: 25px;">
+                                    <div class="progress-bar bg-warning" role="progressbar" style="width: {{ $analytics['space_utilization'] }}%;" aria-valuenow="{{ $analytics['space_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
+                                        <small class="fw-bold">{{ $analytics['space_utilization'] }}%</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row text-center mt-4">
+                                <div class="col-6 mb-3">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="fs-4 fw-bold text-success">{{ $analytics['available_spaces'] }}</div>
+                                        <small class="text-muted">Available</small>
+                                    </div>
+                                </div>
+                                <div class="col-6 mb-3">
+                                    <div class="p-3 bg-light rounded">
+                                        <div class="fs-4 fw-bold text-danger">{{ $analytics['occupied_spaces'] }}</div>
+                                        <small class="text-muted">Occupied</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 pt-3 border-top">
+                                <h6 class="mb-3"><i class="fas fa-chart-bar me-2"></i>Space Statistics</h6>
+                                <div class="row g-2">
+                                    <div class="col-12">
+                                        <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                                            <span class="text-muted">Total Spaces</span>
+                                            <span class="fw-bold">{{ $analytics['total_spaces'] }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                                            <span class="text-success">In Use</span>
+                                            <span class="fw-bold text-success">{{ $analytics['occupied_spaces'] }} ({{ $analytics['space_utilization'] }}%)</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                                            <span class="text-info">Available</span>
+                                            <span class="fw-bold text-info">{{ $analytics['available_spaces'] }} ({{ 100 - $analytics['space_utilization'] }}%)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         @endsection
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+        <script>
+            // Initialize Schedule Status Chart
+            document.addEventListener('DOMContentLoaded', function() {
+                const statusData = @json($analytics['status_counts'] ?? []);
+
+                // Create pie chart for schedule status
+                const ctx = document.getElementById('scheduleStatusChart');
+                if (ctx) {
+                    new Chart(ctx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: [
+                                'Completed',
+                                'Active',
+                                'Scheduled',
+                                'Cancelled'
+                            ],
+                            datasets: [{
+                                data: [
+                                    statusData.completed || 0,
+                                    statusData.active || 0,
+                                    statusData.scheduled || 0,
+                                    statusData.cancelled || 0
+                                ],
+                                backgroundColor: [
+                                    '#1bb76e',
+                                    '#2b7be4',
+                                    '#e6b800',
+                                    '#e74c3c'
+                                ],
+                                borderColor: '#fff',
+                                borderWidth: 3
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: {
+                                            size: 12
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                            return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
+            // Real-time update of available spaces
+            document.addEventListener('DOMContentLoaded', function() {
+                const updateAvailableSpaces = function() {
+                    fetch('{{ route("dashboard.available-spaces") }}')
+                        .then(response => response.json())
+                        .then(data => {
+                            const spacesElement = document.querySelector('[data-available-spaces]');
+                            if (spacesElement) {
+                                spacesElement.textContent = data.available + ' / ' + data.total;
+                            }
+                        })
+                        .catch(error => console.error('Error updating spaces:', error));
+                };
+
+                // Update immediately on page load
+                updateAvailableSpaces();
+
+                // Update every 10 seconds (adjust interval as needed)
+                setInterval(updateAvailableSpaces, 10000);
+
+                // Also update when user returns to the tab (if browser tab was inactive)
+                document.addEventListener('visibilitychange', function() {
+                    if (!document.hidden) {
+                        updateAvailableSpaces();
+                    }
+                });
+            });
+        </script>

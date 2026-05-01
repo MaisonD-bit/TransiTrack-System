@@ -21,6 +21,7 @@ Route::post('register', [UserController::class, 'store'])->name('store');
 Route::middleware(['auth'])->group(function () {
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/api/dashboard/available-spaces', [DashboardController::class, 'getAvailableSpaces'])->name('dashboard.available-spaces');
     Route::get('/bus-schedule', [BusSchedulesController::class, 'index'])->name('bus-schedule');
 
     // Messages Routes
