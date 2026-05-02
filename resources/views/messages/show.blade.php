@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.app-sidebar')
 
 @section('content')
 <div class="container py-4">
@@ -8,7 +8,7 @@
                 <i class="mb-4 bi bi-chat-dots-fill me-1 text-primary fs-4"></i> 
                 {{ $message->subject }}
             </h5>
-            <a href="{{ route('message-management') }}" class="btn btn-sm btn-primary">
+            <a href="{{ route('messages') }}" class="btn btn-sm btn-primary">
                 <i class="bi bi-arrow-left"></i> Back
             </a>
         </div>

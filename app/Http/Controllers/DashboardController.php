@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Models\Space;
 use App\Models\TerminalSpace;
 use App\Models\Schedule;
+use App\Models\TerminalOccupancyHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use GetStream\StreamChat\Client as StreamChat;
@@ -122,8 +123,8 @@ class DashboardController extends Controller
             : 0;
 
         // Get space utilization
-        $spaceUtilizationPercent = $total > 0 
-            ? round((($total - $available) / $total) * 100, 1) 
+        $spaceUtilizationPercent = $total > 0
+            ? round((($total - $available) / $total) * 100, 1)
             : 0;
 
         $stats = [
@@ -143,9 +144,32 @@ class DashboardController extends Controller
             'total_spaces' => $total,
             'occupied_spaces' => $total - $available,
             'available_spaces' => $available,
+            'occupancy_by_hour' => $this->getOccupancyByHour($user),
         ];
 
         return view('operations.dashboard', compact('stats', 'busSchedules', 'drivers', 'statuses', 'analytics'));
+    }
+
+    /**
+     * Get occupancy data grouped by hour of day
+     * Returns the count of occupied spaces for each hour
+     */
+    private function getOccupancyByHour($user)
+    {
+        $query = TerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
+            ->groupBy('hour')
+            ->whereNotNull('time_occupied')
+            ->orderBy('hour');
+
+        $occupancyData = $query->get();
+
+        // Create array for all 24 hours
+        $hoursData = array_fill(0, 24, 0);
+        foreach ($occupancyData as $data) {
+            $hoursData[$data->hour] = $data->occupancy_count;
+        }
+
+        return $hoursData;
     }
 
     /**

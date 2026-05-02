@@ -296,7 +296,17 @@
                     </div>
                 </div>
 
-                <!-- Bus Utilization -->
+                <!-- Bus Occupancy by Time of Day -->
+                <div class="col-12 col-lg-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Bus Occupancy by Hour</h5>
+                        </div>
+                        <div class="card-body d-flex justify-content-center align-items-center" style="min-height: 350px;">
+                            <canvas id="occupancyByHourChart" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+                </div>
                 <div class="col-12 col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-light">
@@ -453,6 +463,7 @@
             // Initialize Schedule Status Chart
             document.addEventListener('DOMContentLoaded', function() {
                 const statusData = @json($analytics['status_counts'] ?? []);
+                const occupancyData = @json($analytics['occupancy_by_hour'] ?? []);
 
                 // Create pie chart for schedule status
                 const ctx = document.getElementById('scheduleStatusChart');
@@ -503,6 +514,81 @@
                                             const percentage = ((context.parsed / total) * 100).toFixed(1);
                                             return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Create bar chart for occupancy by hour
+                const occupancyCtx = document.getElementById('occupancyByHourChart');
+                if (occupancyCtx) {
+                    const hours = Array.from({
+                        length: 24
+                    }, (_, i) => i.toString().padStart(2, '0') + ':00');
+                    const maxOccupancy = Math.max(...occupancyData, 1);
+
+                    new Chart(occupancyCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: hours,
+                            datasets: [{
+                                label: 'Buses Occupied',
+                                data: occupancyData,
+                                backgroundColor: function(context) {
+                                    const value = context.parsed.y;
+                                    const percentage = (value / maxOccupancy) * 100;
+                                    if (percentage >= 80) return '#e74c3c';
+                                    if (percentage >= 60) return '#e6b800';
+                                    if (percentage >= 40) return '#3498db';
+                                    return '#1bb76e';
+                                },
+                                borderColor: 'rgba(0, 0, 0, 0.1)',
+                                borderWidth: 1,
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            indexAxis: 'x',
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'bottom',
+                                    labels: {
+                                        padding: 15,
+                                        font: {
+                                            size: 12
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        afterLabel: function(context) {
+                                            const value = context.parsed.y;
+                                            const percentage = ((value / maxOccupancy) * 100).toFixed(1);
+                                            return 'Occupancy: ' + percentage + '%';
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        stepSize: 1
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Number of Occupied Spaces'
+                                    }
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: 'Time of Day'
                                     }
                                 }
                             }
