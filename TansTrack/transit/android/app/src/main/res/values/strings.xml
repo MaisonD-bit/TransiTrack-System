@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Holiworks</string>
+    <string name="title_activity_main">Holiworks</string>
+    <string name="package_name">HoliWorks.com</string>
+    <string name="custom_url_scheme">HoliWorks.com</string>
+</resources>

@@ -1,0 +1,286 @@
+<ion-header [translucent]="true">
+  <ion-toolbar>
+    <ion-title>Feedback & Ratings</ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="openFeedbackForm()" color="primary">
+        <ion-icon name="add-circle-outline" slot="icon-only"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <!-- Search and Filter -->
+  <ion-card class="filters-card">
+    <ion-card-content>
+      <ion-searchbar
+        [(ngModel)]="searchQuery"
+        (ionChange)="onSearchChange()"
+        placeholder="Search feedbacks..."
+        animated="true">
+      </ion-searchbar>
+
+      <ion-segment [(ngModel)]="filterStatus" (ionChange)="onFilterChange()" color="primary">
+        <ion-segment-button value="all">
+          <ion-label>All</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="submitted">
+          <ion-label>Submitted</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="pending">
+          <ion-label>Pending</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Loading State -->
+  <ion-loading
+    [isOpen]="isLoading"
+    message="Loading feedbacks..."
+    spinner="circles">
+  </ion-loading>
+
+  <!-- Empty State -->
+  <div *ngIf="!isLoading && displayedFeedbacks.length === 0" class="empty-state">
+    <ion-icon name="star-outline" size="large"></ion-icon>
+    <h2>No Feedbacks Yet</h2>
+    <p>Share your experience and help us improve our service!</p>
+  </div>
+
+  <!-- Feedback Cards -->
+  <ion-list *ngIf="!isLoading && displayedFeedbacks.length > 0">
+    <ion-item-divider sticky>
+      <ion-label>Your Feedbacks</ion-label>
+    </ion-item-divider>
+
+    <ion-card 
+      *ngFor="let feedback of displayedFeedbacks" 
+      (click)="selectFeedback(feedback)"
+      class="feedback-card"
+      button>
+      <ion-card-content>
+        <div class="feedback-header">
+          <div class="feedback-route">
+            <h2>{{ feedback.routeName }}</h2>
+            <p class="feedback-date">{{ feedback.tripDate | date: 'MMM dd, yyyy' }}</p>
+          </div>
+          <ion-badge [color]="getRatingColor(getAverageRating(feedback))">
+            <ion-icon name="star" slot="start"></ion-icon>
+            {{ getAverageRating(feedback) | number: '1.1-1' }}
+          </ion-badge>
+        </div>
+
+        <div class="driver-info">
+          <ion-icon name="person-circle-outline"></ion-icon>
+          <div>
+            <p class="label">Driver</p>
+            <p class="value">{{ feedback.driverName }}</p>
+          </div>
+        </div>
+
+        <div class="ratings-preview">
+          <div class="rating-item">
+            <p class="rating-label">Driver</p>
+            <div class="stars">
+              <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= feedback.driverRating ? 'warning' : 'medium'"></ion-icon>
+            </div>
+          </div>
+          <div class="rating-item">
+            <p class="rating-label">Service</p>
+            <div class="stars">
+              <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= feedback.serviceRating ? 'warning' : 'medium'"></ion-icon>
+            </div>
+          </div>
+        </div>
+
+        <p class="comment-preview" *ngIf="feedback.comment">
+          {{ feedback.comment | slice:0:100 }}{{ feedback.comment.length > 100 ? '...' : '' }}
+        </p>
+
+        <ion-badge slot="end" [color]="feedback.status === 'submitted' ? 'success' : 'warning'">
+          {{ feedback.status | uppercase }}
+        </ion-badge>
+      </ion-card-content>
+    </ion-card>
+  </ion-list>
+
+  <!-- Feedback Form Modal -->
+  <ion-modal [isOpen]="showFeedbackForm" (ionModalDidDismiss)="closeFeedbackForm()">
+    <ng-template>
+      <ion-header>
+        <ion-toolbar>
+          <ion-buttons slot="start">
+            <ion-back-button (click)="closeFeedbackForm()"></ion-back-button>
+          </ion-buttons>
+          <ion-title>Submit Feedback</ion-title>
+        </ion-toolbar>
+      </ion-header>
+
+      <ion-content>
+        <ion-card>
+          <ion-card-content>
+            <!-- Trip Selection -->
+            <h3>Select a Trip</h3>
+            <ion-item>
+              <ion-label>Trip</ion-label>
+              <ion-select [(ngModel)]="newFeedback.tripId">
+                <ion-select-option *ngFor="let trip of pendingTrips" [value]="trip.id">
+                  {{ trip.route_name }} - {{ trip.trip_date | date: 'MMM dd, yyyy' }}
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+
+            <!-- Driver Rating -->
+            <h3>Rate Your Experience</h3>
+            <p class="rating-label">Driver Professionalism</p>
+            <div class="rating-stars">
+              <button 
+                *ngFor="let i of [1,2,3,4,5]" 
+                (click)="newFeedback.driverRating = i"
+                class="star-btn">
+                <ion-icon name="star" [color]="i <= newFeedback.driverRating ? 'warning' : 'medium'"></ion-icon>
+              </button>
+            </div>
+
+            <p class="rating-label">Service Quality</p>
+            <div class="rating-stars">
+              <button 
+                *ngFor="let i of [1,2,3,4,5]" 
+                (click)="newFeedback.serviceRating = i"
+                class="star-btn">
+                <ion-icon name="star" [color]="i <= newFeedback.serviceRating ? 'warning' : 'medium'"></ion-icon>
+              </button>
+            </div>
+
+            <p class="rating-label">Bus Cleanliness</p>
+            <div class="rating-stars">
+              <button 
+                *ngFor="let i of [1,2,3,4,5]" 
+                (click)="newFeedback.cleanlinessRating = i"
+                class="star-btn">
+                <ion-icon name="star" [color]="i <= newFeedback.cleanlinessRating ? 'warning' : 'medium'"></ion-icon>
+              </button>
+            </div>
+
+            <p class="rating-label">Safety & Comfort</p>
+            <div class="rating-stars">
+              <button 
+                *ngFor="let i of [1,2,3,4,5]" 
+                (click)="newFeedback.safetyRating = i"
+                class="star-btn">
+                <ion-icon name="star" [color]="i <= newFeedback.safetyRating ? 'warning' : 'medium'"></ion-icon>
+              </button>
+            </div>
+
+            <!-- Comment -->
+            <h3>Additional Comments</h3>
+            <ion-textarea
+              [(ngModel)]="newFeedback.comment"
+              placeholder="Tell us more about your experience (optional)"
+              rows="4">
+            </ion-textarea>
+
+            <!-- Submit Button -->
+            <ion-button 
+              expand="block" 
+              color="primary" 
+              (click)="submitFeedback()"
+              [disabled]="isSubmitting">
+              <ion-spinner *ngIf="isSubmitting" name="crescent" slot="start"></ion-spinner>
+              {{ isSubmitting ? 'Submitting...' : 'Submit Feedback' }}
+            </ion-button>
+          </ion-card-content>
+        </ion-card>
+      </ion-content>
+    </ng-template>
+  </ion-modal>
+
+  <!-- Feedback Detail Modal -->
+  <ion-modal [isOpen]="showFeedbackDetail" (ionModalDidDismiss)="closeFeedbackDetail()">
+    <ng-template>
+      <ion-header>
+        <ion-toolbar>
+          <ion-buttons slot="start">
+            <ion-back-button (click)="closeFeedbackDetail()"></ion-back-button>
+          </ion-buttons>
+          <ion-title>Feedback Details</ion-title>
+        </ion-toolbar>
+      </ion-header>
+
+      <ion-content *ngIf="selectedFeedback">
+        <ion-card>
+          <ion-card-header>
+            <ion-card-title>{{ selectedFeedback.routeName }}</ion-card-title>
+            <ion-card-subtitle>{{ selectedFeedback.tripDate | date: 'MMM dd, yyyy' }}</ion-card-subtitle>
+          </ion-card-header>
+
+          <ion-card-content>
+            <h3>Overall Rating</h3>
+            <div class="rating-display">
+              <ion-badge [color]="getRatingColor(getAverageRating(selectedFeedback))">
+                <ion-icon name="star" slot="start"></ion-icon>
+                {{ getAverageRating(selectedFeedback) | number: '1.1-1' }} / 5.0
+              </ion-badge>
+            </div>
+
+            <h3>Driver Information</h3>
+            <ion-item>
+              <ion-label>Name</ion-label>
+              <ion-text slot="end">{{ selectedFeedback.driverName }}</ion-text>
+            </ion-item>
+
+            <ion-item>
+              <ion-label>Bus</ion-label>
+              <ion-text slot="end">{{ selectedFeedback.busPlateNumber }}</ion-text>
+            </ion-item>
+
+            <h3>Ratings Breakdown</h3>
+
+            <ion-item>
+              <ion-label>Driver Professionalism</ion-label>
+              <div class="rating-stars" slot="end">
+                <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= selectedFeedback.driverRating ? 'warning' : 'medium'"></ion-icon>
+              </div>
+            </ion-item>
+
+            <ion-item>
+              <ion-label>Service Quality</ion-label>
+              <div class="rating-stars" slot="end">
+                <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= selectedFeedback.serviceRating ? 'warning' : 'medium'"></ion-icon>
+              </div>
+            </ion-item>
+
+            <ion-item>
+              <ion-label>Bus Cleanliness</ion-label>
+              <div class="rating-stars" slot="end">
+                <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= selectedFeedback.cleanlinessRating ? 'warning' : 'medium'"></ion-icon>
+              </div>
+            </ion-item>
+
+            <ion-item>
+              <ion-label>Safety & Comfort</ion-label>
+              <div class="rating-stars" slot="end">
+                <ion-icon *ngFor="let i of [1,2,3,4,5]" name="star" [color]="i <= selectedFeedback.safetyRating ? 'warning' : 'medium'"></ion-icon>
+              </div>
+            </ion-item>
+
+            <h3>Your Comments</h3>
+            <p *ngIf="selectedFeedback.comment" class="comment-full">
+              {{ selectedFeedback.comment }}
+            </p>
+            <p *ngIf="!selectedFeedback.comment" class="no-comment">No additional comments</p>
+
+            <h3>Status</h3>
+            <ion-badge [color]="selectedFeedback.status === 'submitted' ? 'success' : 'warning'">
+              {{ selectedFeedback.status | uppercase }}
+            </ion-badge>
+            <p class="submitted-date" *ngIf="selectedFeedback.submittedDate">
+              Submitted on {{ selectedFeedback.submittedDate | date: 'MMM dd, yyyy HH:mm' }}
+            </p>
+          </ion-card-content>
+        </ion-card>
+      </ion-content>
+    </ng-template>
+  </ion-modal>
+</ion-content>

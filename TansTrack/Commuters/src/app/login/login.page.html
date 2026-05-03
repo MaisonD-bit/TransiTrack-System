@@ -1,0 +1,72 @@
+<ion-header></ion-header>
+
+<ion-content class="ion-padding">
+  <div class="login-container">
+
+    <form [formGroup]="loginForm" (ngSubmit)="login()">
+
+      <div class="login-header">
+      <ion-icon name="bus-outline" class="app-icon"></ion-icon>
+      <h1>TransiTrack</h1>
+    </div>
+
+      <ion-label class="field-label">
+        <ion-icon name="mail-outline"></ion-icon>
+        Email
+      </ion-label>
+      <ion-item>
+        <ion-input type="email" formControlName="email" placeholder="Email"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="loginForm.get('email')?.touched && loginForm.get('email')?.hasError('required')">
+        Email is required
+      </ion-note>
+      <ion-note color="danger" *ngIf="loginForm.get('email')?.touched && loginForm.get('email')?.hasError('email')">
+        Please enter a valid email
+      </ion-note>
+
+      <ion-label class="field-label">
+        <ion-icon name="lock-closed-outline"></ion-icon>
+        Password
+      </ion-label>
+      <ion-item>
+        <ion-input type="password" formControlName="password" placeholder="Password"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="loginForm.get('password')?.touched && loginForm.get('password')?.hasError('required')">
+        Password is required
+      </ion-note>
+      <ion-note color="danger" *ngIf="loginForm.get('password')?.touched && loginForm.get('password')?.hasError('minlength')">
+        Password must be at least 6 characters
+      </ion-note>
+
+      <ion-text color="danger" *ngIf="errorMessage">
+        <p class="ion-text-center">{{ errorMessage }}</p>
+      </ion-text>
+
+      <ion-button
+        expand="block"
+        type="submit"
+        [disabled]="loginForm.invalid || isLoading"
+        class="login-btn">
+        <ion-spinner name="crescent" *ngIf="isLoading"></ion-spinner>
+        <span *ngIf="!isLoading">Login</span>
+      </ion-button>
+
+      <div class="ion-text-center password-reset">
+      <ion-button fill="clear" size="small" (click)="forgotPassword()">Forgot Password?</ion-button>
+    </div>
+
+    <div class="ion-text-center no-account-sign">
+      Don't have an account?
+    </div>
+    
+    <div class="ion-text-center signup-link">
+       <ion-button (click)="signUp()" fill="clear">Sign Up</ion-button>
+    </div>
+   
+
+    </form>
+
+    
+
+  </div>
+</ion-content>

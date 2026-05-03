@@ -1,0 +1,230 @@
+<ion-header>
+  <ion-toolbar>
+    <ion-buttons slot="start">
+      <ion-back-button defaultHref="/login"></ion-back-button>
+    </ion-buttons>
+    <ion-title>Driver Registration</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content class="ion-padding">
+  <div class="register-container">
+    <div class="register-header ion-text-center ion-margin-bottom">
+      <ion-icon name="bus-outline" class="app-icon"></ion-icon>
+      <h1>Join as Driver</h1>
+      <p class="text-muted">Create your driver account</p>
+    </div>
+
+    <form [formGroup]="registerForm" (ngSubmit)="register()">
+      
+      <!-- Profile Photo Upload -->
+      <div class="section-header">
+        <h6><ion-icon name="camera-outline"></ion-icon> Profile Photo</h6>
+      </div>
+
+      <div class="photo-upload-section">
+        <div class="photo-preview" (click)="selectPhoto()">
+          <img *ngIf="selectedPhoto" [src]="selectedPhoto" alt="Profile photo"/>
+          <div *ngIf="!selectedPhoto" class="photo-placeholder">
+            <ion-icon name="camera" size="large"></ion-icon>
+            <p>Tap to upload photo</p>
+          </div>
+        </div>
+        <input #fileInput type="file" accept="image/*" (change)="onPhotoSelected($event)" style="display: none;">
+        <ion-button fill="outline" size="small" (click)="selectPhoto()" class="upload-btn">
+          <ion-icon name="camera-outline" slot="start"></ion-icon>
+          Choose Photo
+        </ion-button>
+        <p class="photo-note">Upload a clear photo of yourself (JPG, PNG - Max 2MB)</p>
+      </div>
+
+      <!-- Personal Information -->
+      <div class="section-header">
+        <h6><ion-icon name="person-outline"></ion-icon> Personal Information</h6>
+      </div>
+
+      <ion-item>
+        <ion-label position="floating">Full Name *</ion-label>
+        <ion-input type="text" formControlName="name"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('name')?.touched && registerForm.get('name')?.hasError('required')">
+        Full name is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Email Address *</ion-label>
+        <ion-input type="email" formControlName="email"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('email')?.touched && registerForm.get('email')?.hasError('required')">
+        Email is required
+      </ion-note>
+      <ion-note color="danger" *ngIf="registerForm.get('email')?.touched && registerForm.get('email')?.hasError('email')">
+        Please enter a valid email
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Contact Number *</ion-label>
+        <ion-input type="tel" formControlName="contact_number"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('contact_number')?.touched && registerForm.get('contact_number')?.hasError('required')">
+        Contact number is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Date of Birth *</ion-label>
+        <ion-input type="date" formControlName="date_of_birth"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('date_of_birth')?.touched && registerForm.get('date_of_birth')?.hasError('required')">
+        Date of birth is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Gender *</ion-label>
+        <ion-select formControlName="gender" placeholder="Select gender">
+          <ion-select-option value="male">Male</ion-select-option>
+          <ion-select-option value="female">Female</ion-select-option>
+          <ion-select-option value="other">Other</ion-select-option>
+        </ion-select>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('gender')?.touched && registerForm.get('gender')?.hasError('required')">
+        Gender is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Complete Address *</ion-label>
+        <ion-textarea formControlName="address" rows="2"></ion-textarea>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('address')?.touched && registerForm.get('address')?.hasError('required')">
+        Address is required
+      </ion-note>
+
+      <!-- License Information -->
+      <div class="section-header">
+        <h6><ion-icon name="card-outline"></ion-icon> License Information</h6>
+      </div>
+
+      <ion-item>
+        <ion-label position="floating">License Number *</ion-label>
+        <ion-input type="text" formControlName="license_number"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('license_number')?.touched && registerForm.get('license_number')?.hasError('required')">
+        License number is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">License Expiry Date *</ion-label>
+        <ion-input type="date" formControlName="license_expiry"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('license_expiry')?.touched && registerForm.get('license_expiry')?.hasError('required')">
+        License expiry date is required
+      </ion-note>
+
+      <!-- Emergency Contact -->
+      <div class="section-header">
+        <h6><ion-icon name="call-outline"></ion-icon> Emergency Contact</h6>
+      </div>
+
+      <ion-item>
+        <ion-label position="floating">Emergency Contact Name *</ion-label>
+        <ion-input type="text" formControlName="emergency_name"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('emergency_name')?.touched && registerForm.get('emergency_name')?.hasError('required')">
+        Emergency contact name is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Relationship *</ion-label>
+        <ion-input type="text" formControlName="emergency_relation"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('emergency_relation')?.touched && registerForm.get('emergency_relation')?.hasError('required')">
+        Relationship is required
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Emergency Contact Number *</ion-label>
+        <ion-input type="tel" formControlName="emergency_contact"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('emergency_contact')?.touched && registerForm.get('emergency_contact')?.hasError('required')">
+        Emergency contact number is required
+      </ion-note>
+      
+      <!-- Company Selection -->
+      <div class="section-header">
+        <h6><ion-icon name="business-outline"></ion-icon> Select Company</h6>
+      </div>
+      <ion-item>
+        <ion-label position="floating">Bus Operator *</ion-label>
+        <ion-select formControlName="user_id" placeholder="Choose company">
+          <ion-select-option *ngFor="let op of busOperators" [value]="op.id">
+            {{ op.company_name }}
+          </ion-select-option>
+        </ion-select>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('user_id')?.hasError('required')">
+        Please select a company
+      </ion-note>
+
+      <!-- Password Section -->
+      <div class="section-header">
+        <h6><ion-icon name="lock-closed-outline"></ion-icon> Account Security</h6>
+      </div>
+
+      <ion-item>
+        <ion-label position="floating">Password *</ion-label>
+        <ion-input [type]="showPassword ? 'text' : 'password'" formControlName="password"></ion-input>
+        <ion-button fill="clear" slot="end" (click)="togglePasswordVisibility()">
+          <ion-icon [name]="showPassword ? 'eye-off' : 'eye'"></ion-icon>
+        </ion-button>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('password')?.touched && registerForm.get('password')?.hasError('required')">
+        Password is required
+      </ion-note>
+      <ion-note color="danger" *ngIf="registerForm.get('password')?.touched && registerForm.get('password')?.hasError('minlength')">
+        Password must be at least 6 characters
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Confirm Password *</ion-label>
+        <ion-input [type]="showConfirmPassword ? 'text' : 'password'" formControlName="confirmPassword"></ion-input>
+        <ion-button fill="clear" slot="end" (click)="toggleConfirmPasswordVisibility()">
+          <ion-icon [name]="showConfirmPassword ? 'eye-off' : 'eye'"></ion-icon>
+        </ion-button>
+      </ion-item>
+      <ion-note color="danger" *ngIf="registerForm.get('confirmPassword')?.touched && registerForm.get('confirmPassword')?.hasError('required')">
+        Please confirm your password
+      </ion-note>
+      <ion-note color="danger" *ngIf="registerForm.hasError('mismatch') && registerForm.get('confirmPassword')?.touched">
+        Passwords do not match
+      </ion-note>
+
+      <!-- Error Message -->
+      <ion-text color="danger" *ngIf="errorMessage">
+        <p class="ion-text-center">{{ errorMessage }}</p>
+      </ion-text>
+
+      <!-- Terms and Submit -->
+      <div class="terms-section ion-margin-top">
+        <ion-checkbox formControlName="agreeToTerms"></ion-checkbox>
+        <ion-label class="ion-margin-start">
+          I agree to the <a href="#" (click)="showTerms($event)">Terms and Conditions</a>
+        </ion-label>
+      </div>
+      <ion-note color="danger" *ngIf="registerForm.get('agreeToTerms')?.touched && registerForm.get('agreeToTerms')?.hasError('required')">
+        You must agree to the terms and conditions
+      </ion-note>
+
+      <!-- FIXED: Removed [disabled] attribute, only disable when submitting -->
+      <div class="ion-margin-top">
+        <ion-button expand="block" type="submit" [disabled]="isSubmitting">
+          <ion-spinner name="crescent" *ngIf="isSubmitting"></ion-spinner>
+          <span *ngIf="!isSubmitting">Create Driver Account</span>
+          <span *ngIf="isSubmitting">Creating Account...</span>
+        </ion-button>
+      </div>
+    </form>
+
+    <div class="ion-text-center ion-margin-top">
+      <p>Already have an account? <a routerLink="/login">Sign In</a></p>
+    </div>
+  </div>
+</ion-content>

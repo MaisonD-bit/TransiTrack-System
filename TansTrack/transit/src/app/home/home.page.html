@@ -1,0 +1,243 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-buttons slot="start">
+      <ion-icon name="apps-outline" class="app-logo"></ion-icon>
+    </ion-buttons>
+    <ion-title>TransiTrack</ion-title>
+    <ion-buttons slot="end">
+      <!-- Keep the profile button -->
+      <ion-button (click)="navigateToProfile()">
+        <ion-icon slot="icon-only" name="person-circle-outline"></ion-icon>
+      </ion-button>
+      <!-- Add the logout button -->
+      <ion-button (click)="logout()">
+        <ion-icon slot="icon-only" name="log-out-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <!-- Greeting Card -->
+  <ion-card class="greeting-card">
+    <ion-card-content>
+      <div class="greeting-content">
+        <div class="greeting-text">
+          <h2>{{greeting}}, {{userName}}!</h2>
+          <p>{{currentTime}}</p>
+        </div>
+        <div class="notifications-icon" (click)="showNotifications()">
+          <ion-icon name="notifications-outline"></ion-icon>
+        </div>
+      </div>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Current Schedule Card -->
+  <ion-card class="schedule-card">
+    <ion-card-header>
+      <ion-card-title>Current Schedule</ion-card-title>
+      <ion-badge
+        *ngIf="currentSchedule"
+        [color]="currentSchedule.status === 'active' ? 'success' : (currentSchedule.status === 'accepted' ? 'warning' : 'medium')"
+        class="status-badge"
+      >
+        {{ currentSchedule.status.charAt(0).toUpperCase() + currentSchedule.status.slice(1) }}
+      </ion-badge>
+      <ion-badge *ngIf="!currentSchedule" color="medium" class="status-badge">None</ion-badge>
+    </ion-card-header>
+    <ion-card-content>
+      <div *ngIf="currentSchedule; else noCurrent">
+        <div class="schedule-row">
+          <ion-icon name="bus-outline"></ion-icon>
+          <span>{{ getScheduleRoute(currentSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="location-outline"></ion-icon>
+          <span>{{ getScheduleDestination(currentSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="time-outline"></ion-icon>
+          <span>{{ getScheduleTime(currentSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="calendar-outline"></ion-icon>
+          <span>{{ getScheduleDate(currentSchedule) }}</span>
+        </div>
+        <!-- Bus Info -->
+        <div class="schedule-row" *ngIf="currentSchedule.bus">
+          <ion-icon name="car-outline"></ion-icon>
+          <span>{{ currentSchedule.bus.bus_number }} - {{ currentSchedule.bus.model }}</span>
+        </div>
+      </div>
+      <ng-template #noCurrent>
+        <div class="schedule-row">
+          <span>No Current Schedule</span>
+        </div>
+      </ng-template>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Next Schedule Card -->
+  <ion-card class="schedule-card">
+    <ion-card-header>
+      <ion-card-title>Next Schedule</ion-card-title>
+      <ion-badge
+        *ngIf="nextSchedule"
+        [color]="nextScheduleBadgeColor()"
+        class="status-badge"
+      >
+        {{ displayScheduleStatus(nextSchedule) }}
+      </ion-badge>
+      <ion-badge *ngIf="!nextSchedule" color="medium" class="status-badge">None</ion-badge>
+    </ion-card-header>
+    <ion-card-content>
+      <div *ngIf="nextSchedule; else noNext">
+        <div class="schedule-row">
+          <ion-icon name="bus-outline"></ion-icon>
+          <span>{{ getScheduleRoute(nextSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="location-outline"></ion-icon>
+          <span>{{ getScheduleDestination(nextSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="time-outline"></ion-icon>
+          <span>{{ getScheduleTime(nextSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="calendar-outline"></ion-icon>
+          <span>{{ getScheduleDate(nextSchedule) }}</span>
+        </div>
+        <!-- Bus Info -->
+        <div class="schedule-row" *ngIf="nextSchedule.bus">
+          <ion-icon name="car-outline"></ion-icon>
+          <span>{{ nextSchedule.bus.bus_number }} - {{ nextSchedule.bus.model }}</span>
+        </div>
+      </div>
+      <ng-template #noNext>
+        <div class="schedule-row">
+          <span>No Upcoming Schedule</span>
+        </div>
+      </ng-template>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Passenger Stats -->
+  <ion-grid>
+    <ion-row>
+      <ion-col size="6">
+        <ion-card class="stat-card">
+          <ion-card-content class="text-center">
+            <div class="stat-icon">
+              <ion-icon name="person-circle-outline" color="primary"></ion-icon>
+            </div>
+            <div class="passenger-number">{{ currentPassengers }}</div>
+            <div class="passenger-label">Current (ticketed)</div>
+          </ion-card-content>
+        </ion-card>
+      </ion-col>
+      <ion-col size="6">
+        <ion-card class="stat-card">
+          <ion-card-content class="text-center">
+            <div class="stat-icon">
+              <ion-icon name="person-circle-outline" color="success"></ion-icon>
+            </div>
+            <div class="passenger-number">{{ expectedCapacity }}</div>
+            <div class="passenger-label">Expected (capacity)</div>
+          </ion-card-content>
+        </ion-card>
+      </ion-col>
+    </ion-row>
+  </ion-grid>
+
+  <!-- Quick Actions -->
+  <ion-card class="quick-actions-card">
+    <ion-card-header>
+      <ion-card-title>Quick Actions</ion-card-title>
+    </ion-card-header>
+    <ion-card-content>
+      <ion-grid>
+        <ion-row>
+          <ion-col size="6">
+            <ion-button 
+              expand="block" 
+              fill="outline"
+              color="success" 
+              class="action-btn start-route" 
+              (click)="handleQuickAction('start-route')"
+              style="outline: none !important; --box-shadow-focused: none;"
+            >
+              <ion-icon name="play-circle" slot="start"></ion-icon>
+              Start Route
+            </ion-button>
+          </ion-col>
+          <ion-col size="6">
+            <ion-button
+              expand="block"
+              fill="outline"
+              color="warning"
+              class="action-btn report-issue"
+              (click)="handleQuickAction('report-issue')"
+              style="outline: none !important; --box-shadow-focused: none;"
+            >
+              <ion-icon name="warning-outline" slot="start"></ion-icon>
+              Report Issue
+            </ion-button>
+          </ion-col>
+        </ion-row>
+        <ion-row style="margin-top: 0.5em;">
+          <ion-col size="12">
+            <ion-button 
+              expand="block"
+              fill="outline"
+              color="danger" 
+              class="action-btn emergency-alert" 
+              (click)="presentEmergencyAlert()"
+              style="outline: none !important; --box-shadow-focused: none;"
+            >
+              <ion-icon name="alert-circle" slot="start"></ion-icon>
+              Emergency Alert
+            </ion-button>
+          </ion-col>
+        </ion-row>
+      </ion-grid>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Recent Notifications Card -->
+  <ion-card>
+    <ion-card-header>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <ion-card-title>
+          <ion-icon name="notifications" style="vertical-align: middle; margin-right: 8px;"></ion-icon>
+          Recent Notifications
+        </ion-card-title>
+        <ion-button fill="clear" size="small" [routerLink]="['/tabs/notifications']">
+          View All
+        </ion-button>
+      </div>
+    </ion-card-header>
+    <ion-card-content>
+      <ion-list *ngIf="recentNotifications && recentNotifications.length > 0; else noNotifications">
+        <ion-item *ngFor="let notification of recentNotifications.slice(0, 3)" lines="full">
+          <ion-icon [name]="getNotificationIcon(notification.type)" slot="start" [color]="getNotificationColor(notification.type)"></ion-icon>
+          <ion-label class="ion-text-wrap">
+            <h3>{{ getNotificationTitle(notification.type) }}</h3>
+            <p>{{ notification.message }}</p>
+            <p class="text-muted">
+              <small>{{ formatNotificationTime(notification.created_at) }}</small>
+            </p>
+          </ion-label>
+          <ion-badge *ngIf="!notification.is_read" color="primary" slot="end">New</ion-badge>
+        </ion-item>
+      </ion-list>
+      <ng-template #noNotifications>
+        <div class="text-center py-4">
+          <ion-icon name="notifications-off-outline" size="large" color="medium"></ion-icon>
+          <p class="text-muted">No recent notifications</p>
+        </div>
+      </ng-template>
+    </ion-card-content>
+  </ion-card>
+</ion-content>

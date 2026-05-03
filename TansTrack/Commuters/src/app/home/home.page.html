@@ -1,0 +1,202 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-title>TransiTrack</ion-title>
+    <ion-buttons slot="end">
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+
+  <!-- Hero Banner -->
+  <div class="hero-banner">
+    <div class="hero-content">
+      <ion-icon name="bus-outline" class="hero-bus-icon"></ion-icon>
+      <div>
+        <h1>Welcome aboard</h1>
+        <p>Track your route in real-time</p>
+      </div>
+    </div>
+    <div class="hero-time">{{ currentTime }}</div>
+  </div>
+
+  <!-- Route Selection -->
+  <div class="section-wrapper">
+    <div class="section-label">
+      <ion-icon name="map-outline"></ion-icon>
+      <span>Choose a Route</span>
+    </div>
+
+    <div class="route-card">
+      <ion-select
+        class="route-select"
+        [(ngModel)]="commuterTerminal"
+        (ionChange)="onTerminalChange()"
+        interface="action-sheet"
+        label="Terminal"
+        labelPlacement="stacked">
+        <ion-select-option value="north">North terminal</ion-select-option>
+        <ion-select-option value="south">South terminal</ion-select-option>
+      </ion-select>
+
+      <ion-segment [(ngModel)]="busType" (ionChange)="onBusTypeChange()" class="ion-margin-top">
+        <ion-segment-button value="regular">
+          <ion-label>Regular</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="aircon">
+          <ion-label>Air-con</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+
+      <ion-select
+        class="route-select ion-margin-top"
+        [(ngModel)]="selectedRouteId"
+        (ionChange)="onRouteSelected()"
+        placeholder="Select your destination"
+        interface="action-sheet"
+        label="Route"
+        labelPlacement="stacked">
+        <ion-select-option *ngFor="let route of routes" [value]="route.id">
+          {{ route.name }}
+        </ion-select-option>
+      </ion-select>
+
+      <ion-select
+        *ngIf="selectedRoute?.stops?.length"
+        class="route-select ion-margin-top"
+        [(ngModel)]="stopChoice"
+        (ionChange)="onStopChoiceChange()"
+        interface="action-sheet"
+        label="Alight at (fare by distance)"
+        labelPlacement="stacked">
+        <ion-select-option value="terminus">Final stop — full route fare</ion-select-option>
+        <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
+          {{ s.name || ('Stop ' + (i + 1)) }}
+        </ion-select-option>
+      </ion-select>
+
+      <ion-button
+        expand="block"
+        class="track-btn"
+        (click)="onTrackRoute()"
+        [disabled]="!selectedRouteId">
+        <ion-icon name="navigate-outline" slot="start"></ion-icon>
+        Track Route
+      </ion-button>
+
+      <!-- Route info chips -->
+      <div class="route-chips" *ngIf="selectedRoute">
+        <div class="chip blue">
+          <ion-icon name="pricetag-outline"></ion-icon>
+          <span>₱{{ ticketFare || selectedRoute.basefare }}</span>
+        </div>
+        <div class="chip blue">
+          <ion-icon name="speedometer-outline"></ion-icon>
+          <span>{{ getRouteDistance(selectedRoute) }}</span>
+        </div>
+        <div class="chip green" *ngIf="selectedRoute?.geometry">
+          <ion-icon name="checkmark-circle-outline"></ion-icon>
+          <span>Map Available</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map Section -->
+  <div class="section-wrapper" *ngIf="selectedRoute">
+    <div class="section-label">
+      <ion-icon name="location-outline"></ion-icon>
+      <span>Route Map</span>
+    </div>
+
+    <div class="map-card">
+      <div class="map-header">
+        <div class="map-title">
+          <span>{{ selectedRoute.name }}</span>
+        </div>
+        <div class="live-badge">
+          <div class="live-dot"></div>
+          <span>Live</span>
+        </div>
+      </div>
+
+      <div class="full-map-container">
+        <app-route-map
+          [mapId]="'home-route-map'"
+          [height]="'380px'"
+          [routeGeoJson]="selectedRoute.geometry"
+          [startCoord]="selectedRoute.startCoord"
+          [endCoord]="selectedRoute.endCoord"
+          [stopPins]="stopPinsForMap">
+        </app-route-map>
+      </div>
+
+      <div class="no-map-notice" *ngIf="!selectedRoute.geometry">
+        <ion-icon name="information-circle-outline"></ion-icon>
+        No route geometry available for this route.
+      </div>
+    </div>
+  </div>
+
+  <!-- All Routes + e-Ticket -->
+  <div class="section-wrapper" *ngIf="routes.length > 0">
+    <div class="section-label">
+      <ion-icon name="list-outline"></ion-icon>
+      <span>All Routes</span>
+    </div>
+
+    <div class="routes-card">
+      <ion-select
+        class="route-select"
+        [(ngModel)]="selectedRouteId"
+        (ionChange)="onRouteSelected()"
+        placeholder="Browse all routes"
+        interface="action-sheet"
+        label="Browse"
+        labelPlacement="stacked">
+        <ion-select-option *ngFor="let route of routes" [value]="route.id">
+          {{ route.name }} — ₱{{ route.basefare }}
+        </ion-select-option>
+      </ion-select>
+
+      <div class="fare-row" *ngIf="selectedRoute">
+        <div class="fare-info">
+          <p class="fare-label">Total Fare</p>
+          <div class="fare-value-row">
+            <p class="fare-value">₱{{ ticketFare || selectedRoute.basefare }}</p>
+            <span class="discount-badge" *ngIf="discountPercent > 0">{{ discountPercent }}% OFF</span>
+          </div>
+        </div>
+        <ion-button
+          *ngIf="!showTicket"
+          (click)="generateTicket()"
+          color="success"
+          fill="solid">
+          <ion-icon name="ticket-outline" slot="start"></ion-icon>
+          Get e-Ticket
+        </ion-button>
+      </div>
+
+      <!-- E-Ticket -->
+      <app-e-ticket
+        [visible]="showTicket"
+        [selectedRoute]="selectedRoute"
+        [ticketID]="ticketId"
+        [ticketFare]="ticketFare"
+        [currentTime]="currentTime"
+        [paymentMethod]="paymentMethod"
+        (close)="closeTicket()"
+        (share)="shareTicket()">
+      </app-e-ticket>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div class="loading-wrapper" *ngIf="routes.length === 0">
+    <div class="loading-card">
+      <ion-spinner name="crescent" color="primary"></ion-spinner>
+      <p>Loading available routes…</p>
+    </div>
+  </div>
+
+</ion-content>

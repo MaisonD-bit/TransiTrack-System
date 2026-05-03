@@ -1,0 +1,99 @@
+<ion-card>
+  <ion-card-header>
+    <ion-card-title>Verify Your ID</ion-card-title>
+    <ion-card-subtitle>Upload your PWD or Senior Citizen ID to get discounts</ion-card-subtitle>
+  </ion-card-header>
+
+  <ion-card-content>
+    <!-- Hidden File Input -->
+    <input 
+      type="file" 
+      id="file-input" 
+      accept="image/*" 
+      capture="environment"
+      style="display: none;" 
+      (change)="onFileSelected($event)"
+    />
+
+    <!-- ID Type Selection -->
+    <ion-segment [(ngModel)]="selectedIdType" *ngIf="!capturedImage">
+      <ion-segment-button value="pwd">
+        <ion-label>PWD ID</ion-label>
+      </ion-segment-button>
+      <ion-segment-button value="senior">
+        <ion-label>Senior Citizen ID</ion-label>
+      </ion-segment-button>
+    </ion-segment>
+
+    <!-- Upload Button -->
+    <div class="capture-buttons" *ngIf="!capturedImage">
+      <ion-button expand="block" (click)="triggerFileInput()" color="primary">
+        <ion-icon slot="start" name="camera"></ion-icon>
+        Take Photo / Upload ID
+      </ion-button>
+      
+      <ion-note color="medium">
+        <p>Accepted formats: JPG, PNG (Max 5MB)</p>
+      </ion-note>
+    </div>
+
+    <!-- Captured Image Preview -->
+    <div *ngIf="capturedImage" class="image-preview">
+      <img [src]="capturedImage" alt="Captured ID" />
+      
+      <!-- Extracted Data -->
+      <ion-card *ngIf="extractedData">
+        <ion-card-header>
+          <ion-card-subtitle>Extracted Information</ion-card-subtitle>
+        </ion-card-header>
+        <ion-card-content>
+          <ion-list>
+            <ion-item *ngIf="extractedData.name">
+              <ion-label>
+                <h3>Name</h3>
+                <p>{{ extractedData.name }}</p>
+              </ion-label>
+            </ion-item>
+            <ion-item *ngIf="extractedData.idNumber">
+              <ion-label>
+                <h3>ID Number</h3>
+                <p>{{ extractedData.idNumber }}</p>
+              </ion-label>
+            </ion-item>
+            <ion-item *ngIf="extractedData.expiryDate">
+              <ion-label>
+                <h3>Expiry Date</h3>
+                <p>{{ extractedData.expiryDate }}</p>
+              </ion-label>
+            </ion-item>
+            <ion-item *ngIf="extractedData.confidence">
+              <ion-label>
+                <h3>Scan Confidence</h3>
+                <ion-badge [color]="extractedData.confidence > 0.8 ? 'success' : 'warning'">
+                  {{ (extractedData.confidence * 100).toFixed(0) }}%
+                </ion-badge>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+        </ion-card-content>
+      </ion-card>
+
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <ion-button expand="block" (click)="verifyId()" color="success" [disabled]="isProcessing">
+          <ion-icon slot="start" name="checkmark-circle"></ion-icon>
+          Verify ID
+        </ion-button>
+        
+        <ion-button expand="block" (click)="reset()" fill="outline" [disabled]="isProcessing">
+          <ion-icon slot="start" name="refresh"></ion-icon>
+          Upload Different Photo
+        </ion-button>
+        
+        <ion-button expand="block" (click)="cancel()" fill="clear" color="medium" [disabled]="isProcessing">
+          Cancel
+        </ion-button>
+      </div>
+    </div>
+  </ion-card-content>
+</ion-card>

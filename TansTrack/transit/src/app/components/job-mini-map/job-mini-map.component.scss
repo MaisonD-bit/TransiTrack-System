@@ -1,0 +1,35 @@
+.mini-map-container {
+  position: relative;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.mini-map {
+  height: 100%;
+  width: 100%;
+  z-index: 1;
+}
+
+.error-message {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #f8f8f8;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--ion-color-medium);
+}
+
+ion-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}

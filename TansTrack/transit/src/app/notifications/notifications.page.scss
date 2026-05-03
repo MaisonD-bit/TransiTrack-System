@@ -1,0 +1,93 @@
+.notification-summary {
+  padding: 16px;
+  text-align: center;
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  
+  ion-spinner {
+    margin-bottom: 16px;
+  }
+  
+  p {
+    color: var(--ion-color-medium);
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  padding: 20px;
+  text-align: center;
+  
+  ion-icon {
+    font-size: 80px;
+    color: var(--ion-color-medium);
+    margin-bottom: 20px;
+  }
+  
+  h3 {
+    color: var(--ion-color-dark);
+    margin-bottom: 10px;
+  }
+  
+  p {
+    color: var(--ion-color-medium);
+  }
+}
+
+ion-item.unread {
+  --background: var(--ion-color-light);
+  border-left: 4px solid var(--ion-color-primary);
+}
+
+.notification-icon {
+  font-size: 28px;
+  margin-right: 12px;
+}
+
+.unread-badge {
+  margin-left: 8px;
+  font-size: 10px;
+}
+
+.notification-message {
+  white-space: normal;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.notification-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  
+  ion-note {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+  }
+}
+
+.notification-details {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  
+  ion-chip {
+    margin: 0;
+    height: 24px;
+    font-size: 12px;
+  }
+}

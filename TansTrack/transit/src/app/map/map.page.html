@@ -1,0 +1,135 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-buttons slot="start">
+      <ion-icon name="apps-outline" class="app-logo"></ion-icon>
+    </ion-buttons>
+    <ion-title>Route Map</ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="refreshSchedules()">
+        <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <!-- Map Controls -->
+  <div class="map-controls">
+    <ion-segment [(ngModel)]="selectedSegment">
+      <ion-segment-button value="current">
+        <ion-label>Current Route</ion-label>
+      </ion-segment-button>
+      <ion-segment-button value="all">
+        <ion-label>All Routes</ion-label>
+      </ion-segment-button>
+    </ion-segment>
+  </div>
+
+  <!-- Current Route View -->
+<ng-container *ngIf="selectedSegment === 'current'">
+  <ion-card class="route-info-banner">
+    <ion-card-content>
+      <div class="route-info" *ngIf="currentSchedule; else noCurrent">
+        <div class="route-details">
+          <h3>{{ getScheduleRoute(currentSchedule) }}</h3>
+          <p>
+            <ion-icon name="time-outline"></ion-icon>
+            {{ getScheduleTime(currentSchedule) }}
+          </p>
+          <p>
+            <ion-icon name="location-outline"></ion-icon>
+            {{ getScheduleDestination(currentSchedule) }}
+          </p>
+          <p *ngIf="mapRouteStops.length || mapBoardingPassengers.length" class="ion-margin-top map-meta">
+            <small class="ion-text-wrap">
+              <span *ngIf="mapRouteStops.length"><strong>{{ mapRouteStops.length }}</strong> bus stop{{ mapRouteStops.length === 1 ? '' : 's' }}</span>
+              <span *ngIf="mapRouteStops.length && mapBoardingPassengers.length"> · </span>
+              <span *ngIf="mapBoardingPassengers.length"><strong>{{ mapBoardingPassengers.length }}</strong> ticketed passenger{{ mapBoardingPassengers.length === 1 ? '' : 's' }}</span>
+            </small>
+          </p>
+        </div>
+        <div class="route-status">
+          <ion-badge color="success">ON TIME</ion-badge>
+        </div>
+        <!-- Action Buttons -->
+        <div class="route-actions" style="margin-top: 1em;">
+          <ion-button *ngIf="currentSchedule?.status === 'accepted'" color="primary" (click)="startSchedule(currentSchedule)">
+            Start Route
+          </ion-button>
+          <ion-button *ngIf="currentSchedule?.status === 'active'" color="success" (click)="completeSchedule(currentSchedule)">
+            Complete Route
+          </ion-button>
+        </div>
+      </div>
+      <ng-template #noCurrent>
+        <div>No current route assigned.</div>
+      </ng-template>
+    </ion-card-content>
+  </ion-card>
+
+    <!-- Full Screen Route Map -->
+    <div class="full-map-container">
+      <app-route-map
+        [mapId]="'full-route-map'"
+        [height]="'400px'"
+        [routeGeoJson]="mapRouteGeoJson"
+        [routeStops]="mapRouteStops"
+        [boardingPassengers]="mapBoardingPassengers">
+      </app-route-map>
+    </div>
+  </ng-container>
+
+  <!-- All Routes View -->
+  <ng-container *ngIf="selectedSegment === 'all'">
+    <ion-card>
+      <ion-card-header>
+        <ion-label>All Routes</ion-label>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-list>
+          <ion-item *ngFor="let schedule of allRoutes">
+            <ion-label>
+              <div>
+                <strong>{{ getScheduleRoute(schedule) }}</strong>
+              </div>
+              <div>
+                <ion-icon name="time-outline"></ion-icon>
+                <span>{{ getScheduleTime(schedule) }}</span>
+              </div>
+              <div>
+                <ion-icon name="location-outline"></ion-icon>
+                <span>{{ getScheduleDestination(schedule) }}</span>
+              </div>
+              <div>
+                <ion-badge [color]="schedule.status === 'active' ? 'success' : (schedule.status === 'accepted' ? 'secondary' : 'warning')">
+                  {{ schedule.status | uppercase }}
+                </ion-badge>
+              </div>
+            </ion-label>
+          </ion-item>
+        </ion-list>
+        <div *ngIf="allRoutes.length === 0">
+          <span>No routes assigned.</span>
+        </div>
+      </ion-card-content>
+    </ion-card>
+  </ng-container>
+
+  <!-- Quick Actions Floating Button -->
+  <ion-fab vertical="bottom" horizontal="end" slot="fixed">
+    <ion-fab-button color="primary">
+      <ion-icon name="add"></ion-icon>
+    </ion-fab-button>
+    <ion-fab-list side="top">
+      <ion-fab-button color="light">
+        <ion-icon name="locate"></ion-icon>
+      </ion-fab-button>
+      <ion-fab-button color="light">
+        <ion-icon name="warning"></ion-icon>
+      </ion-fab-button>
+      <ion-fab-button color="light">
+        <ion-icon name="call"></ion-icon>
+      </ion-fab-button>
+    </ion-fab-list>
+  </ion-fab>
+</ion-content>

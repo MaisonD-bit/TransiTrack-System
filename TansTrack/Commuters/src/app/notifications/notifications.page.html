@@ -1,0 +1,186 @@
+<ion-header [translucent]="true">
+  <ion-toolbar>
+    <ion-title>
+      Notifications
+      <ion-badge *ngIf="unreadCount > 0" color="danger">{{ unreadCount }}</ion-badge>
+    </ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="markAllAsRead()" *ngIf="unreadCount > 0">
+        <ion-icon name="checkmark-done-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <!-- Search and Filter -->
+  <ion-card class="filters-card">
+    <ion-card-content>
+      <ion-searchbar
+        [(ngModel)]="searchQuery"
+        (ionChange)="onSearchChange()"
+        placeholder="Search notifications..."
+        animated="true">
+      </ion-searchbar>
+
+      <ion-segment [(ngModel)]="filterType" (ionChange)="onFilterChange()" color="primary">
+        <ion-segment-button value="all">
+          <ion-label>All</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="booking_confirmation">
+          <ion-label>Booking</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="schedule_change">
+          <ion-label>Alerts</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="unread">
+          <ion-label>Unread</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+    </ion-card-content>
+  </ion-card>
+
+  <!-- Loading State -->
+  <ion-loading
+    [isOpen]="isLoading"
+    message="Loading notifications..."
+    spinner="circles">
+  </ion-loading>
+
+  <!-- Empty State -->
+  <div *ngIf="!isLoading && displayedNotifications.length === 0" class="empty-state">
+    <ion-icon name="bell-off-outline" size="large"></ion-icon>
+    <h2>No Notifications</h2>
+    <p>You're all caught up! No new notifications.</p>
+  </div>
+
+  <!-- Notifications List -->
+  <ion-list *ngIf="!isLoading && displayedNotifications.length > 0">
+    <ion-item-divider sticky>
+      <ion-label>Recent Activity</ion-label>
+    </ion-item-divider>
+
+    <ion-item-sliding 
+      *ngFor="let notification of displayedNotifications" 
+      class="notification-item">
+      <ion-item 
+        (click)="selectNotification(notification)"
+        [class.unread]="!notification.isRead"
+        button>
+        <ion-icon 
+          [name]="getNotificationIcon(notification.type)" 
+          [color]="getNotificationColor(notification.type)"
+          slot="start">
+        </ion-icon>
+        
+        <ion-label class="notification-label">
+          <h2>{{ notification.title }}</h2>
+          <p class="notification-message">{{ notification.message }}</p>
+          <p class="notification-time">{{ getRelativeTime(notification.timestamp) }}</p>
+        </ion-label>
+
+        <ion-badge 
+          *ngIf="!notification.isRead" 
+          color="danger" 
+          slot="end">
+          NEW
+        </ion-badge>
+      </ion-item>
+
+      <!-- Slide Actions -->
+      <ion-item-options side="end">
+        <ion-item-option color="danger" (click)="deleteNotification(notification.id)">
+          <ion-icon name="trash" slot="icon-only"></ion-icon>
+        </ion-item-option>
+      </ion-item-options>
+    </ion-item-sliding>
+  </ion-list>
+
+  <!-- Notification Details Modal -->
+  <ion-modal [isOpen]="showDetails" (ionModalDidDismiss)="closeDetails()">
+    <ng-template>
+      <ion-header>
+        <ion-toolbar>
+          <ion-buttons slot="start">
+            <ion-back-button (click)="closeDetails()"></ion-back-button>
+          </ion-buttons>
+          <ion-title>Notification Details</ion-title>
+        </ion-toolbar>
+      </ion-header>
+
+      <ion-content *ngIf="selectedNotification">
+        <ion-card>
+          <ion-card-header>
+            <div class="detail-header">
+              <ion-icon 
+                [name]="getNotificationIcon(selectedNotification.type)" 
+                [color]="getNotificationColor(selectedNotification.type)">
+              </ion-icon>
+              <div>
+                <ion-card-title>{{ selectedNotification.title }}</ion-card-title>
+                <ion-card-subtitle>{{ selectedNotification.timestamp | date: 'MMM dd, yyyy HH:mm' }}</ion-card-subtitle>
+              </div>
+            </div>
+          </ion-card-header>
+
+          <ion-card-content>
+            <h3>Message</h3>
+            <p class="message-content">{{ selectedNotification.message }}</p>
+
+            <p class="description" *ngIf="selectedNotification.description">
+              {{ selectedNotification.description }}
+            </p>
+
+            <!-- Booking Confirmation Details -->
+            <div *ngIf="selectedNotification.bookingDetails" class="detail-section">
+              <h3>Booking Information</h3>
+              <ion-item>
+                <ion-label>Route</ion-label>
+                <ion-text slot="end">{{ selectedNotification.bookingDetails.routeName }}</ion-text>
+              </ion-item>
+              <ion-item>
+                <ion-label>Departure Time</ion-label>
+                <ion-text slot="end">{{ selectedNotification.bookingDetails.departureTime | date: 'hh:mm a' }}</ion-text>
+              </ion-item>
+              <ion-item>
+                <ion-label>Booking Reference</ion-label>
+                <ion-text slot="end">{{ selectedNotification.bookingDetails.bookingReference }}</ion-text>
+              </ion-item>
+            </div>
+
+            <!-- Schedule Change Details -->
+            <div *ngIf="selectedNotification.scheduleChangeDetails" class="detail-section">
+              <h3>Schedule Change</h3>
+              <ion-item>
+                <ion-label>Route</ion-label>
+                <ion-text slot="end">{{ selectedNotification.scheduleChangeDetails.routeName }}</ion-text>
+              </ion-item>
+              <ion-item>
+                <ion-label>Previous Time</ion-label>
+                <ion-text slot="end">{{ selectedNotification.scheduleChangeDetails.oldTime | date: 'hh:mm a' }}</ion-text>
+              </ion-item>
+              <ion-item>
+                <ion-label>New Time</ion-label>
+                <ion-text slot="end" class="new-time">{{ selectedNotification.scheduleChangeDetails.newTime | date: 'hh:mm a' }}</ion-text>
+              </ion-item>
+              <ion-item *ngIf="selectedNotification.scheduleChangeDetails.reason">
+                <ion-label>Reason</ion-label>
+                <ion-text slot="end">{{ selectedNotification.scheduleChangeDetails.reason }}</ion-text>
+              </ion-item>
+            </div>
+
+            <!-- Action Button -->
+            <ion-button 
+              expand="block" 
+              color="primary" 
+              *ngIf="selectedNotification.actionUrl"
+              [href]="selectedNotification.actionUrl">
+              <ion-icon name="arrow-forward-outline" slot="start"></ion-icon>
+              Take Action
+            </ion-button>
+          </ion-card-content>
+        </ion-card>
+      </ion-content>
+    </ng-template>
+  </ion-modal>
+</ion-content>

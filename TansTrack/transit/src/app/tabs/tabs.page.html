@@ -1,0 +1,30 @@
+<ion-tabs>
+  <ion-tab-bar slot="bottom">
+    <ion-tab-button tab="home">
+      <ion-icon name="home-outline"></ion-icon>
+      <ion-label>Home</ion-label>
+    </ion-tab-button>
+    
+    <ion-tab-button tab="schedule">
+      <ion-icon name="calendar-outline"></ion-icon>
+      <ion-label>Schedule</ion-label>
+    </ion-tab-button>
+    
+    <ion-tab-button tab="routes">
+      <ion-icon name="map-outline"></ion-icon>
+      <ion-label>Routes</ion-label>
+    </ion-tab-button>
+    
+    <!-- <ion-tab-button tab="security">
+      <ion-icon name="shield-half-outline"></ion-icon>
+      <ion-label>Security</ion-label>
+    </ion-tab-button>
+  </ion-tab-bar> -->
+
+  <ion-tab-button tab="notifications">
+    <ion-icon name="notifications-outline"></ion-icon>
+    <ion-label>Notifications</ion-label>
+    <ion-badge color="danger" *ngIf="unreadCount > 0">{{ unreadCount }}</ion-badge>
+    </ion-tab-button>
+  </ion-tab-bar>
+</ion-tabs>

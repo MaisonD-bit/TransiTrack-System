@@ -1,0 +1,254 @@
+.tab-content {
+  padding: 16px 0;
+}
+
+.action-card,
+.filter-card,
+.search-card,
+.info-card {
+  margin: 16px;
+  border-radius: 12px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  text-align: center;
+  gap: 16px;
+
+  ion-icon {
+    color: var(--ion-color-medium);
+    font-size: 64px;
+  }
+
+  h2 {
+    color: var(--ion-color-dark);
+    font-weight: 600;
+    margin: 0;
+  }
+
+  p {
+    color: var(--ion-color-medium);
+    margin: 8px 0 0 0;
+  }
+}
+
+.ticket-card {
+  margin: 0 16px 12px 16px;
+  border-radius: 12px;
+  border-left: 4px solid var(--ion-color-primary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+  }
+
+  ion-card-content {
+    padding: 16px;
+  }
+
+  .ticket-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+
+    .ticket-title {
+      flex: 1;
+
+      h2 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--ion-color-dark);
+      }
+
+      .ticket-id {
+        margin: 0;
+        font-size: 12px;
+        color: var(--ion-color-medium);
+        font-family: monospace;
+      }
+    }
+
+    ion-badge {
+      margin-left: 8px;
+    }
+  }
+
+  .ticket-description {
+    margin: 12px 0;
+    font-size: 14px;
+    color: var(--ion-color-dark);
+    line-height: 1.4;
+  }
+
+  .ticket-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--ion-color-light);
+    border-bottom: 1px solid var(--ion-color-light);
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ion-color-medium);
+
+      ion-icon {
+        font-size: 16px;
+      }
+
+      span {
+        text-transform: capitalize;
+      }
+    }
+  }
+}
+
+.faq-card {
+  margin: 0 16px 12px 16px;
+  border-radius: 12px;
+
+  ion-card-header {
+    padding: 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--ion-color-light);
+
+    .faq-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+
+      .faq-title {
+        flex: 1;
+
+        h3 {
+          margin: 0;
+          font-size: 15px;
+          font-weight: 600;
+          color: var(--ion-color-dark);
+          line-height: 1.4;
+        }
+      }
+
+      ion-icon {
+        color: var(--ion-color-primary);
+        margin-top: 4px;
+        min-width: 20px;
+      }
+    }
+  }
+
+  ion-card-content {
+    padding: 16px;
+
+    .faq-answer {
+      margin: 0 0 12px 0;
+      line-height: 1.6;
+      color: var(--ion-color-dark);
+      font-size: 14px;
+    }
+
+    ion-button {
+      margin-top: 8px;
+    }
+  }
+}
+
+.info-card {
+  ion-item {
+    --padding-start: 0;
+    --padding-end: 0;
+    margin-bottom: 12px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    ion-icon {
+      margin-right: 12px;
+    }
+
+    ion-label {
+      p {
+        margin: 0 0 4px 0;
+        font-size: 12px;
+        color: var(--ion-color-medium);
+        text-transform: uppercase;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 500;
+      }
+    }
+  }
+}
+
+.detail-badges {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+
+  ion-badge {
+    padding: 6px 10px;
+  }
+}
+
+.responses-list {
+  margin-top: 16px;
+
+  .response {
+    margin-bottom: 16px;
+    padding: 12px;
+    background-color: var(--ion-color-light);
+    border-radius: 8px;
+    border-left: 3px solid var(--ion-color-primary);
+
+    .response-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+
+      strong {
+        color: var(--ion-color-primary);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .time {
+        font-size: 11px;
+        color: var(--ion-color-medium);
+      }
+    }
+
+    .response-message {
+      margin: 0;
+      color: var(--ion-color-dark);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+  }
+}
+
+ion-segment {
+  margin-bottom: 12px;
+}
+
+ion-button {
+  margin: 8px 0;
+}

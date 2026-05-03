@@ -1,0 +1,242 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-buttons slot="start">
+      <ion-back-button defaultHref="/fare-calculator"></ion-back-button>
+    </ion-buttons>
+    <ion-title>Payment</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <div class="payment-container">
+    
+    <!-- Payment Summary -->
+    <ion-card class="summary-card">
+      <ion-card-header>
+        <ion-card-title>
+          <ion-icon name="receipt" color="primary"></ion-icon>
+          Payment Summary
+        </ion-card-title>
+      </ion-card-header>
+      
+      <ion-card-content *ngIf="paymentData">
+        <div class="trip-summary">
+          <div class="route-info">
+            <div class="location-row">
+              <ion-icon name="location" color="success"></ion-icon>
+              <span>{{ paymentData.origin }}</span>
+            </div>
+            <div class="route-arrow">
+              <ion-icon name="arrow-forward"></ion-icon>
+            </div>
+            <div class="location-row">
+              <ion-icon name="flag" color="danger"></ion-icon>
+              <span>{{ paymentData.destination }}</span>
+            </div>
+          </div>
+          
+          <div class="passenger-info">
+            <ion-chip color="primary">
+              <ion-icon name="person"></ion-icon>
+              <ion-label>{{ paymentData.passengerType }}</ion-label>
+            </ion-chip>
+          </div>
+        </div>
+        
+        <div class="fare-breakdown">
+          <div class="fare-row">
+            <span>Base Fare</span>
+            <span>₱{{ paymentData.fare.toFixed(2) }}</span>
+          </div>
+          <div class="fare-row" *ngIf="paymentData.discount">
+            <span class="discount">{{ paymentData.passengerType }} Discount</span>
+            <span class="discount">-₱{{ paymentData.discount.toFixed(2) }}</span>
+          </div>
+          <div class="fare-row total">
+            <span><strong>Total Amount</strong></span>
+            <span class="amount"><strong>₱{{ paymentData.finalAmount.toFixed(2) }}</strong></span>
+          </div>
+        </div>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Payment Methods -->
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>
+          <ion-icon name="card" color="secondary"></ion-icon>
+          Payment Method
+        </ion-card-title>
+      </ion-card-header>
+      
+      <ion-card-content>
+        <ion-list>
+          <ion-item 
+            *ngFor="let method of paymentMethods" 
+            [class.selected]="selectedPaymentMethod === method.id"
+            [disabled]="!method.enabled"
+            (click)="selectPaymentMethod(method.id)"
+            button>
+            
+            <ion-icon [name]="method.icon" [color]="method.enabled ? 'primary' : 'medium'" slot="start"></ion-icon>
+            
+            <ion-label>
+              <h3>{{ method.name }}</h3>
+              <p>{{ method.description }}</p>
+              <p *ngIf="!method.enabled" class="coming-soon">Coming Soon</p>
+            </ion-label>
+            
+            <ion-radio 
+              slot="end" 
+              [value]="method.id" 
+              [(ngModel)]="selectedPaymentMethod"
+              [disabled]="!method.enabled">
+            </ion-radio>
+            
+            <ion-button 
+              *ngIf="method.id === 'paymaya'" 
+              fill="clear" 
+              size="small" 
+              (click)="showPayMayaInfo(); $event.stopPropagation()"
+              slot="end">
+              <ion-icon name="information-circle"></ion-icon>
+            </ion-button>
+          </ion-item>
+        </ion-list>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Payment Form -->
+    <ion-card *ngIf="selectedPaymentMethod === 'paymaya'">
+      <ion-card-header>
+        <ion-card-title>
+          <ion-icon name="person" color="tertiary"></ion-icon>
+          Billing Information
+        </ion-card-title>
+      </ion-card-header>
+      
+      <ion-card-content>
+        <form [formGroup]="paymentForm">
+          <ion-item>
+            <ion-label position="stacked">Email Address *</ion-label>
+            <ion-input 
+              type="email" 
+              placeholder="Enter your email"
+              formControlName="email"
+              [class.ng-invalid]="paymentForm.get('email')?.invalid && paymentForm.get('email')?.touched">
+            </ion-input>
+          </ion-item>
+          
+          <ion-item>
+            <ion-label position="stacked">Phone Number *</ion-label>
+            <ion-input 
+              type="tel" 
+              placeholder="09XXXXXXXXX"
+              formControlName="phoneNumber"
+              maxlength="11"
+              [class.ng-invalid]="paymentForm.get('phoneNumber')?.invalid && paymentForm.get('phoneNumber')?.touched">
+            </ion-input>
+          </ion-item>
+
+          <!-- Form Validation Messages -->
+          <div class="validation-messages">
+            <p *ngIf="paymentForm.get('email')?.errors?.['required'] && paymentForm.get('email')?.touched" 
+               class="error-message">
+              Email address is required
+            </p>
+            <p *ngIf="paymentForm.get('email')?.errors?.['email'] && paymentForm.get('email')?.touched" 
+               class="error-message">
+              Please enter a valid email address
+            </p>
+            <p *ngIf="paymentForm.get('phoneNumber')?.errors?.['required'] && paymentForm.get('phoneNumber')?.touched" 
+               class="error-message">
+              Phone number is required
+            </p>
+            <p *ngIf="paymentForm.get('phoneNumber')?.errors?.['pattern'] && paymentForm.get('phoneNumber')?.touched" 
+               class="error-message">
+              Please enter a valid Philippine mobile number (09XXXXXXXXX)
+            </p>
+          </div>
+          
+          <!-- Terms and Conditions -->
+          <ion-item>
+            <ion-checkbox formControlName="terms" slot="start"></ion-checkbox>
+            <ion-label class="ion-text-wrap">
+              I agree to the <a href="#" class="terms-link">Terms and Conditions</a> 
+              and <a href="#" class="terms-link">Privacy Policy</a>
+            </ion-label>
+          </ion-item>
+        </form>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Security Notice -->
+    <ion-card class="security-card">
+      <ion-card-content>
+        <div class="security-notice">
+          <ion-icon name="shield-checkmark" color="success"></ion-icon>
+          <div>
+            <h4>Secure Payment</h4>
+            <p>Your payment information is encrypted and secure. We never store your credit card details.</p>
+          </div>
+        </div>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Payment Button -->
+    <div class="payment-actions">
+      <ion-button 
+        expand="block" 
+        color="success"
+        size="large"
+        [disabled]="!paymentForm.valid || processing"
+        (click)="processPayment()">
+        
+        <ion-spinner *ngIf="processing" name="crescent"></ion-spinner>
+        <ion-icon *ngIf="!processing" name="card" slot="start"></ion-icon>
+        <span *ngIf="!processing">
+          Pay ₱{{ paymentData?.finalAmount?.toFixed(2) || '0.00' }}
+        </span>
+        <span *ngIf="processing">Processing...</span>
+      </ion-button>
+    </div>
+
+    <!-- Help Section -->
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>
+          <ion-icon name="help-circle" color="warning"></ion-icon>
+          Payment Help
+        </ion-card-title>
+      </ion-card-header>
+      
+      <ion-card-content>
+        <ion-list>
+          <ion-item>
+            <ion-icon name="time" color="primary" slot="start"></ion-icon>
+            <ion-label class="ion-text-wrap">
+              <h3>Payment Processing</h3>
+              <p>Payments are processed instantly. You'll receive your e-ticket immediately after successful payment.</p>
+            </ion-label>
+          </ion-item>
+          
+          <ion-item>
+            <ion-icon name="refresh-circle" color="warning" slot="start"></ion-icon>
+            <ion-label class="ion-text-wrap">
+              <h3>Refunds</h3>
+              <p>Refunds are available up to 1 hour before departure. Processing time: 3-5 business days.</p>
+            </ion-label>
+          </ion-item>
+          
+          <ion-item>
+            <ion-icon name="call" color="success" slot="start"></ion-icon>
+            <ion-label class="ion-text-wrap">
+              <h3>Need Help?</h3>
+              <p>Contact our support team at (02) 123-4567 or support&#64;transitapp.com</p>
+            </ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-card-content>
+    </ion-card>
+  </div>
+</ion-content>

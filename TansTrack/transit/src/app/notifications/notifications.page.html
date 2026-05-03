@@ -1,0 +1,100 @@
+<ion-header>
+  <ion-toolbar color="primary">
+    <ion-buttons slot="start">
+      <ion-back-button defaultHref="/tabs/home"></ion-back-button>
+    </ion-buttons>
+    <ion-title>Notifications</ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="markAllAsRead()" *ngIf="unreadCount > 0">
+        <ion-icon slot="icon-only" name="checkmark-done"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <ion-refresher slot="fixed" (ionRefresh)="doRefresh($event)">
+    <ion-refresher-content></ion-refresher-content>
+  </ion-refresher>
+
+  <!-- Unread Badge -->
+  <div class="notification-summary" *ngIf="unreadCount > 0">
+    <ion-chip color="primary">
+      <ion-icon name="notifications"></ion-icon>
+      <ion-label>{{ unreadCount }} unread notification{{ unreadCount > 1 ? 's' : '' }}</ion-label>
+    </ion-chip>
+  </div>
+
+  <!-- Loading Spinner -->
+  <div class="loading-container" *ngIf="loading">
+    <ion-spinner name="crescent"></ion-spinner>
+    <p>Loading notifications...</p>
+  </div>
+
+  <!-- Empty State -->
+  <div class="empty-state" *ngIf="!loading && notifications.length === 0">
+    <ion-icon name="notifications-off-outline"></ion-icon>
+    <h3>No Notifications</h3>
+    <p>You're all caught up! New notifications will appear here.</p>
+  </div>
+
+  <!-- Notifications List -->
+  <ion-list *ngIf="!loading && notifications.length > 0">
+    <ion-item-sliding *ngFor="let notification of notifications">
+      <ion-item [class.unread]="!notification.is_read" (click)="markAsRead(notification)">
+        <ion-icon 
+          [name]="getNotificationIcon(notification.type)" 
+          [color]="getNotificationColor(notification.type)" 
+          slot="start"
+          class="notification-icon">
+        </ion-icon>
+        
+        <ion-label>
+          <h2>
+            <strong>{{ getNotificationTitle(notification.type) }}</strong>
+            <ion-badge *ngIf="!notification.is_read" color="primary" class="unread-badge">New</ion-badge>
+          </h2>
+          <p class="notification-message">{{ notification.message }}</p>
+          
+          <div class="notification-meta">
+            <ion-note *ngIf="notification.sender">
+              <ion-icon name="person" size="small"></ion-icon>
+              From: {{ notification.sender.name }}
+            </ion-note>
+            <ion-note>
+              <ion-icon name="time" size="small"></ion-icon>
+              {{ notification.created_at | date: 'MMM d, y, h:mm a' }}
+            </ion-note>
+          </div>
+
+          <div class="notification-details notification-assignments" *ngIf="notification.schedule || notification.bus || notification.assigned_route_label">
+            <p class="assignment-line ion-text-wrap" *ngIf="notification.assigned_route_label">
+              <ion-icon name="map-outline" color="primary"></ion-icon>
+              <strong>Assigned route:</strong> {{ notification.assigned_route_label }}
+            </p>
+            <p class="assignment-line" *ngIf="notification.schedule_date || notification.schedule_start_time">
+              <ion-icon name="time-outline" color="medium"></ion-icon>
+              <span *ngIf="notification.schedule_date">{{ notification.schedule_date }}</span>
+              <span *ngIf="notification.schedule_date && notification.schedule_start_time"> · </span>
+              <span *ngIf="notification.schedule_start_time">{{ notification.schedule_start_time }}</span>
+            </p>
+            <ion-chip color="light" *ngIf="notification.schedule">
+              <ion-icon name="calendar"></ion-icon>
+              <ion-label>Schedule #{{ notification.schedule.id }}</ion-label>
+            </ion-chip>
+            <ion-chip color="light" *ngIf="notification.bus">
+              <ion-icon name="bus"></ion-icon>
+              <ion-label>{{ notification.bus.bus_number }}</ion-label>
+            </ion-chip>
+          </div>
+        </ion-label>
+      </ion-item>
+
+      <ion-item-options side="end">
+        <ion-item-option color="primary" (click)="markAsRead(notification)" *ngIf="!notification.is_read">
+          <ion-icon slot="icon-only" name="checkmark"></ion-icon>
+        </ion-item-option>
+      </ion-item-options>
+    </ion-item-sliding>
+  </ion-list>
+</ion-content>

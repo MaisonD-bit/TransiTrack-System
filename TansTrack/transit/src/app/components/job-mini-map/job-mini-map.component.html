@@ -1,0 +1,8 @@
+<div class="mini-map-container" [style.height]="height">
+  <div *ngIf="error" class="error-message">
+    <ion-icon name="location-outline"></ion-icon>
+    <p>{{error}}</p>
+  </div>
+  
+  <div [id]="mapId" class="mini-map"></div>
+</div>

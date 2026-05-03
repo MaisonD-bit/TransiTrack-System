@@ -1,0 +1,193 @@
+// Header Styling
+.app-logo {
+  font-size: 1.5rem;
+  color: white;
+}
+
+// Greeting Card
+.greeting-card {
+  margin: 16px;
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  background: linear-gradient(135deg, var(--ion-color-primary), var(--ion-color-secondary));
+
+  ion-card-content {
+    padding: 24px;
+    color: white;
+
+    .greeting-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      .greeting-text {
+        flex: 1;
+
+        h2 {
+          margin: 0 0 4px 0;
+          font-size: 1.5rem;
+          font-weight: 600;
+        }
+
+        p {
+          margin: 0;
+          font-size: 1rem;
+          opacity: 0.9;
+        }
+      }
+
+      .notifications-icon {
+        ion-icon {
+          font-size: 1.8rem;
+          cursor: pointer;
+        }
+      }
+    }
+  }
+}
+
+// Schedule Card
+.schedule-card {
+  margin: 16px;
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+
+  ion-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+
+    ion-card-title {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .status-badge {
+      font-size: 0.8rem;
+      padding: 4px 8px;
+    }
+  }
+
+  ion-card-content {
+    padding-top: 8px;
+
+    .schedule-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+
+      ion-icon {
+        margin-right: 12px;
+        font-size: 1.1rem;
+        color: var(--ion-color-medium);
+      }
+
+      span {
+        flex: 1;
+      }
+    }
+  }
+}
+
+// Stat Card
+.stat-card {
+  margin: 8px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  ion-card-content {
+    padding: 16px;
+
+    .stat-icon {
+      ion-icon {
+        font-size: 2.5rem;
+        margin-bottom: 8px;
+      }
+    }
+
+    .passenger-number {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin: 4px 0;
+    }
+
+    .passenger-label {
+      font-size: 0.9rem;
+      color: var(--ion-color-medium);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  }
+}
+
+// Quick Actions Card
+.quick-actions-card {
+  margin: 16px;
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+
+  .action-btn {
+    --border-color: var(--ion-color-primary);
+    --color: var(--ion-color-primary);
+    --border-width: 2px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    height: 48px;
+    font-weight: 600;
+    text-transform: none;
+
+    &.start-route {
+      --background: var(--ion-color-success);
+      --color: white;
+    }
+
+    &.report-issue {
+      --border-color: var(--ion-color-warning);
+      --color: var(--ion-color-warning);
+    }
+
+    &.emergency {
+      --background: var(--ion-color-danger);
+      --color: white;
+    }
+
+    ion-icon {
+      font-size: 1.2rem;
+    }
+  }
+}
+
+// Notifications Card
+.notifications-card {
+  margin: 16px 16px 32px 16px; // Extra bottom margin
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+
+  ion-item {
+    --padding-start: 0;
+    --inner-padding-end: 0;
+    --min-height: 60px;
+
+    ion-label {
+      h3 {
+        font-weight: 500;
+        margin: 0 0 2px 0;
+        font-size: 0.95rem;
+      }
+
+      p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--ion-color-medium);
+      }
+    }
+
+    ion-note {
+      font-size: 0.8rem;
+      color: var(--ion-color-medium-shade);
+    }
+  }
+}

@@ -1,0 +1,20 @@
+<ion-header>
+  <ion-toolbar>
+    <ion-title>Route Map</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <!-- Route Filter -->
+  <ion-segment [(ngModel)]="selectedRoute" (ionChange)="filterByRoute($event.detail.value)">
+    <ion-segment-button value="">
+      <ion-label>All Routes</ion-label>
+    </ion-segment-button>
+    <ion-segment-button *ngFor="let route of routes" [value]="route.id">
+      <ion-label>{{route.name.split(':')[1]}}</ion-label>
+    </ion-segment-button>
+  </ion-segment>
+
+  <!-- Map Container -->
+  <div id="map" class="map-container"></div>
+</ion-content>

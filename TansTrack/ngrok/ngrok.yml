@@ -1,0 +1,46 @@
+# ngrok configuration file
+# Replace YOUR_AUTH_TOKEN with your actual ngrok auth token
+authtoken: 33CGYkfr36gIYGh5oitKPp9LBYE_NseT8Z5BZfZyHWC94WdR
+
+# Tunnel configurations
+tunnels:
+  # For Ionic dev server (default port 8100)
+  ionic-dev:
+    addr: 8100
+    proto: http
+    subdomain: your-app-name-dev
+    
+  # For Angular dev server (default port 4200)
+  angular-dev:
+    addr: 4200
+    proto: http
+    subdomain: your-app-name-ng
+    
+  # For Laravel backend (if running on port 8000)
+  laravel-api:
+    addr: 8000
+    proto: http
+    subdomain: your-app-api
+    
+  # HTTPS tunnel for production-like testing
+  secure-tunnel:
+    addr: 8100
+    proto: http
+    subdomain: your-app-secure
+
+# Global configuration
+web_addr: localhost:4040
+console_ui: true
+log_level: info
+log_format: logfmt
+log: ./ngrok/logs/ngrok.log
+
+# Region settings (choose closest to your location)
+# us - United States
+# eu - Europe  
+# ap - Asia/Pacific
+# au - Australia
+# sa - South America
+# jp - Japan
+# in - India
+region: us
