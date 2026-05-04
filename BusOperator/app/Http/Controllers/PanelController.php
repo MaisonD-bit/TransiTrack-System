@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Schedule;
 use App\Models\Route;
 use App\Models\Bus;
-use App\Models\Driver; 
+use App\Models\Driver;
+use App\Models\Notification;
+use App\Models\RouteApprovalRequest;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -128,6 +131,44 @@ class PanelController extends Controller
             'activeSchedules' => Schedule::where('user_id', $userId)->where('status', 'active')->count(),
             'completedSchedules' => Schedule::where('user_id', $userId)->whereDate('date', today())->where('status', 'completed')->count(),
             'pendingSchedules' => Schedule::where('user_id', $userId)->whereDate('date', today())->where('status', 'scheduled')->count(),
+        ]);
+    }
+
+    /**
+     * Single poll for unread notification count + a sync fingerprint of operator-owned records.
+     * Excludes high-churn ticket rows so Trip Logs can keep using its own JSON poll without full reloads.
+     */
+    public function operatorSync(): JsonResponse
+    {
+        $userId = Auth::id();
+        if (! $userId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $unread = Notification::query()
+            ->where('recipient_id', $userId)
+            ->whereNull('sender_id')
+            ->where('is_read', false)
+            ->count();
+
+        $ts = static fn ($v) => $v ? (string) $v : '0';
+
+        $parts = [
+            'n_in' => $ts(Notification::query()->where('recipient_id', $userId)->max('created_at')),
+            'n_out' => $ts(Notification::query()->where('sender_id', $userId)->max('created_at')),
+            'sch' => $ts(Schedule::query()->where('user_id', $userId)->max('updated_at')),
+            'rte' => $ts(Route::query()->where('user_id', $userId)->max('updated_at')),
+            'bus' => $ts(Bus::query()->where('user_id', $userId)->max('updated_at')),
+            'drv' => $ts(Driver::query()->where('user_id', $userId)->max('updated_at')),
+            'apr' => $ts(RouteApprovalRequest::query()->where('operator_user_id', $userId)->max('updated_at')),
+        ];
+
+        $syncToken = md5(json_encode($parts));
+
+        return response()->json([
+            'success' => true,
+            'unread_notifications' => $unread,
+            'sync_token' => $syncToken,
         ]);
     }
 }

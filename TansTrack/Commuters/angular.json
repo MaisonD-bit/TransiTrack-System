@@ -14,6 +14,7 @@
           "builder": "@angular-devkit/build-angular:browser-esbuild",
           "options": {
             "outputPath": "www",
+            "baseHref": "./",
             "index": "src/index.html",
             "main": "src/main.ts",
             "polyfills": "src/polyfills.ts",
@@ -37,7 +38,15 @@
                 "output": "assets"
               }
             ],
-            "styles": ["node_modules/mapbox-gl/dist/mapbox-gl.css", "src/global.scss", "src/theme/variables.scss"],
+            "styles": [
+              "node_modules/mapbox-gl/dist/mapbox-gl.css",
+              "src/global.scss",
+              "src/theme/login-global.scss",
+              "src/theme/register-global.scss",
+              "src/theme/home-global.scss",
+              "src/theme/tabs-global.scss",
+              "src/theme/variables.scss"
+            ],
             "scripts": []
           },
           "configurations": {
@@ -60,7 +69,14 @@
                   "with": "src/environments/environment.prod.ts"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "optimization": {
+                "scripts": true,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                }
+              }
             },
             "development": {
               "optimization": false,
@@ -113,7 +129,14 @@
                 "output": "./svg"
               }
             ],
-            "styles": ["src/global.scss", "src/theme/variables.scss"],
+            "styles": [
+              "src/global.scss",
+              "src/theme/login-global.scss",
+              "src/theme/register-global.scss",
+              "src/theme/home-global.scss",
+              "src/theme/tabs-global.scss",
+              "src/theme/variables.scss"
+            ],
             "scripts": []
           },
           "configurations": {

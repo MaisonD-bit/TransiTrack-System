@@ -1,5 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { TripHistoryService } from '../services/trip-history.service';
+import { CommuterService } from '../services/commuter.service';
 import { Subscription } from 'rxjs';
 import { ToastController, LoadingController, AlertController, ViewWillEnter } from '@ionic/angular';
 
@@ -40,6 +41,7 @@ export class TripHistoryPage implements OnInit, OnDestroy, ViewWillEnter {
 
   constructor(
     private tripHistoryService: TripHistoryService,
+    private commuterService: CommuterService,
     private toastController: ToastController,
     private loadingController: LoadingController,
     private alertController: AlertController
@@ -94,6 +96,25 @@ export class TripHistoryPage implements OnInit, OnDestroy, ViewWillEnter {
     });
 
     this.subscriptions.push(sub);
+  }
+
+  /** Safe for ISO strings or pre-formatted times (avoids DatePipe on "11:01 PM"). */
+  formatTripTime(raw: unknown): string {
+    if (raw == null || raw === '') return '—';
+    const d = new Date(raw as string);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    return String(raw);
+  }
+
+  formatTripDate(raw: unknown): string {
+    if (raw == null || raw === '') return '—';
+    const d = new Date(raw as string);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-PH', { month: 'short', day: '2-digit', year: 'numeric' });
+    }
+    return String(raw);
   }
 
   applyFiltersAndSort() {
@@ -222,6 +243,41 @@ Status: ${this.selectedTrip.status}
       default:
         return 'medium';
     }
+  }
+
+  async markTripAsArrived(trip: Trip) {
+    const confirm = await this.alertController.create({
+      header: 'Mark trip complete?',
+      message: 'Use this when you have reached your stop. Your seat will be released on the operator side.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: "I've arrived",
+          handler: () => {
+            this.commuterService.alight(trip.id).subscribe({
+              error: (e) => console.warn('alight failed', e),
+            });
+            const arrived = new Date().toISOString();
+            const dep = new Date(trip.departureTime as string).getTime();
+            const arr = new Date(arrived).getTime();
+            let duration = '';
+            if (!Number.isNaN(dep) && !Number.isNaN(arr) && arr > dep) {
+              const mins = Math.round((arr - dep) / 60000);
+              duration = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+            }
+            this.tripHistoryService.updateLocalTrip(trip.id, {
+              status: 'completed',
+              arrivalTime: arrived,
+              duration,
+            });
+            void this.showToast('Trip marked complete.', 'success');
+            this.closeDetails();
+            this.loadTrips();
+          },
+        },
+      ],
+    });
+    await confirm.present();
   }
 
   async showToast(message: string, color: string) {

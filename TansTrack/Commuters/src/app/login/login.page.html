@@ -1,6 +1,4 @@
-<ion-header></ion-header>
-
-<ion-content class="ion-padding">
+<ion-content class="ion-padding" [scrollY]="true">
   <div class="login-container">
 
     <form [formGroup]="loginForm" (ngSubmit)="login()">
@@ -10,12 +8,15 @@
       <h1>TransiTrack</h1>
     </div>
 
-      <ion-label class="field-label">
-        <ion-icon name="mail-outline"></ion-icon>
-        Email
-      </ion-label>
-      <ion-item>
-        <ion-input type="email" formControlName="email" placeholder="Email"></ion-input>
+      <ion-item lines="none" class="field-item">
+        <ion-input
+          type="email"
+          formControlName="email"
+          label="Email"
+          labelPlacement="stacked"
+          placeholder="Enter your email">
+          <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
+        </ion-input>
       </ion-item>
       <ion-note color="danger" *ngIf="loginForm.get('email')?.touched && loginForm.get('email')?.hasError('required')">
         Email is required
@@ -24,12 +25,15 @@
         Please enter a valid email
       </ion-note>
 
-      <ion-label class="field-label">
-        <ion-icon name="lock-closed-outline"></ion-icon>
-        Password
-      </ion-label>
-      <ion-item>
-        <ion-input type="password" formControlName="password" placeholder="Password"></ion-input>
+      <ion-item lines="none" class="field-item">
+        <ion-input
+          type="password"
+          formControlName="password"
+          label="Password"
+          labelPlacement="stacked"
+          placeholder="Enter your password">
+          <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
+        </ion-input>
       </ion-item>
       <ion-note color="danger" *ngIf="loginForm.get('password')?.touched && loginForm.get('password')?.hasError('required')">
         Password is required

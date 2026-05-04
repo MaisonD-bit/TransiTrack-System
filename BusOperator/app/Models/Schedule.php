@@ -18,6 +18,7 @@ class Schedule extends Model
         'date',
         'start_time',
         'end_time',
+        'ends_next_day',
         'status',
         'fare_regular',
         'fare_aircon',
@@ -40,6 +41,7 @@ class Schedule extends Model
         'fare_aircon' => 'decimal:2',
         'actual_stops' => 'array',
         'passengers' => 'integer',
+        'ends_next_day' => 'boolean',
         'accepted_at' => 'datetime',
         'declined_at' => 'datetime',
         'started_at' => 'datetime',
@@ -90,6 +92,32 @@ class Schedule extends Model
     public function scopeByStatus($query, $status)
     {
         return $query->where('status', $status);
+    }
+
+    /**
+     * Real trip window: start at date + start_time; end at date + end_time, or +1 day if ends_next_day.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    public function windowBounds(): array
+    {
+        $d = $this->date instanceof \Carbon\CarbonInterface
+            ? $this->date->format('Y-m-d')
+            : Carbon::parse((string) $this->date)->format('Y-m-d');
+        $st = $this->start_time instanceof \Carbon\CarbonInterface
+            ? $this->start_time->format('H:i')
+            : Carbon::parse((string) $this->start_time)->format('H:i');
+        $en = $this->end_time instanceof \Carbon\CarbonInterface
+            ? $this->end_time->format('H:i')
+            : Carbon::parse((string) $this->end_time)->format('H:i');
+
+        $start = Carbon::parse("{$d} {$st}");
+        $end = Carbon::parse("{$d} {$en}");
+        if ($this->ends_next_day) {
+            $end->addDay();
+        }
+
+        return [$start, $end];
     }
 
     // Accessors

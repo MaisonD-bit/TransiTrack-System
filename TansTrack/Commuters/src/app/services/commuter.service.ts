@@ -33,6 +33,29 @@ function parseStoredCoord(value: any): [number, number] | null {
   }
 }
 
+/** Ensure map gets a GeoJSON LineString (unwrap Feature / parse string). */
+function normalizeLineStringGeometry(raw: unknown): { type: 'LineString'; coordinates: number[][] } | null {
+  let g: any = raw;
+  if (g == null) return null;
+  if (typeof g === 'string') {
+    try {
+      let p: any = g;
+      let guard = 0;
+      while (typeof p === 'string' && guard++ < 4) p = JSON.parse(p);
+      g = p;
+    } catch {
+      return null;
+    }
+  }
+  if (g?.type === 'Feature' && g.geometry) {
+    g = g.geometry;
+  }
+  if (g?.type === 'LineString' && Array.isArray(g.coordinates) && g.coordinates.length >= 2) {
+    return g;
+  }
+  return null;
+}
+
 export interface LiveRoute {
   id: string;
   scheduleId?: number; // NEW: Track which schedule this route belongs to
@@ -52,6 +75,21 @@ export interface LiveRoute {
   stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number }>;
   approval_request_id?: number;
   bus_type?: string;
+}
+
+export interface LiveBusTrip {
+  schedule_id: number;
+  status: string;
+  bus_number: string;
+  plate_number: string;
+  bus_company: string;
+  capacity: number;
+  aboard: number;
+  is_full: boolean;
+  driver_name: string;
+  operator_company: string;
+  start_time: string | null;
+  position: { lng: number; lat: number } | null;
 }
 
 @Injectable({
@@ -138,12 +176,20 @@ export class CommuterService {
                 geometry = null;
               }
             }
+            const line = normalizeLineStringGeometry(geometry);
+            if (line) {
+              geometry = line;
+            }
             const base =
               this.busType === 'aircon'
                 ? parseFloat(route.aircon_price) || 0
                 : parseFloat(route.regular_price) || 0;
             return {
               id: String(route.route_id),
+              scheduleId:
+                route.schedule_id != null && route.schedule_id !== ''
+                  ? Number(route.schedule_id)
+                  : undefined,
               name: route.name,
               basefare: base,
               geometry,
@@ -183,6 +229,10 @@ export class CommuterService {
               } catch (e) {
                 geometry = null;
               }
+            }
+            const line = normalizeLineStringGeometry(geometry);
+            if (line) {
+              geometry = line;
             }
             return {
               id: route.id.toString(),
@@ -239,11 +289,11 @@ export class CommuterService {
 
     const body = {
       route_id: routeId,
-      passenger_type: passengerType
+      passenger_type: passengerType,
+      bus_type: this.busType,
     };
 
-    // Backend route is /api/v1/fare/calculate
-    return this.http.post<any>(`${this.apiUrl}/v1/fare/calculate`, body, { headers });
+    return this.http.post<any>(`${this.apiUrl}/commuter/fare-calculate`, body, { headers });
   }
 
   /**
@@ -261,5 +311,68 @@ export class CommuterService {
       }
     }
     return 'Regular';
+  }
+
+  /**
+   * Register e-ticket with the operator (trip logs + driver boarding list).
+   */
+  bookTicket(payload: {
+    route_id: number;
+    schedule_id?: number;
+    public_ticket_id: string;
+    fare: number;
+    commuter_id?: number;
+    payment_method?: string;
+  }): Observable<{ success: boolean; message?: string; data?: { id: number; public_ticket_id: string; schedule_id: number } }> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/commuter/book-ticket`, payload, { headers });
+  }
+
+  getLiveBuses(
+    routeId: string,
+    terminal: 'north' | 'south'
+  ): Observable<{ success: boolean; buses?: LiveBusTrip[]; message?: string; updated_at?: string }> {
+    const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
+    const params = new URLSearchParams({
+      route_id: String(routeId),
+      terminal,
+      bus_type: this.busType,
+    });
+    return this.http.get<any>(`${this.apiUrl}/commuter/live-buses?${params.toString()}`, { headers });
+  }
+
+  fareSegment(payload: {
+    route_id: number;
+    from_stop_index: number;
+    to_stop_index: number;
+    approval_request_id?: number;
+  }): Observable<any> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    const body = {
+      route_id: payload.route_id,
+      bus_type: this.busType,
+      from_stop_index: payload.from_stop_index,
+      to_stop_index: payload.to_stop_index,
+      approval_request_id: payload.approval_request_id,
+      passenger_type: this.getPassengerType(),
+    };
+    return this.http.post<any>(`${this.apiUrl}/commuter/fare-segment`, body, { headers });
+  }
+
+  /** Tell the backend the commuter has left the bus (aboard count drops; revenue unchanged). */
+  alight(publicTicketId: string): Observable<{ success: boolean; message?: string }> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/commuter/alight`, { public_ticket_id: publicTicketId }, {
+      headers,
+    });
   }
 }

@@ -1,8 +1,15 @@
 export const environment = {
   production: false,
-  // Must match the https URL in `ngrok` “Forwarding” (free tier changes when you restart ngrok).
-  apiUrl: 'https://4740-113-19-183-82.ngrok-free.app/api/v1',
-  // apiUrl: 'http://192.168.1.2:8000/api/v1', // Use local IP only if on same WiFi
+  /**
+   * Local Laravel (`php artisan serve` → :8000). Ionic (`ionic serve` → :8100) calls this URL cross-origin;
+   * BusOperator `config/cors.php` allows it — no ngrok/CORS interstitial issues.
+   *
+   * Free ngrok URLs change every restart; the bundled app only picks up a new URL after you edit this
+   * value and rebuild/restart `ionic serve`. For phone/LAN testing use your LAN IP, e.g.
+   * `http://192.168.x.x:8000/api/v1`. To hit the tunnel from a device, paste the current Forwarding URL:
+   * `https://xxxx.ngrok-free.app/api/v1` (expect ngrok browser-warning quirks on OPTIONS unless using a paid/reserved domain).
+   */
+  apiUrl: 'http://localhost:8000/api/v1',
   ocrApiKey: 'K87693276688957',
 
   messaging: {  
@@ -12,7 +19,7 @@ export const environment = {
   },
  
   mapbox: {
-    accessToken: 'mapboxToken'
+    accessToken: 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA'
   },
 
   /** Matches terminal manager / approved route packages (north | south) */

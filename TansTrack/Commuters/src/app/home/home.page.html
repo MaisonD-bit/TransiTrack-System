@@ -1,4 +1,4 @@
-<ion-header [translucent]="true">
+<ion-header [translucent]="false">
   <ion-toolbar color="primary">
     <ion-title>TransiTrack</ion-title>
     <ion-buttons slot="end">
@@ -6,7 +6,7 @@
   </ion-toolbar>
 </ion-header>
 
-<ion-content [fullscreen]="true">
+<ion-content [fullscreen]="false">
 
   <!-- Hero Banner -->
   <div class="hero-banner">
@@ -32,8 +32,8 @@
         class="route-select"
         [(ngModel)]="commuterTerminal"
         (ionChange)="onTerminalChange()"
-        interface="action-sheet"
-        label="Terminal"
+        interface="popover"
+        label="Service area (terminal)"
         labelPlacement="stacked">
         <ion-select-option value="north">North terminal</ion-select-option>
         <ion-select-option value="south">South terminal</ion-select-option>
@@ -53,7 +53,7 @@
         [(ngModel)]="selectedRouteId"
         (ionChange)="onRouteSelected()"
         placeholder="Select your destination"
-        interface="action-sheet"
+        interface="popover"
         label="Route"
         labelPlacement="stacked">
         <ion-select-option *ngFor="let route of routes" [value]="route.id">
@@ -61,12 +61,41 @@
         </ion-select-option>
       </ion-select>
 
+      <ng-container *ngIf="selectedRoute?.stops?.length && selectedRoute!.stops!.length >= 2">
+        <ion-select
+          class="route-select ion-margin-top"
+          [(ngModel)]="fromStopIndex"
+          (ionChange)="onSegmentStopsChange()"
+          interface="popover"
+          label="Board at"
+          labelPlacement="stacked">
+          <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
+            {{ s.name || ('Stop ' + (i + 1)) }}
+          </ion-select-option>
+        </ion-select>
+
+        <ion-select
+          class="route-select ion-margin-top"
+          [(ngModel)]="toStopIndex"
+          (ionChange)="onSegmentStopsChange()"
+          interface="popover"
+          label="Alight at"
+          labelPlacement="stacked">
+          <ion-select-option
+            *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
+            [value]="i"
+            [disabled]="i <= fromStopIndex">
+            {{ s.name || ('Stop ' + (i + 1)) }}
+          </ion-select-option>
+        </ion-select>
+      </ng-container>
+
       <ion-select
-        *ngIf="selectedRoute?.stops?.length"
+        *ngIf="selectedRoute?.stops?.length === 1"
         class="route-select ion-margin-top"
         [(ngModel)]="stopChoice"
         (ionChange)="onStopChoiceChange()"
-        interface="action-sheet"
+        interface="popover"
         label="Alight at (fare by distance)"
         labelPlacement="stacked">
         <ion-select-option value="terminus">Final stop — full route fare</ion-select-option>
@@ -74,6 +103,45 @@
           {{ s.name || ('Stop ' + (i + 1)) }}
         </ion-select-option>
       </ion-select>
+
+      <div class="live-buses-block ion-margin-top" *ngIf="selectedRoute">
+        <div class="live-buses-heading">
+          <ion-icon name="bus-outline"></ion-icon>
+          <span>Active buses on this route</span>
+        </div>
+        <p class="live-buses-hint" *ngIf="liveBuses.length === 0">
+          No live trips right now. You can still purchase an e-ticket; when buses appear below, tap one to attach your trip.
+        </p>
+        <p class="live-buses-tap-hint" *ngIf="liveBuses.length > 0">
+          <strong>Tap a bus</strong> to select it for your e-ticket. A green checkmark shows which one is selected.
+        </p>
+        <ion-list class="live-buses-list" lines="full" *ngIf="liveBuses.length > 0">
+          <ion-item
+            *ngFor="let b of liveBuses"
+            button
+            detail="false"
+            (click)="selectLiveBus(b)"
+            [class.live-bus-selected]="selectedScheduleId === b.schedule_id && !b.is_full"
+            [class.live-bus-full]="b.is_full">
+            <ion-label>
+              <h3 class="live-bus-title">
+                {{ b.bus_number || 'Bus' }}
+                <span class="live-bus-operator" *ngIf="b.operator_company"> · {{ b.operator_company }}</span>
+              </h3>
+              <p class="live-bus-meta">
+                {{ b.driver_name || 'Driver' }} · {{ b.aboard }}/{{ b.capacity }} aboard · {{ b.status }}
+              </p>
+            </ion-label>
+            <ion-badge *ngIf="b.is_full" color="danger" slot="end">Full</ion-badge>
+            <ion-icon
+              *ngIf="selectedScheduleId === b.schedule_id && !b.is_full"
+              name="checkmark-outline"
+              color="success"
+              slot="end">
+            </ion-icon>
+          </ion-item>
+        </ion-list>
+      </div>
 
       <ion-button
         expand="block"
@@ -127,7 +195,9 @@
           [routeGeoJson]="selectedRoute.geometry"
           [startCoord]="selectedRoute.startCoord"
           [endCoord]="selectedRoute.endCoord"
-          [stopPins]="stopPinsForMap">
+          [stopPins]="stopPinsForMap"
+          [liveBusMarkers]="liveBusMapPins"
+          [disableSimulator]="liveBuses.length > 0">
         </app-route-map>
       </div>
 
@@ -138,38 +208,43 @@
     </div>
   </div>
 
-  <!-- All Routes + e-Ticket -->
-  <div class="section-wrapper" *ngIf="routes.length > 0">
-    <div class="section-label">
-      <ion-icon name="list-outline"></ion-icon>
-      <span>All Routes</span>
-    </div>
-
+  <!-- Fare, payment & e-Ticket -->
+  <div class="section-wrapper" *ngIf="selectedRoute">
     <div class="routes-card">
-      <ion-select
-        class="route-select"
-        [(ngModel)]="selectedRouteId"
-        (ionChange)="onRouteSelected()"
-        placeholder="Browse all routes"
-        interface="action-sheet"
-        label="Browse"
-        labelPlacement="stacked">
-        <ion-select-option *ngFor="let route of routes" [value]="route.id">
-          {{ route.name }} — ₱{{ route.basefare }}
-        </ion-select-option>
-      </ion-select>
-
-      <div class="fare-row" *ngIf="selectedRoute">
-        <div class="fare-info">
-          <p class="fare-label">Total Fare</p>
-          <div class="fare-value-row">
-            <p class="fare-value">₱{{ ticketFare || selectedRoute.basefare }}</p>
+      <div class="checkout-block">
+        <div class="checkout-fare">
+          <p class="checkout-fare-label">Total fare</p>
+          <div class="checkout-fare-row">
+            <p class="checkout-fare-amount">₱{{ ticketFare || selectedRoute.basefare }}</p>
             <span class="discount-badge" *ngIf="discountPercent > 0">{{ discountPercent }}% OFF</span>
           </div>
         </div>
+
+        <ion-select
+          *ngIf="!showTicket"
+          class="checkout-payment"
+          [(ngModel)]="paymentMethod"
+          interface="action-sheet"
+          label="Payment method"
+          labelPlacement="stacked"
+          fill="outline">
+          <ion-select-option value="cash">Cash on board</ion-select-option>
+          <ion-select-option value="paymaya">PayMaya</ion-select-option>
+          <ion-select-option value="gcash">GCash</ion-select-option>
+        </ion-select>
+        <p class="checkout-payment-hint" *ngIf="!showTicket && paymentMethod === 'cash'">
+          You’ll pay in cash when you board. No QR code on your ticket.
+        </p>
+        <p class="checkout-payment-hint" *ngIf="!showTicket && paymentMethod !== 'cash'">
+          A validation QR will appear on your ticket after purchase.
+        </p>
+
         <ion-button
           *ngIf="!showTicket"
-          (click)="generateTicket()"
+          class="checkout-cta"
+          expand="block"
+          size="large"
+          (click)="confirmBeforeGetETicket()"
           color="success"
           fill="solid">
           <ion-icon name="ticket-outline" slot="start"></ion-icon>
@@ -181,8 +256,15 @@
       <app-e-ticket
         [visible]="showTicket"
         [selectedRoute]="selectedRoute"
+        [routeId]="selectedRoute.id"
         [ticketID]="ticketId"
         [ticketFare]="ticketFare"
+        [discountPercent]="discountPercent"
+        [discountAmount]="discountAmount"
+        [passengerType]="commuterService.getPassengerType()"
+        [operatorCompany]="ticketOperatorCompany"
+        [busLabel]="ticketBusLabel"
+        [tripLabel]="ticketDestination"
         [currentTime]="currentTime"
         [paymentMethod]="paymentMethod"
         (close)="closeTicket()"

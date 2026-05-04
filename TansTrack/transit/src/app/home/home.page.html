@@ -78,6 +78,40 @@
     </ion-card-content>
   </ion-card>
 
+  <!-- Terminal bay (parking) when assigned by terminal manager -->
+  <ion-card class="schedule-card" *ngIf="terminalParking?.occupied">
+    <ion-card-header>
+      <ion-card-title>Terminal bay</ion-card-title>
+      <ion-badge color="danger" class="status-badge">Occupied</ion-badge>
+    </ion-card-header>
+    <ion-card-content>
+      <div class="schedule-row">
+        <ion-icon name="pin-outline"></ion-icon>
+        <span>Bay {{ terminalParking?.space_id }}</span>
+      </div>
+      <div class="schedule-row">
+        <ion-icon name="hourglass-outline"></ion-icon>
+        <span>Time left: {{ getTerminalBayCountdownDisplay() }}</span>
+      </div>
+      <p *ngIf="terminalParking?.pending_extension_minutes != null" class="ion-padding-top ion-text-wrap">
+        <ion-note>Waiting for terminal manager: +{{ terminalParking?.pending_extension_minutes }} min requested.</ion-note>
+      </p>
+      <ion-button
+        *ngIf="terminalParking?.can_request_extension"
+        expand="block"
+        class="ion-margin-top"
+        color="warning"
+        (click)="promptTerminalExtension()"
+      >
+        <ion-icon name="time-outline" slot="start"></ion-icon>
+        Request more time (once)
+      </ion-button>
+      <p *ngIf="terminalParking?.extension_request_used && !terminalParking?.can_request_extension && terminalParking?.pending_extension_minutes == null" class="ion-text-wrap ion-padding-top">
+        <ion-note color="medium">Your one-time extension request for this stay has already been used.</ion-note>
+      </p>
+    </ion-card-content>
+  </ion-card>
+
   <!-- Next Schedule Card -->
   <ion-card class="schedule-card">
     <ion-card-header>

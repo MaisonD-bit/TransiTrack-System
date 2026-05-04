@@ -87,7 +87,7 @@ async function loadChannels() {
             channelDiv.dataset.channelId = channel.id;
 
             const lastMessage = channel.state.messages[channel.state.messages.length - 1];
-            const lastMessageText = lastMessage ? lastMessage.text : 'No messages yet';
+            const lastMessageText = channelPreviewText(lastMessage);
 
             channelDiv.innerHTML = `
                 <div class="channel-content">
@@ -218,25 +218,32 @@ function appendMessage(message) {
     div.className = `message-item ${isOwn ? 'own' : ''}`;
     div.dataset.messageId = message.id; // Add message ID to DOM for tracking
 
-    // Build message content with attachments
+    // Build message content with attachments (Stream stores CDN URLs after upload)
     let attachmentHtml = '';
     if (message.attachments && message.attachments.length > 0) {
         message.attachments.forEach(att => {
             if (att.type === 'image') {
-                attachmentHtml += `<img src="${escapeHtml(att.image_url || '')}" alt="image" class="message-image" style="max-width: 200px;">`;
+                const src = att.image_url || att.thumb_url || att.asset_url || '';
+                if (src) {
+                    attachmentHtml += `<img src="${escapeHtml(src)}" alt="" class="message-image" loading="lazy">`;
+                }
             } else if (att.type === 'file') {
                 const fileName = att.title || att.fallback || 'File';
-                attachmentHtml += `<div class="message-attachment"><i class="bi bi-file"></i><a href="${escapeHtml(att.asset_url || '')}" download="${fileName}">${escapeHtml(fileName)}</a></div>`;
+                const href = att.asset_url || att.url || '#';
+                attachmentHtml += `<div class="message-attachment"><i class="bi bi-file-earmark"></i><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a></div>`;
             } else if (att.type === 'link') {
                 attachmentHtml += `<div class="message-link"><a href="${escapeHtml(att.url)}" target="_blank" rel="noopener">${escapeHtml(att.url)}</a></div>`;
             }
         });
     }
 
+    const text = (message.text || '').trim();
+    const textBlock = text ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
+
     div.innerHTML = `
         <div class="message-bubble">
-            ${!isOwn ? `<div class="message-author">${message.user.name}</div>` : ''}
-            <div class="message-text">${escapeHtml(message.text)}</div>
+            ${!isOwn ? `<div class="message-author">${escapeHtml(message.user.name || '')}</div>` : ''}
+            ${textBlock}
             ${attachmentHtml}
             <div class="message-time">${formatTime(message.created_at)}</div>
         </div>
@@ -279,7 +286,80 @@ document.getElementById('message-form').addEventListener('submit', async (e) => 
     }
 });
 
-// Image button handler
+function channelPreviewText(lastMessage) {
+    if (!lastMessage) {
+        return 'No messages yet';
+    }
+    if (lastMessage.text && String(lastMessage.text).trim()) {
+        return lastMessage.text;
+    }
+    const atts = lastMessage.attachments;
+    if (atts && atts.length) {
+        const a = atts[0];
+        if (a.type === 'image') {
+            return '📷 Image';
+        }
+        if (a.type === 'file') {
+            return '📎 ' + (a.title || a.fallback || 'File');
+        }
+        if (a.type === 'link') {
+            return '🔗 Link';
+        }
+    }
+    return 'Message';
+}
+
+async function uploadAndSendImage(file) {
+    if (!currentChannel || !file) {
+        return;
+    }
+    try {
+        const upload = await currentChannel.sendImage(file);
+        const imageUrl = typeof upload.file === 'string' ? upload.file : (upload.file && upload.file.url) || upload.url;
+        if (!imageUrl) {
+            throw new Error('Upload did not return a URL');
+        }
+        await currentChannel.sendMessage({
+            text: file.name ? '📷 ' + file.name : '📷 Image',
+            attachments: [{
+                type: 'image',
+                image_url: imageUrl,
+                fallback: file.name || 'Image',
+            }],
+        });
+    } catch (error) {
+        console.error('Error sending image:', error);
+        alert('Failed to send image. Use a smaller image or check your connection.');
+    }
+}
+
+async function uploadAndSendFile(file) {
+    if (!currentChannel || !file) {
+        return;
+    }
+    try {
+        const upload = await currentChannel.sendFile(file);
+        const assetUrl = typeof upload.file === 'string' ? upload.file : (upload.file && upload.file.url) || upload.url;
+        if (!assetUrl) {
+            throw new Error('Upload did not return a URL');
+        }
+        await currentChannel.sendMessage({
+            text: '📎 ' + file.name,
+            attachments: [{
+                type: 'file',
+                asset_url: assetUrl,
+                title: file.name,
+                fallback: file.name,
+                file_size: file.size,
+                mime_type: file.type || undefined,
+            }],
+        });
+    } catch (error) {
+        console.error('Error sending file:', error);
+        alert('Failed to send file. It may be too large or blocked.');
+    }
+}
+
 document.getElementById('image-btn').addEventListener('click', () => {
     document.getElementById('image-input').click();
 });
@@ -287,29 +367,11 @@ document.getElementById('image-btn').addEventListener('click', () => {
 document.getElementById('image-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (file && currentChannel) {
-        try {
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const base64 = event.target.result;
-                await currentChannel.sendMessage({
-                    text: '📷 Image',
-                    attachments: [{
-                        type: 'image',
-                        image_url: base64,
-                        fallback: file.name
-                    }]
-                });
-            };
-            reader.readAsDataURL(file);
-        } catch (error) {
-            console.error('Error sending image:', error);
-            alert('Failed to send image');
-        }
+        await uploadAndSendImage(file);
     }
-    e.target.value = ''; // Reset input
+    e.target.value = '';
 });
 
-// File button handler
 document.getElementById('file-btn').addEventListener('click', () => {
     document.getElementById('file-input').click();
 });
@@ -317,28 +379,9 @@ document.getElementById('file-btn').addEventListener('click', () => {
 document.getElementById('file-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (file && currentChannel) {
-        try {
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const base64 = event.target.result;
-                await currentChannel.sendMessage({
-                    text: `📎 ${file.name}`,
-                    attachments: [{
-                        type: 'file',
-                        asset_url: base64,
-                        title: file.name,
-                        fallback: file.name,
-                        file_size: file.size
-                    }]
-                });
-            };
-            reader.readAsDataURL(file);
-        } catch (error) {
-            console.error('Error sending file:', error);
-            alert('Failed to send file');
-        }
+        await uploadAndSendFile(file);
     }
-    e.target.value = ''; // Reset input
+    e.target.value = '';
 });
 
 // Load users for channel creation

@@ -567,9 +567,92 @@ function editSpaceMode(e) {
     document.getElementById('tooltip').style.display = 'none';
     tooltipSticky = false;
 
+    if (isOccupied) {
+        refreshExtensionBanner(spaceId);
+    } else {
+        const banner = document.getElementById('extensionRequestBanner');
+        if (banner) banner.style.display = 'none';
+    }
+
     setTimeout(() => {
         document.getElementById('panelRouteName').focus();
     }, 300);
+}
+
+function refreshExtensionBanner(spaceId) {
+    const banner = document.getElementById('extensionRequestBanner');
+    if (!banner || !spaceId) return;
+    fetch('/api/terminal/spaces')
+        .then(res => res.json())
+        .then(spacesData => {
+            const s = spacesData.find(x => x.space_id === spaceId);
+            if (s && s.pending_extension_minutes != null) {
+                banner.style.display = 'block';
+                const el = document.getElementById('pendingExtensionMins');
+                if (el) el.textContent = s.pending_extension_minutes;
+            } else {
+                banner.style.display = 'none';
+            }
+        })
+        .catch(() => {
+            banner.style.display = 'none';
+        });
+}
+
+function approveExtensionRequest(e) {
+    if (e) e.preventDefault();
+    const spaceId = selectedSpaceElement && selectedSpaceElement.getAttribute('data-space-id');
+    if (!spaceId) return;
+    fetch('/api/terminal/approve-extension', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ space_id: spaceId })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                if (data.expiration_time) {
+                    spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
+                }
+                alert('Extension approved.');
+                refreshExtensionBanner(spaceId);
+                loadHistoryFromDatabase(currentHistoryPage);
+                closePanel();
+            } else {
+                alert(data.message || 'Failed to approve extension');
+            }
+        })
+        .catch(err => alert('Error: ' + err.message));
+}
+
+function denyExtensionRequest(e) {
+    if (e) e.preventDefault();
+    const spaceId = selectedSpaceElement && selectedSpaceElement.getAttribute('data-space-id');
+    if (!spaceId) return;
+    if (!confirm('Decline this extension request?')) return;
+    fetch('/api/terminal/deny-extension', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ space_id: spaceId })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Extension request declined.');
+                refreshExtensionBanner(spaceId);
+                loadHistoryFromDatabase(currentHistoryPage);
+                closePanel();
+            } else {
+                alert(data.message || 'Failed to deny extension');
+            }
+        })
+        .catch(err => alert('Error: ' + err.message));
 }
 
 function occupySpace(e) {
@@ -634,6 +717,9 @@ function occupySpace(e) {
 function closePanel() {
     document.querySelector('.panel-title').textContent = 'Space Details';
     document.querySelector('.btn-mark-occupied').innerHTML = '<i class="fas fa-check me-1"></i>Mark as Occupied';
+
+    const extBanner = document.getElementById('extensionRequestBanner');
+    if (extBanner) extBanner.style.display = 'none';
 
     document.getElementById('panelRouteName').closest('.form-group').style.display = 'flex';
     document.getElementById('panelSpaceId').closest('.form-group').style.display = 'flex';

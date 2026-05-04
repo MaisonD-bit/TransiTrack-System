@@ -6,8 +6,7 @@
             <button class="btn btn-link text-dark p-0" id="notificationBellBtn" style="font-size: 1.3rem; cursor: pointer;">
                 <i class="fas fa-bell"></i>
             </button>
-            <!-- The badge will be updated by JavaScript -->
-            <div id="notificationBadge" class="badge bg-danger position-absolute top-0 start-100 translate-middle" style="display: none; font-size: 0.7rem; padding: 0.3rem 0.5rem;">0</div>
+            <span id="notificationBadge" class="badge bg-danger rounded-pill position-absolute top-0 start-100 translate-middle" style="display: none; font-size: 0.65rem; min-width: 1.1rem; padding: 0.2rem 0.45rem; line-height: 1.1; z-index: 2;">0</span>
             
             <!-- Notification Dropdown -->
             <div id="notificationDropdown" class="notification-dropdown" style="display: none;">
@@ -174,6 +173,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const closeNotificationDropdown = document.getElementById('closeNotificationDropdown');
     let isDropdownOpen = false;
 
+    if (!notificationBellBtn || !notificationDropdown || !closeNotificationDropdown) {
+        return;
+    }
+
     // Toggle dropdown on bell click
     notificationBellBtn.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -266,33 +269,5 @@ document.addEventListener('DOMContentLoaded', function () {
         return text.replace(/[&<>"']/g, m => map[m]);
     }
 
-    // Function to update the notification badge
-    function updateNotificationBadge() {
-        fetch('/notifications/unread-count', {
-            method: 'GET',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            const badge = document.getElementById('notificationBadge');
-            if (data.count > 0) {
-                badge.textContent = data.count > 99 ? '99+' : data.count;
-                badge.style.display = 'inline-block';
-            } else {
-                badge.style.display = 'none';
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching notification count:', error);
-            document.getElementById('notificationBadge').style.display = 'none';
-        });
-    }
-
-    // Call it on page load and then every 5 seconds (same as notifications.js)
-    updateNotificationBadge();
-    setInterval(updateNotificationBadge, 5000);
 });
 </script>

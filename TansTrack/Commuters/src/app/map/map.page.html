@@ -15,6 +15,6 @@
     </ion-segment-button>
   </ion-segment>
 
-  <!-- Map Container -->
-  <div id="map" class="map-container"></div>
+  <!-- Map container: template ref so Mapbox runs after view init (Android/Capacitor). -->
+  <div #mapHost class="map-container"></div>
 </ion-content>

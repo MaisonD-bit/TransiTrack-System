@@ -18,12 +18,18 @@ class Notification extends Model
         'schedule_id',
         'bus_id',
         'route_approval_request_id',
+        'latitude',
+        'longitude',
+        'location_label',
+        'incident_type',
         'is_read',
         'read_at',
     ];
 
     protected $casts = [
-        'sender_id' => 'integer', 
+        'sender_id' => 'integer',
+        'latitude' => 'float',
+        'longitude' => 'float',
         'is_read' => 'boolean',
         'read_at' => 'datetime',
     ];

@@ -138,6 +138,14 @@ export class NotificationsPage implements OnInit {
       case 'emergency': return 'alert-circle-outline';
       case 'issue_report': return 'warning-outline';
       case 'inspection_required': return 'wrench-outline';
+      case 'terminal_parking_assignment':
+      case 'terminal_parking_countdown':
+      case 'terminal_parking_extension_pending':
+        return 'pin-outline';
+      case 'terminal_parking_extension_approved':
+        return 'checkmark-circle-outline';
+      case 'terminal_parking_extension_denied':
+        return 'close-circle-outline';
       default: return 'information-circle-outline';
     }
   }
@@ -148,6 +156,14 @@ export class NotificationsPage implements OnInit {
       case 'emergency': return 'danger';
       case 'issue_report': return 'warning';
       case 'inspection_required': return 'primary';
+      case 'terminal_parking_assignment':
+      case 'terminal_parking_countdown':
+      case 'terminal_parking_extension_pending':
+        return 'warning';
+      case 'terminal_parking_extension_approved':
+        return 'success';
+      case 'terminal_parking_extension_denied':
+        return 'danger';
       default: return 'medium';
     }
   }
@@ -158,6 +174,11 @@ export class NotificationsPage implements OnInit {
       case 'emergency': return 'Emergency Alert';
       case 'issue_report': return 'Issue Reported';
       case 'inspection_required': return 'Inspection Required';
+      case 'terminal_parking_assignment': return 'Terminal bay assigned';
+      case 'terminal_parking_countdown': return 'Terminal bay — time remaining';
+      case 'terminal_parking_extension_pending': return 'Extension request sent';
+      case 'terminal_parking_extension_approved': return 'Extension approved';
+      case 'terminal_parking_extension_denied': return 'Extension not granted';
       default: return 'Notification';
     }
   }

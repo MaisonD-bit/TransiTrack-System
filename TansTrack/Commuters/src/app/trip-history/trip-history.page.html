@@ -1,5 +1,5 @@
-<ion-header [translucent]="true">
-  <ion-toolbar>
+<ion-header [translucent]="false">
+  <ion-toolbar color="primary">
     <ion-title>Trip History</ion-title>
   </ion-toolbar>
 </ion-header>
@@ -17,12 +17,15 @@
       </ion-searchbar>
 
       <!-- Filter and Sort Options -->
-      <ion-segment [(ngModel)]="filterStatus" (ionChange)="onFilterChange()" color="primary">
+      <ion-segment [(ngModel)]="filterStatus" (ionChange)="onFilterChange()" color="primary" scrollable="true">
         <ion-segment-button value="all">
           <ion-label>All</ion-label>
         </ion-segment-button>
+        <ion-segment-button value="in-progress">
+          <ion-label>Active</ion-label>
+        </ion-segment-button>
         <ion-segment-button value="completed">
-          <ion-label>Completed</ion-label>
+          <ion-label>Done</ion-label>
         </ion-segment-button>
         <ion-segment-button value="cancelled">
           <ion-label>Cancelled</ion-label>
@@ -71,7 +74,7 @@
         <div class="trip-header">
           <div class="trip-route">
             <h2>{{ trip.routeName }}</h2>
-            <p class="trip-date">{{ trip.tripDate | date: 'MMM dd, yyyy' }}</p>
+            <p class="trip-date">{{ formatTripDate(trip.tripDate) }}</p>
           </div>
           <ion-badge [color]="getStatusColor(trip.status)">
             {{ trip.status | uppercase }}
@@ -84,18 +87,18 @@
             <div class="location-text">
               <p class="label">From</p>
               <p class="place">{{ trip.departure }}</p>
-              <p class="time">{{ trip.departureTime | date: 'HH:mm' }}</p>
+              <p class="time">{{ formatTripTime(trip.departureTime) }}</p>
             </div>
           </div>
           <div class="arrow">
-            <ion-icon name="arrow-forward-outline"></ion-icon>
+            <ion-icon name="chevron-forward-outline" aria-hidden="true"></ion-icon>
           </div>
           <div class="location">
             <ion-icon name="location-outline"></ion-icon>
             <div class="location-text">
               <p class="label">To</p>
               <p class="place">{{ trip.arrival }}</p>
-              <p class="time">{{ trip.arrivalTime | date: 'HH:mm' }}</p>
+              <p class="time">{{ formatTripTime(trip.arrivalTime) }}</p>
             </div>
           </div>
         </div>
@@ -126,20 +129,22 @@
   <ion-modal [isOpen]="showDetails" (ionModalDidDismiss)="closeDetails()">
     <ng-template>
       <ion-header>
-        <ion-toolbar>
-          <ion-back-button (click)="closeDetails()"></ion-back-button>
-          <ion-buttons slot="start">
-            <ion-back-button (click)="closeDetails()"></ion-back-button>
-          </ion-buttons>
+        <ion-toolbar color="primary">
           <ion-title>Trip Details</ion-title>
+          <ion-buttons slot="end">
+            <ion-button fill="clear" color="light" (click)="closeDetails()">
+              <ion-icon name="close" slot="start"></ion-icon>
+              Close
+            </ion-button>
+          </ion-buttons>
         </ion-toolbar>
       </ion-header>
 
-      <ion-content *ngIf="selectedTrip">
-        <ion-card>
+      <ion-content *ngIf="selectedTrip" class="modal-body">
+        <ion-card class="detail-card">
           <ion-card-header>
             <ion-card-title>{{ selectedTrip.routeName }}</ion-card-title>
-            <ion-card-subtitle>{{ selectedTrip.tripDate | date: 'MMM dd, yyyy' }}</ion-card-subtitle>
+            <ion-card-subtitle>{{ formatTripDate(selectedTrip.tripDate) }}</ion-card-subtitle>
           </ion-card-header>
 
           <ion-card-content>
@@ -156,7 +161,7 @@
             <ion-item>
               <ion-label>
                 <p>Departure Time</p>
-                <h2>{{ selectedTrip.departureTime | date: 'hh:mm a' }}</h2>
+                <h2>{{ formatTripTime(selectedTrip.departureTime) }}</h2>
               </ion-label>
             </ion-item>
 
@@ -171,7 +176,7 @@
             <ion-item>
               <ion-label>
                 <p>Arrival Time</p>
-                <h2>{{ selectedTrip.arrivalTime | date: 'hh:mm a' }}</h2>
+                <h2>{{ formatTripTime(selectedTrip.arrivalTime) }}</h2>
               </ion-label>
             </ion-item>
 
@@ -218,17 +223,27 @@
               <ion-text slot="end">{{ selectedTrip.paymentMethod }}</ion-text>
             </ion-item>
 
+            <ion-button
+              *ngIf="selectedTrip.status === 'in-progress'"
+              expand="block"
+              color="success"
+              class="ion-margin-bottom"
+              (click)="markTripAsArrived(selectedTrip)">
+              <ion-icon name="flag-outline" slot="start"></ion-icon>
+              I've arrived — complete trip
+            </ion-button>
+
             <!-- Action Buttons -->
             <ion-row class="action-buttons">
               <ion-col size="6">
                 <ion-button expand="block" color="primary" (click)="shareTripInfo()">
-                  <ion-icon name="share-social-outline" slot="start"></ion-icon>
+                  <ion-icon name="share-outline" slot="start"></ion-icon>
                   Share
                 </ion-button>
               </ion-col>
               <ion-col size="6">
-                <ion-button expand="block" color="secondary" (click)="downloadReceipt()">
-                  <ion-icon name="download-outline" slot="start"></ion-icon>
+                <ion-button expand="block" color="primary" fill="outline" (click)="downloadReceipt()">
+                  <ion-icon name="document-text-outline" slot="start"></ion-icon>
                   Receipt
                 </ion-button>
               </ion-col>

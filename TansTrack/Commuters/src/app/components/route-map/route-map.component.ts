@@ -21,20 +21,31 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() endCoord: [number, number] | null | undefined = null;
   /** Terminal-manager stop pins (numbered) along the route */
   @Input() stopPins: { lng: number; lat: number; label?: string }[] = [];
+  /** Live / estimated bus positions from operator schedules (commuter app). */
+  @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean }[] = [];
+  /** When true, skip the demo bus animation (use live markers instead). */
+  @Input() disableSimulator: boolean = false;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
   mapLoaded: boolean = false;
   routeMarkers: any[] = []; // Store markers for cleanup
   private stopPinMarkers: any[] = [];
+  private liveBusMapMarkers: any[] = [];
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
   
   constructor(private busSimulatorService: BusSimulatorService) {}
 
   ngAfterViewInit() {
-    // Point to the pre-built worker so the bundler never re-transpiles it.
-    // Must be set before every new Map() call; absolute path avoids route-relative issues.
-    (mapboxgl as any).workerUrl = '/assets/mapbox-gl-csp-worker.js';
+    // Resolve worker relative to index (required for Capacitor file:// and subpaths).
+    try {
+      (mapboxgl as any).workerUrl = new URL(
+        'assets/mapbox-gl-csp-worker.js',
+        document.baseURI
+      ).href;
+    } catch {
+      (mapboxgl as any).workerUrl = 'assets/mapbox-gl-csp-worker.js';
+    }
     mapboxgl.accessToken = environment.mapbox?.accessToken || '';
     this.map = new mapboxgl.Map({
       container: this.mapContainer.nativeElement,
@@ -42,32 +53,29 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       center: [123.920994, 10.311008], // Cebu coordinates
       zoom: 12,
       trackResize: true,
-      preserveDrawingBuffer: false
+      preserveDrawingBuffer: false,
+      antialias: false,
     });
 
-    // Add geolocate control to track user's real-time location
+    // One-shot locate only — continuous tracking + heading is heavy on mobile WebViews.
     const geolocateControl = new mapboxgl.GeolocateControl({
-      positionOptions: {
-        enableHighAccuracy: true // Use GPS for better accuracy
-      },
-      trackUserLocation: true, // Track user location continuously
-      showUserHeading: true, // Show direction the user is facing (on mobile)
-      showUserLocation: true // Show user location on map
+      positionOptions: { enableHighAccuracy: false },
+      trackUserLocation: false,
+      showUserHeading: false,
+      showUserLocation: true,
     });
 
     this.map.addControl(geolocateControl, 'top-right');
 
-    // Handle geolocation errors (e.g., in emulator)
     geolocateControl.on('error', (e: any) => {
-      console.warn('Geolocation not available (normal in emulator):', e.message);
-      console.log('💡 Enable mock location in emulator: Extended Controls > Location');
+      if (!environment.production) {
+        console.warn('Geolocation not available:', e?.message);
+      }
     });
 
     this.map.on('load', () => {
       this.mapLoaded = true;
       this.drawRoute();
-      // Try to trigger geolocation (will fail gracefully in emulator)
-      geolocateControl.trigger();
     });
   }
 
@@ -80,63 +88,77 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       try { this.simulatedVehicleMarker.remove(); } catch (e) {}
       this.simulatedVehicleMarker = null;
     }
+    this.clearLiveBusMarkers();
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if ((changes['routeGeoJson'] || changes['stopPins']) && this.mapLoaded) {
+    if (!this.mapLoaded) {
+      return;
+    }
+    // Redrawing the full route restarts bus simulation + interpolation — only when geometry changes.
+    if (changes['routeGeoJson']) {
       this.drawRoute();
+      return;
+    }
+    if (changes['stopPins']) {
+      this.drawStopPins();
+    }
+    if (changes['liveBusMarkers'] || changes['disableSimulator']) {
+      this.refreshLiveBusMarkers();
     }
   }
 
-  drawRoute() {
-    console.log('RouteMapComponent.drawRoute() called');
-    console.log('  - mapLoaded:', this.mapLoaded);
-    console.log('  - map exists:', !!this.map);
-    console.log('  - routeGeoJson received:', this.routeGeoJson);
-    
+  private clearLiveBusMarkers(): void {
+    this.liveBusMapMarkers.forEach((m) => {
+      try { m.remove(); } catch (e) {}
+    });
+    this.liveBusMapMarkers = [];
+  }
+
+  private refreshLiveBusMarkers(): void {
     if (!this.mapLoaded || !this.map) {
-      console.log('Skipping drawRoute - map not ready');
+      return;
+    }
+    this.clearLiveBusMarkers();
+    if (!this.liveBusMarkers?.length) {
+      return;
+    }
+    this.liveBusMarkers.forEach((b) => {
+      const el = document.createElement('div');
+      const border = b.selected ? '3px solid #fbbf24' : '2px solid #fff';
+      el.style.cssText =
+        `width:14px;height:14px;border-radius:50%;background:${b.color};border:${border};box-shadow:0 1px 4px rgba(0,0,0,.4)`;
+      const mk = new mapboxgl.Marker({ element: el })
+        .setLngLat([b.lng, b.lat])
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${b.label}</strong>`))
+        .addTo(this.map);
+      this.liveBusMapMarkers.push(mk);
+    });
+  }
+
+  drawRoute() {
+    if (!this.mapLoaded || !this.map) {
       return;
     }
 
-    // Remove previous route layer/source
     if (this.map.getLayer('route-line')) {
       this.map.removeLayer('route-line');
-      console.log('Removed previous route-line layer');
     }
     if (this.map.getSource('route')) {
       this.map.removeSource('route');
-      console.log('Removed previous route source');
     }
 
-    // Remove previous markers
     this.routeMarkers.forEach(marker => marker.remove());
     this.routeMarkers = [];
     this.stopPinMarkers.forEach((m) => {
       try { m.remove(); } catch (e) {}
     });
     this.stopPinMarkers = [];
-    console.log('Removed previous route markers');
 
-    // Draw new route if valid routeGeoJson is provided
-  console.log('Validating routeGeoJson for drawing:');
-  console.log('  - routeGeoJson exists:', !!this.routeGeoJson);
-  console.log('  - type is LineString:', this.routeGeoJson?.type === 'LineString');
-  console.log('  - coordinates is array:', Array.isArray(this.routeGeoJson?.coordinates));
-  console.log('  - coordinates length:', this.routeGeoJson?.coordinates?.length);
-
-  if (this.routeGeoJson && 
-    this.routeGeoJson.type === 'LineString' && 
-    Array.isArray(this.routeGeoJson.coordinates) && 
+  if (this.routeGeoJson &&
+    this.routeGeoJson.type === 'LineString' &&
+    Array.isArray(this.routeGeoJson.coordinates) &&
     this.routeGeoJson.coordinates.length >= 2) {
-        
-      console.log('✅ GeoJSON validation passed - drawing route');
-
-      // Add GeoJSON source
-      console.log('Adding GeoJSON source with data:', {
-        type: 'Feature',
-        geometry: this.routeGeoJson
-      });
       
       // Normalize coordinates to numeric [lng, lat] pairs (DB sometimes stores as strings)
       const numericCoords: number[][] = this.routeGeoJson.coordinates
@@ -157,7 +179,6 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         const first = Number(sample[0]);
         const second = Number(sample[1]);
         if (Math.abs(first) <= 90 && Math.abs(second) > 90) {
-          console.warn('Detected possible swapped coordinate order [lat,lng]; normalizing to [lng,lat]');
           for (let i = 0; i < numericCoords.length; i++) {
             const s = numericCoords[i];
             numericCoords[i] = [s[1], s[0]];
@@ -178,9 +199,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           geometry: { type: 'LineString', coordinates: numericCoords }
         }
       });
-      console.log('✅ GeoJSON source added successfully');
 
-      // Add line layer
       this.map.addLayer({
         id: 'route-line',
         type: 'line',
@@ -194,23 +213,15 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           'line-width': 6
         }
       });
-      console.log('✅ Route line layer added successfully');
 
-      // Fit map to route
       const bounds = new mapboxgl.LngLatBounds();
-      console.log('Calculating bounds for coordinates:', numericCoords);
-      numericCoords.forEach((coord: number[], index: number) => {
-        console.log(`Processing coordinate ${index}:`, coord);
+      numericCoords.forEach((coord: number[]) => {
         if (coord && coord.length === 2) {
           bounds.extend(coord as [number, number]);
-        } else {
-          console.warn(`Skipped invalid coordinate ${index}:`, coord);
         }
       });
-      
-      console.log('Final bounds:', bounds);
+
       this.map.fitBounds(bounds, { padding: 40, maxZoom: 14 });
-      console.log('✅ Map fitted to route bounds');
 
       // If the stored startCoord/endCoord were provided via @Input, normalize them
       // using the same heuristic so they match the route coordinates ordering.
@@ -224,10 +235,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           // If coords were swapped earlier, swap these too; otherwise use heuristic
           if (coordsWereSwapped || (Math.abs(a) <= 90 && Math.abs(b) > 90)) {
             normalizedStartInput = [b, a];
-            console.log('Normalized provided startCoord (swapped) from', this.startCoord, 'to', normalizedStartInput);
           } else {
             normalizedStartInput = [a, b];
-            console.log('Using provided startCoord as-is:', normalizedStartInput);
           }
         }
       } catch (e) {
@@ -240,10 +249,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           const b = Number(this.endCoord[1]);
           if (coordsWereSwapped || (Math.abs(a) <= 90 && Math.abs(b) > 90)) {
             normalizedEndInput = [b, a];
-            console.log('Normalized provided endCoord (swapped) from', this.endCoord, 'to', normalizedEndInput);
           } else {
             normalizedEndInput = [a, b];
-            console.log('Using provided endCoord as-is:', normalizedEndInput);
           }
         }
       } catch (e) {
@@ -255,28 +262,28 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.addRouteMarkers(numericCoords, normalizedStartInput, normalizedEndInput);
 
       this.drawStopPins();
+      this.refreshLiveBusMarkers();
 
-      // Start simulated bus movement along the route (if service available)
+      // Demo bus only when no live fleet is shown
       try {
-        // Clean existing simulation
-        if (this.busSimSub) { this.busSimSub.unsubscribe(); this.busSimSub = null; }
-  if (this.busSimulatorService && numericCoords && numericCoords.length) {
-          // create a simulated vehicle marker if not present
-            if (!this.simulatedVehicleMarker) {
-            // Use Mapbox built-in marker for consistency and to avoid zoom/pan issues
-            // Blue color for the moving bus/vehicle
-              this.simulatedVehicleMarker = new mapboxgl.Marker({ 
-                color: '#1E90FF', 
-                scale: 1.0 
-              }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
-          }
+        if (this.busSimSub) {
+          this.busSimSub.unsubscribe();
+          this.busSimSub = null;
+        }
+        if (this.simulatedVehicleMarker) {
+          try { this.simulatedVehicleMarker.remove(); } catch (e) {}
+          this.simulatedVehicleMarker = null;
+        }
+        if (!this.disableSimulator && this.busSimulatorService && numericCoords && numericCoords.length) {
+          this.simulatedVehicleMarker = new mapboxgl.Marker({
+            color: '#1E90FF',
+          }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
 
-          // subscribe to simulated positions
           this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800).subscribe((pos: { lng: number; lat: number; index: number }) => {
             try {
-                if (this.simulatedVehicleMarker) {
-                  this.simulatedVehicleMarker.setLngLat([pos.lng, pos.lat] as [number, number]);
-                }
+              if (this.simulatedVehicleMarker) {
+                this.simulatedVehicleMarker.setLngLat([pos.lng, pos.lat] as [number, number]);
+              }
             } catch (err) {
               console.warn('Error moving simulated vehicle marker:', err);
             }
@@ -287,7 +294,6 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       }
       
     } else {
-      console.log('❌ GeoJSON validation failed - route not drawn');
       this.drawStopPins();
     }
   }
@@ -321,27 +327,23 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     // Add start marker (A label similar to transit)
   // prefer the normalized providedStart (from caller) first, then component input, then route first coord
   const startCoord = providedStart || (this.startCoord && this.startCoord.length === 2 ? this.startCoord as [number, number] : coordinates[0]);
-  console.log('Start marker - raw providedStart:', providedStart, 'component startCoord:', this.startCoord, 'using:', startCoord);
     // Use the same simple Mapbox marker used in the driver's map for stability
     // (color + scale) — this avoids custom DOM/SVG alignment issues when zooming.
-    const startMarker = new mapboxgl.Marker({ color: '#22c55e', scale: 1.2 })
+    const startMarker = new mapboxgl.Marker({ color: '#22c55e' })
       .setLngLat(startCoord as [number, number])
       .setPopup(new mapboxgl.Popup().setHTML('<strong>Start Point</strong>'))
       .addTo(this.map);
-    console.log('Added start marker at', startCoord, '(using Mapbox built-in marker)');
     this.routeMarkers.push(startMarker);
 
     // Add end marker (red) - only if different from start
     if (coordinates.length > 1) {
   // prefer normalized providedEnd, then component input, then route last coord
   const endCoord = providedEnd || (this.endCoord && this.endCoord.length === 2 ? this.endCoord as [number, number] : coordinates[coordinates.length - 1]);
-  console.log('End marker - raw providedEnd:', providedEnd, 'component endCoord:', this.endCoord, 'using:', endCoord);
       // Use built-in Mapbox marker for end as well to match driver's map
-      const endMarker = new mapboxgl.Marker({ color: '#ef4444', scale: 1.2 })
+      const endMarker = new mapboxgl.Marker({ color: '#ef4444' })
         .setLngLat(endCoord as [number, number])
         .setPopup(new mapboxgl.Popup().setHTML('<strong>End Point</strong>'))
         .addTo(this.map);
-      console.log('Added end marker at', endCoord, '(using Mapbox built-in marker)');
       this.routeMarkers.push(endMarker);
     }
 

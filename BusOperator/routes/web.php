@@ -28,6 +28,7 @@ Route::get('/', function () {
 Route::middleware('auth')->group(function () {
     // Panel routes
     Route::get('/panel/operator', [PanelController::class, 'operatorPanel'])->name('operator.panel');
+    Route::get('/panel/operator-sync', [PanelController::class, 'operatorSync'])->name('panel.operator.sync');
     
     // ✅ FIXED: Remove duplicate, keep only NotificationsController route
     Route::get('/panel/notifications', [NotificationsController::class, 'index'])->name('notifications.panel');    
@@ -38,6 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/buses', [BusController::class, 'index'])->name('buses.panel');
     Route::get('/panel/terminal', [TerminalController::class, 'index'])->name('terminal.panel');
     Route::get('/panel/trips', [TripController::class, 'index'])->name('trips.panel');
+    Route::get('/panel/trips/poll', [TripController::class, 'poll'])->name('trips.panel.poll');
     Route::get('/panel/route-requests', [RouteApprovalWebController::class, 'index'])->name('route-requests.panel');
     Route::post('/panel/route-requests', [RouteApprovalWebController::class, 'store'])->name('route-requests.store');
     Route::delete('/panel/route-requests/{routeApprovalRequest}', [RouteApprovalWebController::class, 'destroy'])->name('route-requests.destroy');

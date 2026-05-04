@@ -1,0 +1,11 @@
+/**
+ * Register page in the main CSS bundle (Capacitor/WebView), same rules as :host in register.page.scss.
+ * Edit src/theme/_register.shared.scss.
+ */
+@use "./register.shared" as register;
+
+app-register {
+  display: block;
+  min-height: 100%;
+  @include register.register-page;
+}

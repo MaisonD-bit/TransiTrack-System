@@ -1,49 +1,114 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
-import { FormsModule } from '@angular/forms';
+import QRCode from 'qrcode';
 
 @Component({
   selector: 'app-e-ticket',
   templateUrl: './e-ticket.component.html',
   styleUrls: ['./e-ticket.component.scss'],
   standalone: true,
-  imports: [CommonModule, IonicModule, FormsModule]
+  imports: [CommonModule, IonicModule],
 })
-export class ETicketComponent {
+export class ETicketComponent implements OnChanges {
   @Input() selectedRoute: any;
+  /** Route database id (string from API). */
+  @Input() routeId: string | number | null | undefined;
   @Input() ticketID: string = '';
   @Input() ticketFare: number | null = 0;
+  /** Boarding → alighting or route name. */
+  @Input() tripLabel: string | null = null;
   @Input() currentTime: string = '';
   @Input() paymentMethod: string = 'cash';
   @Input() visible: boolean = false;
+  @Input() discountPercent: number = 0;
+  @Input() discountAmount: number = 0;
+  @Input() passengerType: string = 'Regular';
+  @Input() operatorCompany: string = '';
+  @Input() busLabel: string = '';
 
   @Output() close = new EventEmitter<void>();
   @Output() share = new EventEmitter<void>();
 
-  readonly qrImage = 'assets/qrcode.png';
+  qrDataUrl: string | null = null;
 
-  getOrigin(): string {
-    const name = this.selectedRoute?.name || '';
-    return name ? name.split(' to ')[0] || 'Start Point' : 'Start Point';
+  get isPaidOnline(): boolean {
+    return this.paymentMethod !== 'cash';
   }
 
-  getDestination(): string {
-    const name = this.selectedRoute?.name || '';
-    return name ? name.split(' to ')[1] || 'End Point' : 'End Point';
+  get routeDisplayName(): string {
+    return this.selectedRoute?.name || '';
   }
 
-  getRouteDistance(): string {
-    const distance = this.selectedRoute?.distance_km;
-    if (distance != null && distance !== '') {
-      const numDistance = Number(distance);
-      if (!isNaN(numDistance) && numDistance > 0) {
-        return `${numDistance.toFixed(1)} km`;
-      }
+  get fareNum(): number {
+    const n = this.ticketFare ?? this.selectedRoute?.basefare;
+    return typeof n === 'number' && !Number.isNaN(n) ? n : 0;
+  }
+
+  get concessionSummary(): string | null {
+    const t = (this.passengerType || '').trim();
+    if (!t || t.toLowerCase() === 'regular') {
+      return this.discountPercent > 0 ? `${this.discountPercent}% concession` : null;
     }
-    return 'N/A';
+    if (['Student', 'Senior', 'PWD'].includes(t) || this.discountPercent > 0) {
+      return `${t}${this.discountPercent > 0 ? ` · ${this.discountPercent}% off` : ''}`;
+    }
+    return null;
   }
 
-  closeTicket() { this.close.emit(); }
-  shareTicket() { this.share.emit(); }
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['visible'] && !this.visible) {
+      this.qrDataUrl = null;
+      return;
+    }
+    void this.regenerateQr();
+  }
+
+  private async regenerateQr(): Promise<void> {
+    if (!this.visible || !this.selectedRoute || !this.isPaidOnline || !this.ticketID) {
+      this.qrDataUrl = null;
+      return;
+    }
+
+    const payload = {
+      v: 1,
+      ticket_id: this.ticketID,
+      route_id: this.routeId != null ? String(this.routeId) : '',
+      route_name: this.routeDisplayName,
+      trip: this.tripLabel || this.routeDisplayName,
+      operator: this.operatorCompany || '',
+      bus: this.busLabel || '',
+      fare: this.fareNum,
+      discount_percent: this.discountPercent,
+      discount_amount: this.discountAmount,
+      passenger_type: this.passengerType || 'Regular',
+      payment: this.paymentMethod,
+    };
+
+    try {
+      this.qrDataUrl = await QRCode.toDataURL(JSON.stringify(payload), {
+        width: 220,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+      });
+    } catch {
+      this.qrDataUrl = null;
+    }
+  }
+
+  getPaymentLabel(): string {
+    const labels: Record<string, string> = {
+      cash: 'Cash',
+      paymaya: 'PayMaya',
+      gcash: 'GCash',
+    };
+    return labels[this.paymentMethod] || this.paymentMethod;
+  }
+
+  closeTicket() {
+    this.close.emit();
+  }
+  shareTicket() {
+    this.share.emit();
+  }
 }

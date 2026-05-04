@@ -1,4 +1,11 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import * as mapboxgl from 'mapbox-gl';
 import { environment } from '../../environments/environment';
 import { CommuterService, LiveRoute } from '../services/commuter.service';
@@ -10,7 +17,9 @@ import { Subscription } from 'rxjs';
   styleUrls: ['./map.page.scss'],
   standalone: false
 })
-export class MapPage implements OnInit, OnDestroy {
+export class MapPage implements OnInit, AfterViewInit, OnDestroy {
+  @ViewChild('mapHost', { static: false }) mapHost?: ElementRef<HTMLElement>;
+
   map: mapboxgl.Map | undefined;
   busMarkers: mapboxgl.Marker[] = [];
   selectedRoute: string = '';
@@ -25,14 +34,15 @@ export class MapPage implements OnInit, OnDestroy {
   selectedDestination: { lat: number; lng: number } | null = null;
   showNavigationLine: boolean = false;
 
-  constructor(private commuterService: CommuterService) {
-    (mapboxgl as any).accessToken = environment.mapbox.accessToken;
-  }
+  constructor(private commuterService: CommuterService) {}
 
   ngOnInit() {
-    this.initializeMap();
     this.subscribeToRealTimeData();
-    // getCurrentLocation() removed - GeolocateControl handles this automatically
+  }
+
+  ngAfterViewInit(): void {
+    // DOM must exist before Mapbox runs (ngOnInit is too early). Required for Capacitor WebView.
+    this.initializeMap();
   }
 
   subscribeToRealTimeData() {
@@ -55,9 +65,23 @@ export class MapPage implements OnInit, OnDestroy {
   }
 
   initializeMap() {
-    (mapboxgl as any).workerUrl = '/assets/mapbox-gl-csp-worker.js';
+    const el = this.mapHost?.nativeElement;
+    if (!el) {
+      return;
+    }
+
+    (mapboxgl as any).accessToken = environment.mapbox.accessToken;
+    try {
+      (mapboxgl as any).workerUrl = new URL(
+        'assets/mapbox-gl-csp-worker.js',
+        document.baseURI
+      ).href;
+    } catch {
+      (mapboxgl as any).workerUrl = 'assets/mapbox-gl-csp-worker.js';
+    }
+
     this.map = new mapboxgl.Map({
-      container: 'map',
+      container: el,
       style: 'mapbox://styles/mapbox/streets-v12',
       center: [123.920994, 10.311008], // Cebu North Bus Terminal (SM City)
       zoom: 12,

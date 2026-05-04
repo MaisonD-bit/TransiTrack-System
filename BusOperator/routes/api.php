@@ -10,6 +10,7 @@ use App\Http\Controllers\BusController;
 use App\Http\Controllers\PaymentController; 
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\CommuterRoutesController;
+use App\Http\Controllers\TerminalParkingController;
 
 Route::prefix('v1')->group(function () {
 
@@ -80,9 +81,13 @@ Route::prefix('v1')->group(function () {
         Route::get('/{id}', [BusController::class, 'show']);
     });
 
+    Route::get('/terminal/driver-space-status', [TerminalParkingController::class, 'driverSpaceStatus']);
+    Route::post('/terminal/request-space-extension', [TerminalParkingController::class, 'requestExtension']);
+
     Route::prefix('notifications')->group(function () {
         Route::get('/driver/{driverId}', [NotificationsController::class, 'getForDriver']);
         Route::post('/driver-send', [NotificationsController::class, 'sendFromDriver']);
+        Route::post('/incident', [NotificationsController::class, 'reportIncident']);
         Route::post('/operator-send', [NotificationsController::class, 'sendToDriver'])
             ->middleware(['web', 'auth']); 
         Route::patch('/{id}/read', [NotificationsController::class, 'markNotificationAsRead']);
@@ -92,7 +97,12 @@ Route::prefix('v1')->group(function () {
 
     // Commuter: approved routes with terminal bus stops + fare preview (no auth)
     Route::get('commuter/approved-routes', [CommuterRoutesController::class, 'approvedRoutes']);
+    Route::get('commuter/live-buses', [CommuterRoutesController::class, 'liveBuses']);
     Route::post('commuter/fare-preview', [CommuterRoutesController::class, 'farePreview']);
+    Route::post('commuter/fare-segment', [CommuterRoutesController::class, 'fareSegment']);
+    Route::post('commuter/fare-calculate', [CommuterRoutesController::class, 'fareCalculate']);
+    Route::post('commuter/book-ticket', [CommuterRoutesController::class, 'bookTicket']);
+    Route::post('commuter/alight', [CommuterRoutesController::class, 'alight']);
 });
 
 // Simple simulated checkout page (development only)

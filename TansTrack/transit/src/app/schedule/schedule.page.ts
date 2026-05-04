@@ -18,6 +18,7 @@ interface Schedule {
   date: string;
   start_time: string;
   end_time: string;
+  ends_next_day?: boolean;
   status: string;
   fare_regular?: number;
   fare_aircon?: number;

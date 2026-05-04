@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ToastController, AlertController, LoadingController } from '@ionic/angular';
-import { CommuterService, LiveRoute } from '../services/commuter.service';
+import { CommuterService, LiveBusTrip, LiveRoute } from '../services/commuter.service';
 import { BusSimulatorService } from '../services/bus-simulator.service';
 import { TripHistoryService } from '../services/trip-history.service';
 import { Subscription } from 'rxjs';
@@ -23,8 +23,22 @@ export class HomePage implements OnInit, OnDestroy {
   commuterTerminal: 'north' | 'south' = (environment as any).commuterTerminal || 'north';
   /** regular vs air-con — filters approved routes */
   busType: 'regular' | 'aircon' = (environment as any).commuterBusTypeDefault || 'regular';
-  /** When terminal manager stops exist: user picks alighting point */
+  /** When terminal manager stops exist: user picks alighting point (single-stop / legacy) */
   stopChoice: string | number = 'terminus';
+  /** Pathway: board at stop index (must be &lt; toStopIndex) */
+  fromStopIndex = 0;
+  toStopIndex = 0;
+  liveBuses: LiveBusTrip[] = [];
+  liveBusMapPins: {
+    lng: number;
+    lat: number;
+    label: string;
+    color: string;
+    scheduleId?: number;
+    selected?: boolean;
+  }[] = [];
+  selectedScheduleId: number | null = null;
+  private liveBusPollTimer: ReturnType<typeof setInterval> | null = null;
   private subscriptions: Subscription[] = [];
   // e-ticket state
   showTicket: boolean = false;
@@ -33,6 +47,10 @@ export class HomePage implements OnInit, OnDestroy {
   ticketId: string = '';
   paymentMethod: string = 'cash';
   discountPercent: number = 0;
+  discountAmount: number = 0;
+  /** Operator / bus labels for e-ticket QR (from selected live bus). */
+  ticketOperatorCompany = '';
+  ticketBusLabel = '';
 
   // Bus simulation for route visualization and distance tracking
   boardingLocation: { lng: number; lat: number } | null = null;
@@ -40,12 +58,14 @@ export class HomePage implements OnInit, OnDestroy {
   distanceTraveled: number = 0; // Distance in kilometers from boarding point
   isSimulationActive: boolean = false;
   private busSimulationSubscription: Subscription | null = null;
+  /** Avoid duplicate POST /commuter/alight for the same ride. */
+  private alightNotified: boolean = false;
 
   constructor(
     private toastController: ToastController,
     private alertController: AlertController,
     private loadingController: LoadingController,
-    private commuterService: CommuterService,
+    public commuterService: CommuterService,
     private busSimulator: BusSimulatorService,
     private tripHistoryService: TripHistoryService
   ) {}
@@ -59,14 +79,57 @@ export class HomePage implements OnInit, OnDestroy {
     this.loadRouteData();
   }
 
-  get stopPinsForMap(): { lng: number; lat: number; label?: string }[] {
+  /**
+   * Must be a stable array reference — a template getter that returned a new [] every CD
+   * caused route-map ngOnChanges to fire endlessly and restart bus interpolation.
+   */
+  stopPinsForMap: { lng: number; lat: number; label?: string }[] = [];
+
+  private syncStopPinsForMap(): void {
     const stops = this.selectedRoute?.stops;
-    if (!stops?.length) return [];
-    return stops.map((s: any, i: number) => ({
-      lng: Number(s.lng),
-      lat: Number(s.lat),
-      label: s.name || `Stop ${i + 1}`,
-    }));
+    if (!stops?.length) {
+      this.stopPinsForMap = [];
+      return;
+    }
+    this.stopPinsForMap = stops
+      .map((s: any, i: number) => ({
+        lng: Number(s.lng),
+        lat: Number(s.lat),
+        label: s.name || `Stop ${i + 1}`,
+      }))
+      .filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat));
+  }
+
+  /** GeoJSON from DB/API may be a Feature, string, or LineString — map expects LineString. */
+  private normalizeLineStringGeometry(raw: unknown): { type: 'LineString'; coordinates: number[][] } | null {
+    let g: any = raw;
+    if (g == null) {
+      return null;
+    }
+    if (typeof g === 'string') {
+      try {
+        let parsed: any = g;
+        let guard = 0;
+        while (typeof parsed === 'string' && guard < 4) {
+          parsed = JSON.parse(parsed);
+          guard++;
+        }
+        g = parsed;
+      } catch {
+        return null;
+      }
+    }
+    if (g?.type === 'Feature' && g.geometry) {
+      g = g.geometry;
+    }
+    if (
+      g?.type === 'LineString' &&
+      Array.isArray(g.coordinates) &&
+      g.coordinates.length >= 2
+    ) {
+      return g;
+    }
+    return null;
   }
 
   onTerminalChange() {
@@ -78,10 +141,16 @@ export class HomePage implements OnInit, OnDestroy {
     this.selectedRouteId = '';
     this.selectedRoute = null;
     this.ticketFare = null;
+    this.liveBuses = [];
+    this.liveBusMapPins = [];
+    this.selectedScheduleId = null;
+    this.stopLiveBusPoll();
+    this.syncStopPinsForMap();
   }
 
   ngOnDestroy() {
     this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.stopLiveBusPoll();
     this.stopBusSimulation();
   }
 
@@ -98,39 +167,58 @@ export class HomePage implements OnInit, OnDestroy {
   async onRouteSelected() {
     if (!this.selectedRouteId) {
       this.selectedRoute = null;
+      this.stopLiveBusPoll();
+      this.liveBuses = [];
+      this.liveBusMapPins = [];
+      this.selectedScheduleId = null;
+      this.ticketOperatorCompany = '';
+      this.ticketBusLabel = '';
+      this.discountAmount = 0;
+      this.syncStopPinsForMap();
       return;
     }
 
-    // pick from cache
-    this.selectedRoute = this.routes.find(route => route.id === this.selectedRouteId) || null;
+    // pick from cache (ion-select may use string or number id)
+    const sid = String(this.selectedRouteId);
+    this.selectedRoute = this.routes.find((route) => String(route.id) === sid) || null;
     console.log('Selected route:', this.selectedRoute);
+    this.syncStopPinsForMap();
 
     if (!this.selectedRoute) return;
 
-    // Parse geometry if it's a string
-    if (this.selectedRoute.geometry && typeof this.selectedRoute.geometry === 'string') {
-      try {
-        this.selectedRoute.geometry = JSON.parse(this.selectedRoute.geometry);
-      } catch (e) {
-        console.error('Failed to parse route geometry:', e);
-      }
+    const normalized = this.normalizeLineStringGeometry(this.selectedRoute.geometry);
+    if (normalized) {
+      this.selectedRoute.geometry = normalized;
     }
 
     this.stopChoice = 'terminus';
+    this.selectedScheduleId = null;
+    this.stopLiveBusPoll();
+    this.startLiveBusPoll();
 
     try {
       this.ticketDestination = this.selectedRoute.name || null;
 
-      // Terminal-defined stops → fare by distance to selected stop
-      if (this.selectedRoute.stops && this.selectedRoute.stops.length > 0) {
+      const stops = this.selectedRoute.stops;
+      if (stops && stops.length >= 2) {
+        this.fromStopIndex = 0;
+        this.toStopIndex = stops.length - 1;
         this.ticketFare = null;
         this.discountPercent = 0;
+        this.discountAmount = 0;
+        this.applySegmentFare();
+        this.ticketId = this.generateTicketId();
+        this.showTicket = false;
+        return;
+      }
+
+      if (stops && stops.length === 1) {
+        this.ticketFare = null;
+        this.discountPercent = 0;
+        this.discountAmount = 0;
         this.applyFareForStopChoice();
         this.ticketId = this.generateTicketId();
         this.showTicket = false;
-        if (this.selectedRoute.geometry?.coordinates) {
-          this.startBusSimulation();
-        }
         return;
       }
 
@@ -140,6 +228,7 @@ export class HomePage implements OnInit, OnDestroy {
           if (response.success && response.data) {
             this.ticketFare = response.data.final_fare;
             this.discountPercent = response.data.discount_percent || 0;
+            this.discountAmount = response.data.discount_amount || 0;
             if (response.data.discount_amount > 0) {
               this.showToast(
                 `${passengerType} Discount Applied: -₱${response.data.discount_amount} (${response.data.discount_percent}%)`,
@@ -152,13 +241,6 @@ export class HomePage implements OnInit, OnDestroy {
           this.ticketFare = this.selectedRoute?.basefare || 0;
         },
       });
-
-      this.ticketId = this.generateTicketId();
-      this.showTicket = true;
-
-      if (this.selectedRoute.geometry?.coordinates) {
-        this.startBusSimulation();
-      }
     } catch (e) {
       console.error('Failed to set ticket data on selection:', e);
     }
@@ -166,6 +248,138 @@ export class HomePage implements OnInit, OnDestroy {
 
   onStopChoiceChange() {
     this.applyFareForStopChoice();
+  }
+
+  onSegmentStopsChange() {
+    if (!this.selectedRoute?.stops?.length) return;
+    const max = this.selectedRoute.stops.length - 1;
+    if (this.fromStopIndex < 0) this.fromStopIndex = 0;
+    if (this.toStopIndex > max) this.toStopIndex = max;
+    if (this.fromStopIndex >= this.toStopIndex) {
+      this.toStopIndex = Math.min(max, this.fromStopIndex + 1);
+    }
+    this.applySegmentFare();
+  }
+
+  private applySegmentFare() {
+    if (!this.selectedRoute?.stops || this.selectedRoute.stops.length < 2) return;
+    this.commuterService
+      .fareSegment({
+        route_id: parseInt(this.selectedRoute.id, 10),
+        from_stop_index: this.fromStopIndex,
+        to_stop_index: this.toStopIndex,
+        approval_request_id: this.selectedRoute.approval_request_id,
+      })
+      .subscribe({
+        next: (res) => {
+          if (res.success && res.data) {
+            this.ticketFare = res.data.final_fare;
+            this.discountPercent = res.data.discount_percent || 0;
+            this.discountAmount = res.data.discount_amount || 0;
+            const from = this.selectedRoute!.stops![this.fromStopIndex];
+            const to = this.selectedRoute!.stops![this.toStopIndex];
+            this.ticketDestination = `${from?.name || 'Boarding'} → ${to?.name || 'Alighting'}`;
+          }
+        },
+        error: () => {
+          this.ticketFare = this.selectedRoute?.basefare ?? 0;
+        },
+      });
+  }
+
+  private stopLiveBusPoll(): void {
+    if (this.liveBusPollTimer) {
+      clearInterval(this.liveBusPollTimer);
+      this.liveBusPollTimer = null;
+    }
+  }
+
+  private startLiveBusPoll(): void {
+    this.stopLiveBusPoll();
+    this.refreshLiveBuses();
+    this.liveBusPollTimer = setInterval(() => this.refreshLiveBuses(), 15000);
+  }
+
+  private refreshLiveBuses(): void {
+    if (!this.selectedRoute?.id) {
+      this.liveBuses = [];
+      this.liveBusMapPins = [];
+      return;
+    }
+    this.commuterService.getLiveBuses(String(this.selectedRoute.id), this.commuterTerminal).subscribe({
+      next: (res) => {
+        if (!res.success || !Array.isArray(res.buses)) {
+          this.liveBuses = [];
+          this.liveBusMapPins = [];
+          this.selectedScheduleId = null;
+          return;
+        }
+        this.liveBuses = res.buses;
+        this.updateLiveBusMapPins();
+        if (
+          this.selectedScheduleId != null &&
+          !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
+        ) {
+          this.selectedScheduleId = null;
+          this.updateLiveBusMapPins();
+        }
+        this.autoSelectSingleLiveBus();
+      },
+      error: () => {
+        this.liveBuses = [];
+        this.liveBusMapPins = [];
+      },
+    });
+  }
+
+  /** If only one non-full bus is running, select it so "Get e-Ticket" is not blocked. */
+  private autoSelectSingleLiveBus(): void {
+    const open = this.liveBuses.filter((b) => !b.is_full);
+    if (open.length !== 1) {
+      return;
+    }
+    if (this.selectedScheduleId != null) {
+      return;
+    }
+    this.selectedScheduleId = open[0].schedule_id;
+    this.updateLiveBusMapPins();
+  }
+
+  private updateLiveBusMapPins(): void {
+    this.liveBusMapPins = this.liveBuses
+      .filter((b) => b.position != null && Number.isFinite(b.position.lng) && Number.isFinite(b.position.lat))
+      .map((b) => ({
+        lng: b.position!.lng,
+        lat: b.position!.lat,
+        label: `${b.bus_number || 'Bus'} · ${b.operator_company || 'Operator'} · ${b.driver_name || ''}${
+          b.is_full ? ' · FULL' : ''
+        }`,
+        color: b.is_full ? '#dc2626' : b.status === 'active' ? '#16a34a' : '#2563eb',
+        scheduleId: b.schedule_id,
+        selected: this.selectedScheduleId === b.schedule_id,
+      }));
+  }
+
+  selectLiveBus(b: LiveBusTrip): void {
+    if (b.is_full) {
+      void this.showToast('This bus is full. Choose another.', 'warning');
+      return;
+    }
+    this.selectedScheduleId = b.schedule_id;
+    this.updateLiveBusMapPins();
+    void this.showToast(`Selected ${b.bus_number || 'bus'} — tap Get e-Ticket when ready.`, 'success');
+  }
+
+  private syncTicketBusLabelsForETicket(): void {
+    const b = this.liveBuses.find((x) => x.schedule_id === this.selectedScheduleId);
+    if (b) {
+      this.ticketOperatorCompany = b.operator_company || '';
+      const parts = [b.bus_number, b.plate_number].filter((p) => p != null && String(p).trim() !== '');
+      this.ticketBusLabel = parts.length ? parts.join(' · ') : b.bus_number || '';
+    } else {
+      this.ticketOperatorCompany = '';
+      this.ticketBusLabel = '';
+    }
   }
 
   /** Fare proportional to distance along route (backend fare-preview) */
@@ -220,19 +434,13 @@ export class HomePage implements OnInit, OnDestroy {
     ).subscribe({
       next: (response) => {
         if (response.success && response.data) {
-          // Demo mode: instead of opening an external payment flow, just show the e-ticket
           this.ticketDestination = this.selectedRoute?.name || null;
-          this.ticketFare = response.data.final_fare;
-            this.discountPercent = response.data.discount_percent || 0;
-          this.ticketId = this.generateTicketId(); // Generate and store the ticket ID once
-          this.showTicket = true;
-          
-          // Show appropriate message
-          let message = `e-ticket for ${this.ticketDestination} (₱${response.data.final_fare.toFixed(2)})`;
-          if (response.data.discount_amount > 0) {
-            message += ` - ${passengerType} discount applied!`;
-          }
-          this.showToast(message, 'success');
+          this.confirmTicketWithBackend(
+            response.data.final_fare,
+            response.data.discount_percent || 0,
+            response.data.discount_amount || 0,
+            passengerType
+          );
         }
       },
       error: (error) => {
@@ -252,48 +460,110 @@ export class HomePage implements OnInit, OnDestroy {
     toast.present();
   }
 
-  generateTicket() {
-    if (this.selectedRoute) {
-      this.ticketDestination = this.selectedRoute.name;
-      
-      // Calculate fare with passenger type discount from backend
-      const passengerType = this.commuterService.getPassengerType();
-      
-      this.commuterService.calculateFareWithDiscount(
-        this.selectedRoute.id,
-        passengerType
-      ).subscribe({
-        next: (response) => {
-          if (response.success && response.data) {
-            this.ticketFare = response.data.final_fare;
-            this.discountPercent = response.data.discount_percent || 0;
-            this.ticketId = this.generateTicketId(); // Generate and store the ticket ID once
-            console.log('Generated Ticket ID:', this.ticketId);
-            console.log('Fare Calculation:', response.data);
-            this.showTicket = true;
-            
-            // Start bus simulation for route tracking (distance display only)
-            this.startBusSimulation();
-            
-            // Show appropriate message with discount info
-            let message = `e-Ticket generated! Fare: ₱${response.data.final_fare.toFixed(2)}`;
-            if (response.data.discount_amount > 0) {
-              message += ` (${passengerType} discount: -₱${response.data.discount_amount})`;
-            }
-            this.showToast(message, 'success');
-          }
-        },
-        error: (error) => {
-          console.error('Error calculating fare:', error);
-          // Fallback to base fare if API fails
-          this.ticketFare = this.selectedRoute?.basefare || 0;
-          this.ticketId = this.generateTicketId();
-          this.showTicket = true;
-          this.startBusSimulation();
-          this.showToast('e-Ticket generated! Using base fare', 'warning');
-        }
-      });
+  /** Confirm route, fare, and payment before calling the booking APIs. */
+  async confirmBeforeGetETicket() {
+    if (!this.selectedRoute) return;
+
+    if (this.liveBuses.length > 0 && this.selectedScheduleId == null) {
+      void this.showToast('Select an active bus for this route first.', 'warning');
+      return;
     }
+
+    const stops = this.selectedRoute.stops;
+    if (stops && stops.length >= 2 && this.fromStopIndex >= this.toStopIndex) {
+      void this.showToast('Boarding stop must come before your alighting stop.', 'warning');
+      return;
+    }
+
+    const fare = Number(this.ticketFare ?? this.selectedRoute.basefare ?? 0);
+    const routeName = this.selectedRoute.name || 'This route';
+    const pay = this.getPaymentMethodLabel();
+    const tripLine =
+      this.ticketDestination && this.ticketDestination !== routeName
+        ? `\n${this.ticketDestination}`
+        : '';
+
+    const alert = await this.alertController.create({
+      header: 'Get e-Ticket?',
+      subHeader: routeName,
+      message: `Fare: ₱${fare.toFixed(2)}\nPayment: ${pay}${tripLine}\n\nBook this ticket now?`,
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Confirm',
+          handler: () => {
+            this.generateTicket();
+          },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  generateTicket() {
+    if (!this.selectedRoute) return;
+
+    if (this.liveBuses.length > 0 && this.selectedScheduleId == null) {
+      void this.showToast('Select an active bus for this route first.', 'warning');
+      return;
+    }
+
+    const stops = this.selectedRoute.stops;
+    if (stops && stops.length >= 2 && this.fromStopIndex >= this.toStopIndex) {
+      void this.showToast('Boarding stop must come before your alighting stop.', 'warning');
+      return;
+    }
+
+    const passengerType = this.commuterService.getPassengerType();
+
+    if (stops && stops.length >= 2) {
+      this.commuterService
+        .fareSegment({
+          route_id: parseInt(this.selectedRoute.id, 10),
+          from_stop_index: this.fromStopIndex,
+          to_stop_index: this.toStopIndex,
+          approval_request_id: this.selectedRoute.approval_request_id,
+        })
+        .subscribe({
+          next: (response) => {
+            if (response.success && response.data) {
+              this.confirmTicketWithBackend(
+                response.data.final_fare,
+                response.data.discount_percent || 0,
+                response.data.discount_amount || 0,
+                passengerType
+              );
+            }
+          },
+          error: () => {
+            void this.showToast('Could not calculate fare for this segment.', 'danger');
+          },
+        });
+      return;
+    }
+
+    this.ticketDestination = this.selectedRoute.name;
+    this.commuterService.calculateFareWithDiscount(this.selectedRoute.id, passengerType).subscribe({
+      next: (response) => {
+        if (response.success && response.data) {
+          this.confirmTicketWithBackend(
+            response.data.final_fare,
+            response.data.discount_percent || 0,
+            response.data.discount_amount || 0,
+            passengerType
+          );
+        }
+      },
+      error: (error) => {
+        console.error('Error calculating fare:', error);
+        const base = this.selectedRoute?.basefare ?? 0;
+        void this.showToast(
+          'Fare service unavailable — saving ticket at listed fare if a trip exists today.',
+          'warning'
+        );
+        this.confirmTicketWithBackend(base, 0, 0, this.commuterService.getPassengerType());
+      },
+    });
   }
 
   private generateTicketId(): string {
@@ -303,6 +573,93 @@ export class HomePage implements OnInit, OnDestroy {
     const id = `${timestamp}-${random}`;
     console.log('generateTicketId called, ID:', id);
     return id;
+  }
+
+  private getCommuterId(): number | undefined {
+    try {
+      const raw = localStorage.getItem('currentUser');
+      if (!raw) return undefined;
+      const u = JSON.parse(raw) as { id?: number; commuter_id?: number };
+      const id = u.id ?? u.commuter_id;
+      if (typeof id === 'number' && !Number.isNaN(id)) return id;
+      if (id != null) {
+        const n = parseInt(String(id), 10);
+        return Number.isNaN(n) ? undefined : n;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Marks tickets as alighted so driver/operator “aboard” counts drop; trip revenue rows stay.
+   */
+  private notifyAlighted(): void {
+    if (this.alightNotified || !this.ticketId) {
+      return;
+    }
+    this.alightNotified = true;
+    this.commuterService.alight(this.ticketId).subscribe({
+      error: (err) => console.warn('alight request failed', err),
+    });
+  }
+
+  private bookingErrorMessage(err: unknown): string {
+    const anyErr = err as { error?: { message?: string }; message?: string };
+    const m = anyErr?.error?.message ?? anyErr?.message;
+    return typeof m === 'string' && m.length > 0
+      ? m
+      : 'Could not register e-ticket with the operator.';
+  }
+
+  /**
+   * Saves ticket to Laravel (trip logs + driver boarding list), then shows the e-ticket UI.
+   */
+  private confirmTicketWithBackend(
+    finalFare: number,
+    discountPercent: number,
+    discountAmount: number,
+    passengerType: string
+  ): void {
+    const route = this.selectedRoute;
+    if (!route) return;
+
+    this.alightNotified = false;
+    this.ticketId = this.generateTicketId();
+    this.commuterService
+      .bookTicket({
+        route_id: parseInt(route.id, 10),
+        schedule_id: this.selectedScheduleId ?? undefined,
+        public_ticket_id: this.ticketId,
+        fare: finalFare,
+        commuter_id: this.getCommuterId(),
+        payment_method: this.paymentMethod,
+      })
+      .subscribe({
+        next: (bookRes) => {
+          if (!bookRes.success) {
+            void this.showToast(bookRes.message || 'Could not register e-ticket.', 'danger');
+            return;
+          }
+          this.ticketFare = finalFare;
+          this.discountPercent = discountPercent;
+          this.discountAmount = discountAmount;
+          this.syncTicketBusLabelsForETicket();
+          this.saveInProgressTripSnapshot(finalFare);
+          this.showTicket = true;
+          this.startBusSimulation();
+          let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
+          if (discountAmount > 0) {
+            message += ` (${passengerType} discount: -₱${discountAmount})`;
+          }
+          void this.showToast(message, 'success');
+        },
+        error: (err) => {
+          console.error('bookTicket error', err);
+          void this.showToast(this.bookingErrorMessage(err), 'danger');
+        },
+      });
   }
 
   getPaymentMethodLabel(): string {
@@ -323,30 +680,82 @@ export class HomePage implements OnInit, OnDestroy {
     return icons[this.paymentMethod] || 'cash-outline';
   }
 
-  closeTicket() {
-    if (this.selectedRoute && this.ticketId) {
-      const distanceKm = this.selectedRoute.distance_km;
-      const trip = {
-        id: this.ticketId,
-        routeName: this.selectedRoute.name || '',
-        departure: this.getOrigin(),
-        arrival: this.getDestinationPoint(),
-        departureTime: this.currentTime,
-        arrivalTime: this.currentTime,
-        fare: this.ticketFare || this.selectedRoute.basefare || 0,
-        paymentMethod: this.paymentMethod,
+  async closeTicket() {
+    const alert = await this.alertController.create({
+      header: 'Close e-Ticket',
+      message:
+        'Have you gotten off at your stop? Mark the trip complete to update your seat count. You can also finish the trip later from Trip History.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Still traveling',
+          handler: () => {
+            this.showTicket = false;
+            this.stopBusSimulation();
+          },
+        },
+        {
+          text: "I've arrived",
+          handler: () => {
+            this.finalizeTripFromTicket();
+          },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  /** Completes local trip + notifies operator; call when commuter confirms they have alighted. */
+  private finalizeTripFromTicket(): void {
+    this.notifyAlighted();
+    if (this.ticketId) {
+      const arrived = new Date().toISOString();
+      this.tripHistoryService.updateLocalTrip(this.ticketId, {
         status: 'completed',
-        driverName: '',
-        busPlateNumber: '',
-        tripDate: new Date().toISOString(),
-        distance: typeof distanceKm === 'string' ? parseFloat(distanceKm) : (distanceKm || 0),
-        duration: ''
-      };
-      this.tripHistoryService.saveLocalTrip(trip);
+        arrivalTime: arrived,
+        duration: this.computeTripDurationLabel(arrived),
+      });
     }
     this.showTicket = false;
     this.stopBusSimulation();
-    this.showToast('Ticket closed. Trip saved to history.', 'medium');
+    void this.showToast('Trip completed. Thanks for riding!', 'success');
+  }
+
+  private computeTripDurationLabel(arrivalIso: string): string {
+    const trips = this.tripHistoryService.getLocalTripsSync();
+    const row = trips.find((t: any) => t.id === this.ticketId);
+    const dep = row?.departureTime ? new Date(row.departureTime as string).getTime() : NaN;
+    const arr = new Date(arrivalIso).getTime();
+    if (Number.isNaN(dep) || Number.isNaN(arr) || arr <= dep) {
+      return '';
+    }
+    const mins = Math.round((arr - dep) / 60000);
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+  }
+
+  private saveInProgressTripSnapshot(fare: number): void {
+    const route = this.selectedRoute;
+    if (!route || !this.ticketId) return;
+    const distanceKm = route.distance_km;
+    this.tripHistoryService.upsertLocalTrip({
+      id: this.ticketId,
+      routeName: route.name || '',
+      departure: this.getOrigin(),
+      arrival: this.getDestinationPoint(),
+      departureTime: new Date().toISOString(),
+      arrivalTime: '',
+      fare,
+      paymentMethod: this.paymentMethod,
+      status: 'in-progress',
+      driverName: '',
+      busPlateNumber: this.ticketBusLabel || '',
+      tripDate: new Date().toISOString(),
+      distance: typeof distanceKm === 'string' ? parseFloat(distanceKm) : (distanceKm || 0),
+      duration: '',
+    });
   }
 
   async shareTicket() {
@@ -417,6 +826,7 @@ export class HomePage implements OnInit, OnDestroy {
               // Close ticket and show receipt
               this.showTicket = false;
               this.selectedRoute = null;
+              this.syncStopPinsForMap();
               
               const receiptAlert = await this.alertController.create({
                 header: '✅ Payment Confirmed',
@@ -511,7 +921,6 @@ export class HomePage implements OnInit, OnDestroy {
     
     this.currentBusPosition = { ...this.boardingLocation };
     this.distanceTraveled = 0;
-    this.ticketFare = 0; 
     this.isSimulationActive = true;
 
     console.log('Starting bus simulation from:', this.boardingLocation);
@@ -553,6 +962,12 @@ export class HomePage implements OnInit, OnDestroy {
             console.log(`Bus at step ${position.index}/${totalSteps}: Distance traveled = ${this.distanceTraveled.toFixed(2)} km (${(progress * 100).toFixed(1)}% of route)`);
           }
         },
+        complete: () => {
+          this.busSimulationSubscription = null;
+          this.isSimulationActive = false;
+          this.notifyAlighted();
+          void this.showToast('You reached your destination.', 'success');
+        },
         error: (err) => {
           console.error('Bus simulation error:', err);
           this.stopBusSimulation();
@@ -589,13 +1004,19 @@ export class HomePage implements OnInit, OnDestroy {
    * Get origin point from ticket destination
    */
   getOrigin(): string {
-    return this.ticketDestination ? this.ticketDestination.split(' to ')[0] || 'Start Point' : 'Start Point';
+    const t = this.ticketDestination;
+    if (!t) return 'Start Point';
+    if (t.includes(' → ')) return t.split(' → ')[0]?.trim() || 'Start Point';
+    return t.split(' to ')[0]?.trim() || 'Start Point';
   }
 
   /**
    * Get destination point from ticket destination
    */
   getDestinationPoint(): string {
-    return this.ticketDestination ? this.ticketDestination.split(' to ')[1] || 'End Point' : 'End Point';
+    const t = this.ticketDestination;
+    if (!t) return 'End Point';
+    if (t.includes(' → ')) return t.split(' → ')[1]?.trim() || 'End Point';
+    return t.split(' to ')[1]?.trim() || 'End Point';
   }
 }

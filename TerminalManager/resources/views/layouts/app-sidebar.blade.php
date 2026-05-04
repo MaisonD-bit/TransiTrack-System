@@ -31,30 +31,59 @@
             top: 0;
             left: 0;
             height: 100vh;
+            max-height: 100vh;
             width: 280px;
             background: linear-gradient(to bottom, var(--primary), #1a1c30);
-            padding: 20px 0;
+            padding: 20px 0 0;
             box-shadow: 3px 0 10px rgba(0, 0, 0, 0.1);
             color: white;
             z-index: 100;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .sidebar-section {
-            margin-top: 1.5rem;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            padding-top: 1rem;
+            gap: 0;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .sidebar-section::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        .sidebar-footer {
+            flex-shrink: 0;
+            padding: 1rem 0 1.25rem;
+            margin-top: 0.75rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+            background: linear-gradient(to bottom, var(--primary), #1a1c30);
+        }
+
+        .sidebar-footer form {
+            margin: 0;
         }
 
         .sidebar-link {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 0.75rem;
             color: white;
             text-decoration: none;
             padding: 15px 20px;
-            padding-left: 1.2rem;
+            padding-left: calc(1.2rem - 2px);
             border-left: 4px solid transparent;
-            transition: all 0.3s;
+            transition: background 0.3s, border-color 0.3s;
         }
 
         .sidebar-link:hover,
@@ -65,18 +94,25 @@
         }
 
         .sidebar-link .bi {
-            font-size: 1.3rem;
+            font-size: 1.25rem;
         }
 
         .logoutBtn {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
             background: transparent;
             border: none;
-            font-size: 1rem;
+            font-size: 16px;
+            font-weight: 500;
             color: white;
             cursor: pointer;
-            align-items: center;
             text-decoration: none;
             width: 100%;
+            padding: 15px 20px;
+            padding-left: calc(1.2rem - 2px);
+            border-left: 4px solid transparent;
+            transition: background 0.3s, border-color 0.3s, color 0.3s;
         }
 
         .logoutBtn:hover {
@@ -87,7 +123,7 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            margin-left: 260px;
+            margin-left: 280px;
             min-height: 100vh;
             background-color: #fff;
             padding: 20px;
@@ -165,17 +201,23 @@
             font-size: 20px;
             width: 24px;
             text-align: center;
+            flex-shrink: 0;
         }
 
         .sidebar-link span {
             font-size: 16px;
+            font-weight: 500;
+            line-height: 1.3;
+            text-align: left;
         }
 
         .logo {
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             padding: 0 20px 20px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(to bottom, var(--primary), #1a1c30);
         }
 
         .logo i {
@@ -204,7 +246,28 @@
             .sidebar {
                 width: 100vw;
                 height: auto;
+                max-height: none;
                 position: relative;
+                overflow: visible;
+            }
+
+            .sidebar-section {
+                flex: none;
+                overflow: visible;
+            }
+
+            .sidebar-footer {
+                flex: none;
+            }
+
+            .sidebar-link {
+                flex: none;
+                padding: 12px 20px;
+            }
+
+            .logoutBtn {
+                flex: none;
+                padding: 12px 20px;
             }
 
             .main-content {
@@ -251,7 +314,9 @@
                 <i class="fas fa-route"></i>
                 <span>Route stops</span>
             </a>
+        </div>
 
+        <div class="sidebar-footer">
             <form action="{{ route('logout') }}" method="POST">
                 @csrf
                 <button type="submit" class="sidebar-link logoutBtn">

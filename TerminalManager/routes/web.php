@@ -48,6 +48,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/occupy', [TerminalSpaceController::class, 'occupy']);
         Route::post('/release', [TerminalSpaceController::class, 'release']);
         Route::post('/add-time', [TerminalSpaceController::class, 'addTime']);
+        Route::post('/approve-extension', [TerminalSpaceController::class, 'approveDriverExtension']);
+        Route::post('/deny-extension', [TerminalSpaceController::class, 'denyDriverExtension']);
         Route::post('/cancel', [TerminalSpaceController::class, 'cancel']);
         Route::post('/update-space', [TerminalSpaceController::class, 'updateSpace']);
         Route::get('/history/{spaceId}', [TerminalSpaceController::class, 'getHistory']);

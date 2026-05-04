@@ -1,5 +1,5 @@
-<ion-header [translucent]="true">
-  <ion-toolbar>
+<ion-header [translucent]="false">
+  <ion-toolbar color="primary">
     <ion-title>Feedback & Ratings</ion-title>
     <ion-buttons slot="end">
       <ion-button (click)="openFeedbackForm()" color="primary">
@@ -109,16 +109,19 @@
   <ion-modal [isOpen]="showFeedbackForm" (ionModalDidDismiss)="closeFeedbackForm()">
     <ng-template>
       <ion-header>
-        <ion-toolbar>
-          <ion-buttons slot="start">
-            <ion-back-button (click)="closeFeedbackForm()"></ion-back-button>
-          </ion-buttons>
+        <ion-toolbar color="primary">
           <ion-title>Submit Feedback</ion-title>
+          <ion-buttons slot="end">
+            <ion-button fill="clear" color="light" (click)="closeFeedbackForm()">
+              <ion-icon name="close" slot="start"></ion-icon>
+              Close
+            </ion-button>
+          </ion-buttons>
         </ion-toolbar>
       </ion-header>
 
-      <ion-content>
-        <ion-card>
+      <ion-content class="modal-body">
+        <ion-card class="surface-card">
           <ion-card-content>
             <!-- Trip Selection -->
             <h3>Select a Trip</h3>
@@ -200,16 +203,19 @@
   <ion-modal [isOpen]="showFeedbackDetail" (ionModalDidDismiss)="closeFeedbackDetail()">
     <ng-template>
       <ion-header>
-        <ion-toolbar>
-          <ion-buttons slot="start">
-            <ion-back-button (click)="closeFeedbackDetail()"></ion-back-button>
-          </ion-buttons>
+        <ion-toolbar color="primary">
           <ion-title>Feedback Details</ion-title>
+          <ion-buttons slot="end">
+            <ion-button fill="clear" color="light" (click)="closeFeedbackDetail()">
+              <ion-icon name="close" slot="start"></ion-icon>
+              Close
+            </ion-button>
+          </ion-buttons>
         </ion-toolbar>
       </ion-header>
 
-      <ion-content *ngIf="selectedFeedback">
-        <ion-card>
+      <ion-content *ngIf="selectedFeedback" class="modal-body">
+        <ion-card class="surface-card">
           <ion-card-header>
             <ion-card-title>{{ selectedFeedback.routeName }}</ion-card-title>
             <ion-card-subtitle>{{ selectedFeedback.tripDate | date: 'MMM dd, yyyy' }}</ion-card-subtitle>

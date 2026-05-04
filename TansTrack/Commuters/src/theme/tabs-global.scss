@@ -1,0 +1,11 @@
+/**
+ * Tabs layout in the main CSS bundle (Capacitor/WebView).
+ * Edit src/theme/_tabs.shared.scss.
+ */
+@use "./tabs.shared" as tabs;
+
+app-tabs {
+  display: block;
+  height: 100%;
+  @include tabs.tabs-page;
+}

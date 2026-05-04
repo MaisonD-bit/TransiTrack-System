@@ -152,6 +152,7 @@
                     <div class="col-md-2">
                         <label class="form-label fw-bold">End Time</label>
                         <input type="time" name="schedules[][end_time]" class="form-control end-time-input" readonly>
+                        <input type="hidden" name="schedules[][ends_next_day]" class="ends-next-day-hidden" value="0">
                         <div class="invalid-feedback end-time-error"></div>
                     </div>
                 </div>
@@ -225,7 +226,7 @@
             </form>
 
             <!-- Schedule Table -->
-            @if($schedules->count() > 0)
+            @if($schedules->total() > 0)
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
@@ -288,6 +289,9 @@
                                     <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->start_time)->format('h:i A') }}</div>
                                     <div class="text-muted">to</div>
                                     <div class="fw-semibold">{{ \Carbon\Carbon::parse($schedule->end_time)->format('h:i A') }}</div>
+                                    @if($schedule->ends_next_day ?? false)
+                                        <small class="text-muted d-block">(end next day)</small>
+                                    @endif
                                 </div>
                             </td>
                             <td>
@@ -552,6 +556,10 @@
                             <input type="time" id="edit_end_time" name="end_time" class="form-control" required>
                             <div class="invalid-feedback" id="edit_end_time_error"></div>
                         </div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="edit_ends_next_day" name="ends_next_day" value="1">
+                        <label class="form-check-label" for="edit_ends_next_day">End time is on the next calendar day (after midnight)</label>
                     </div>
                     
                     <div class="mb-3">

@@ -60,13 +60,23 @@
                     </div>
                 </div>
                 <div class="card-footer bg-white">
-                    <form id="message-form" class="d-flex gap-2">
-                        <input
-                            type="text"
-                            id="message-input"
-                            class="form-control"
-                            placeholder="Type a message..."
-                            disabled>
+                    <form id="message-form" class="d-flex gap-2 align-items-end">
+                        <div class="input-group flex-grow-1">
+                            <input
+                                type="text"
+                                id="message-input"
+                                class="form-control"
+                                placeholder="Type a message or paste a link..."
+                                disabled>
+                            <input type="file" id="file-input" class="d-none" accept="*/*">
+                            <input type="file" id="image-input" class="d-none" accept="image/*">
+                            <button type="button" class="btn btn-outline-secondary" id="image-btn" title="Send image" disabled>
+                                <i class="fa-solid fa-image"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="file-btn" title="Send file" disabled>
+                                <i class="fa-solid fa-paperclip"></i>
+                            </button>
+                        </div>
                         <button type="submit" class="btn btn-primary" disabled id="send-btn">
                             Send
                         </button>
@@ -214,6 +224,53 @@
     .channel-content {
         cursor: pointer;
     }
+
+    .message-image {
+        max-width: 100%;
+        max-height: 300px;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        cursor: pointer;
+    }
+
+    .message-attachment {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .message-item.own .message-attachment {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .message-attachment a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .message-attachment a:hover {
+        text-decoration: underline;
+    }
+
+    .message-link {
+        display: inline-block;
+        padding: 0.75rem 1rem;
+        background: rgba(25, 103, 210, 0.08);
+        border-left: 4px solid #1976d2;
+        border-radius: 0.25rem;
+        margin-top: 0.5rem;
+    }
+
+    .message-link a {
+        color: #1565c0;
+        text-decoration: none;
+        word-break: break-all;
+    }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/stream-chat@8"></script>
@@ -269,6 +326,89 @@
         } catch (e) {
             console.error('Failed to parse JSON from', url, bodyText);
             throw e;
+        }
+    }
+
+    function channelPreviewText(lastMessage) {
+        if (!lastMessage) {
+            return 'No messages yet';
+        }
+        if (lastMessage.text && String(lastMessage.text).trim()) {
+            return lastMessage.text;
+        }
+        const atts = lastMessage.attachments;
+        if (atts && atts.length) {
+            const a = atts[0];
+            if (a.type === 'image') {
+                return '📷 Image';
+            }
+            if (a.type === 'file') {
+                return '📎 ' + (a.title || a.fallback || 'File');
+            }
+            if (a.type === 'link') {
+                return '🔗 Link';
+            }
+        }
+        return 'Message';
+    }
+
+    function escapeHtml(text) {
+        if (text == null) {
+            return '';
+        }
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    async function uploadAndSendImage(file) {
+        if (!currentChannel || !file) {
+            return;
+        }
+        try {
+            const upload = await currentChannel.sendImage(file);
+            const imageUrl = typeof upload.file === 'string' ? upload.file : (upload.file && upload.file.url) || upload.url;
+            if (!imageUrl) {
+                throw new Error('Upload did not return a URL');
+            }
+            await currentChannel.sendMessage({
+                text: file.name ? '📷 ' + file.name : '📷 Image',
+                attachments: [{
+                    type: 'image',
+                    image_url: imageUrl,
+                    fallback: file.name || 'Image',
+                }],
+            });
+        } catch (error) {
+            console.error('Error sending image:', error);
+            alert('Failed to send image. Use a smaller image or check your connection.');
+        }
+    }
+
+    async function uploadAndSendFile(file) {
+        if (!currentChannel || !file) {
+            return;
+        }
+        try {
+            const upload = await currentChannel.sendFile(file);
+            const assetUrl = typeof upload.file === 'string' ? upload.file : (upload.file && upload.file.url) || upload.url;
+            if (!assetUrl) {
+                throw new Error('Upload did not return a URL');
+            }
+            await currentChannel.sendMessage({
+                text: '📎 ' + file.name,
+                attachments: [{
+                    type: 'file',
+                    asset_url: assetUrl,
+                    title: file.name,
+                    fallback: file.name,
+                    file_size: file.size,
+                    mime_type: file.type || undefined,
+                }],
+            });
+        } catch (error) {
+            console.error('Error sending file:', error);
+            alert('Failed to send file. It may be too large or blocked.');
         }
     }
 
@@ -334,7 +474,7 @@
                 channelDiv.dataset.channelId = channel.id;
 
                 const lastMessage = channel.state.messages[channel.state.messages.length - 1];
-                const lastMessageText = lastMessage ? lastMessage.text : 'No messages yet';
+                const lastMessageText = channelPreviewText(lastMessage);
 
                 channelDiv.innerHTML = `
                     <div class="channel-content">
@@ -382,6 +522,8 @@
             // Enable input
             document.getElementById('message-input').disabled = false;
             document.getElementById('send-btn').disabled = false;
+            document.getElementById('image-btn').disabled = false;
+            document.getElementById('file-btn').disabled = false;
 
             // Load messages
             const state = await channel.watch();
@@ -445,10 +587,32 @@
 
         div.className = `message-item ${isOwn ? 'own' : ''}`;
 
+        let attachmentHtml = '';
+        if (message.attachments && message.attachments.length > 0) {
+            message.attachments.forEach(att => {
+                if (att.type === 'image') {
+                    const src = att.image_url || att.thumb_url || att.asset_url || '';
+                    if (src) {
+                        attachmentHtml += `<img src="${escapeHtml(src)}" alt="" class="message-image" loading="lazy">`;
+                    }
+                } else if (att.type === 'file') {
+                    const fileName = att.title || att.fallback || 'File';
+                    const href = att.asset_url || att.url || '#';
+                    attachmentHtml += `<div class="message-attachment"><i class="fa-solid fa-file me-1"></i><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a></div>`;
+                } else if (att.type === 'link') {
+                    attachmentHtml += `<div class="message-link"><a href="${escapeHtml(att.url)}" target="_blank" rel="noopener">${escapeHtml(att.url)}</a></div>`;
+                }
+            });
+        }
+
+        const text = (message.text || '').trim();
+        const textBlock = text ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
+
         div.innerHTML = `
             <div class="message-bubble">
-                ${!isOwn ? `<div class="message-author">${message.user.name}</div>` : ''}
-                <div class="message-text">${escapeHtml(message.text)}</div>
+                ${!isOwn ? `<div class="message-author">${escapeHtml(message.user.name || '')}</div>` : ''}
+                ${textBlock}
+                ${attachmentHtml}
                 <div class="message-time">${formatTime(message.created_at)}</div>
             </div>
         `;
@@ -464,15 +628,48 @@
 
         if (input.value.trim() && currentChannel) {
             try {
-                await currentChannel.sendMessage({
-                    text: input.value.trim()
-                });
+                const messageText = input.value.trim();
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const urls = messageText.match(urlRegex);
+                const messageData = { text: messageText };
+                if (urls) {
+                    messageData.attachments = urls.map(url => ({
+                        type: 'link',
+                        url: url,
+                        title: url
+                    }));
+                }
+                await currentChannel.sendMessage(messageData);
                 input.value = '';
             } catch (error) {
                 console.error('Error sending message:', error);
                 alert('Failed to send message');
             }
         }
+    });
+
+    document.getElementById('image-btn').addEventListener('click', () => {
+        document.getElementById('image-input').click();
+    });
+
+    document.getElementById('image-input').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file && currentChannel) {
+            await uploadAndSendImage(file);
+        }
+        e.target.value = '';
+    });
+
+    document.getElementById('file-btn').addEventListener('click', () => {
+        document.getElementById('file-input').click();
+    });
+
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file && currentChannel) {
+            await uploadAndSendFile(file);
+        }
+        e.target.value = '';
     });
 
     // Load users for channel creation
@@ -571,13 +768,6 @@
         }
     });
 
-    // Helper functions
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
     function formatTime(timestamp) {
         const date = new Date(timestamp);
         const now = new Date();
@@ -658,6 +848,8 @@
         `;
         document.getElementById('message-input').disabled = true;
         document.getElementById('send-btn').disabled = true;
+        document.getElementById('image-btn').disabled = true;
+        document.getElementById('file-btn').disabled = true;
         document.getElementById('channel-actions').style.display = 'none';
     }
 

@@ -113,6 +113,15 @@ function applyScheduleRowConstraints(row) {
 /**
  * Client-side check before POST (same rules as server; friendly messages).
  */
+function scheduleRowEpochRange(dateStr, startHm, endHm, endsNextDay) {
+    const start = new Date(`${dateStr}T${startHm}:00`).getTime();
+    let end = new Date(`${dateStr}T${endHm}:00`).getTime();
+    if (endsNextDay) {
+        end += 86400000;
+    }
+    return { start, end };
+}
+
 function validateBulkScheduleRowsBeforeSave() {
     const container = document.getElementById('schedulesContainer');
     if (!container) return null;
@@ -120,7 +129,7 @@ function validateBulkScheduleRowsBeforeSave() {
     const todayStr = scheduleTodayYmd();
     const nowHm = scheduleNowHm();
 
-    const slots = [];
+    const byDriver = {};
 
     for (let i = 0; i < rows.length; i++) {
         applyScheduleRowConstraints(rows[i]);
@@ -133,6 +142,7 @@ function validateBulkScheduleRowsBeforeSave() {
         const d = dateIn.value;
         const s = startIn.value;
         const e = endIn.value;
+        const endsNext = rows[i].querySelector('.ends-next-day-hidden')?.value === '1';
 
         if (!d || !s || !e) continue;
 
@@ -142,23 +152,29 @@ function validateBulkScheduleRowsBeforeSave() {
         if (d === todayStr && s < nowHm) {
             return `Schedule ${n}: start time cannot be in the past (it must be after ${nowHm}).`;
         }
-        if (s >= e) {
-            return `Schedule ${n}: end time must be after start time.`;
+        if (!endsNext && s >= e) {
+            return `Schedule ${n}: end time must be after start time on the same day, or enable next-day end when the trip crosses midnight.`;
         }
 
         const driverInput = rows[i].querySelector('.driver_id_input');
         const driverId = driverInput ? String(driverInput.value) : '';
-        const key = `${driverId}|${d}`;
-        if (!slots[key]) slots[key] = [];
-        slots[key].push({ n, start: s, end: e });
+        if (!driverId) continue;
+
+        const ra = scheduleRowEpochRange(d, s, e, endsNext);
+        if (ra.end <= ra.start) {
+            return `Schedule ${n}: invalid time range.`;
+        }
+
+        if (!byDriver[driverId]) byDriver[driverId] = [];
+        byDriver[driverId].push({ n, start: ra.start, end: ra.end });
     }
 
-    for (const key of Object.keys(slots)) {
-        const list = slots[key];
+    for (const driverId of Object.keys(byDriver)) {
+        const list = byDriver[driverId];
         for (let a = 0; a < list.length; a++) {
             for (let b = a + 1; b < list.length; b++) {
                 if (list[a].start < list[b].end && list[a].end > list[b].start) {
-                    return `Schedule ${list[a].n} and Schedule ${list[b].n} overlap on the same day for this driver. Choose different times.`;
+                    return `Schedule ${list[a].n} and Schedule ${list[b].n} overlap for this driver. Choose different times.`;
                 }
             }
         }
@@ -467,6 +483,12 @@ function viewSchedule(id) {
         });
 }
 
+function normalizeTimeForInput(raw) {
+    if (raw == null || raw === '') return '';
+    const s = String(raw);
+    return s.length >= 5 ? s.slice(0, 5) : s;
+}
+
 function editSchedule(id) {
     fetch(`/schedules/${id}`) 
         .then(response => response.json())
@@ -476,9 +498,13 @@ function editSchedule(id) {
             document.getElementById('edit_bus_id').value = data.bus_id;
             document.getElementById('edit_driver_id').value = data.driver_id;
             document.getElementById('edit_status').value = data.status;
-            document.getElementById('edit_date').value = data.date;
-            document.getElementById('edit_start_time').value = data.start_time;
-            document.getElementById('edit_end_time').value = data.end_time;
+            document.getElementById('edit_date').value = typeof data.date === 'string' ? data.date.split('T')[0] : data.date;
+            document.getElementById('edit_start_time').value = normalizeTimeForInput(data.start_time);
+            document.getElementById('edit_end_time').value = normalizeTimeForInput(data.end_time);
+            const enx = document.getElementById('edit_ends_next_day');
+            if (enx) {
+                enx.checked = !!(data.ends_next_day === true || data.ends_next_day === 1 || data.ends_next_day === '1');
+            }
             document.getElementById('edit_notes').value = data.notes || '';
             
             document.getElementById('editScheduleForm').action = `/schedules/${id}`;
@@ -1022,15 +1048,19 @@ function updateFareInputs(row, routeSelect, busSelect) {
 function calculateEndTime(routeSelect, startTimeInput, endTimeInput) {
     const routeId = routeSelect.value;
     const startTime = startTimeInput.value;
+    const row = endTimeInput.closest('.schedule-row');
+    const hiddenNext = row ? row.querySelector('.ends-next-day-hidden') : null;
 
     if (!routeId || !startTime) {
         endTimeInput.value = '';
+        if (hiddenNext) hiddenNext.value = '0';
         return;
     }
 
     const duration = parseInt(routeSelect.options[routeSelect.selectedIndex].dataset.duration) || 0;
     if (duration <= 0) {
         endTimeInput.value = '';
+        if (hiddenNext) hiddenNext.value = '0';
         return;
     }
 
@@ -1045,6 +1075,9 @@ function calculateEndTime(routeSelect, startTimeInput, endTimeInput) {
     const endHours = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
     const endMinutes = String(totalMinutes % 60).padStart(2, '0');
     endTimeInput.value = `${endHours}:${endMinutes}`;
+    if (hiddenNext) {
+        hiddenNext.value = isNextDay ? '1' : '0';
+    }
 }
 
 // Function to save all schedules

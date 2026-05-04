@@ -150,12 +150,18 @@ export class AuthService {
 
   async logout(): Promise<void> {
     try {
-      const userId = this.currentUser?.id || this.currentUser?._id;
-      if (userId) {
-        await firstValueFrom(
-          this.http.post(`${this.apiUrl}/${userId}/logout`, {})
-        ).catch(err => console.warn('API logout failed:', err));
-      }
+      // Laravel: POST /api/v1/commuters/logout (no user id in path)
+      const token = localStorage.getItem('authToken');
+      const headers = token
+        ? new HttpHeaders({
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+          })
+        : undefined;
+      await firstValueFrom(
+        this.http.post(`${this.apiUrl}/logout`, {}, { headers })
+      ).catch(err => console.warn('API logout failed:', err));
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

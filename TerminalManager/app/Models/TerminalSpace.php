@@ -23,6 +23,10 @@ class TerminalSpace extends Model
         'current_driver_id',
         'current_company_id',
         'current_duration_minutes',
+        'five_min_warning_sent',
+        'three_min_warning_sent',
+        'pending_extension_minutes',
+        'terminal_extension_request_used',
         'status',
         'notes'
     ];
@@ -31,6 +35,9 @@ class TerminalSpace extends Model
         'is_occupied' => 'boolean',
         'occupied_at' => 'datetime',
         'available_at' => 'datetime',
+        'five_min_warning_sent' => 'boolean',
+        'three_min_warning_sent' => 'boolean',
+        'terminal_extension_request_used' => 'boolean',
     ];
 
     // Relationships

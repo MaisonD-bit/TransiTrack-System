@@ -79,6 +79,27 @@ export class TripHistoryService {
     localStorage.setItem('localTrips', JSON.stringify(trips));
   }
 
+  /** Insert or replace by `trip.id` (public ticket id). */
+  upsertLocalTrip(trip: any): void {
+    const trips = this.getLocalTripsSync();
+    const idx = trips.findIndex((t: any) => t.id === trip.id);
+    if (idx >= 0) {
+      trips[idx] = { ...trips[idx], ...trip };
+    } else {
+      trips.unshift(trip);
+    }
+    localStorage.setItem('localTrips', JSON.stringify(trips));
+  }
+
+  updateLocalTrip(publicTicketId: string, patch: Record<string, unknown>): void {
+    const trips = this.getLocalTripsSync();
+    const idx = trips.findIndex((t: any) => t.id === publicTicketId);
+    if (idx >= 0) {
+      trips[idx] = { ...trips[idx], ...patch };
+      localStorage.setItem('localTrips', JSON.stringify(trips));
+    }
+  }
+
   getLocalTripsSync(): any[] {
     try {
       const stored = localStorage.getItem('localTrips');

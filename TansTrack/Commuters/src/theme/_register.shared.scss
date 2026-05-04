@@ -1,0 +1,177 @@
+// Register screen — shared between register.page.scss (:host) and register-global.scss (app-register).
+
+@mixin register-page {
+  ion-content {
+    --background: linear-gradient(135deg, #0f172a, #1e3a8a);
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+
+    &::part(scroll) {
+      pointer-events: auto;
+    }
+  }
+
+  ion-back-button {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    z-index: 10;
+    color: #ffffff;
+  }
+
+  .register-container {
+    max-width: 420px;
+    margin: auto;
+    padding-top: 20px;
+  }
+
+  .hero-section {
+    text-align: center;
+    margin-bottom: 25px;
+    color: #ffffff;
+
+    .logo {
+      background: rgba(255, 255, 255, 0.1);
+      display: inline-flex;
+      padding: 15px;
+      border-radius: 50%;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 600;
+      margin: 5px 0;
+    }
+
+    p {
+      font-size: 14px;
+      color: #cbd5f5;
+    }
+  }
+
+  form {
+    background: rgba(255, 255, 255, 0.98);
+    padding: 2rem;
+    border-radius: 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    margin-bottom: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    animation: register-slide-up 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  ion-list {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
+
+  ion-item.register-field {
+    --inner-border-width: 0;
+    --highlight-height: 0;
+    --ripple-color: transparent;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    margin-bottom: 1.5rem;
+    --border-radius: 12px;
+    --background: #f8faff;
+    --border-color: #e3f2fd;
+    --color: #1a237e;
+    --border-width: 2px;
+    --inner-padding-end: 16px;
+    --inner-padding-start: 16px;
+    --padding-top: 4px;
+    --padding-bottom: 4px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    ion-input,
+    ion-select {
+      --color: #1a237e;
+      --placeholder-color: rgba(26, 35, 126, 0.45);
+      --placeholder-opacity: 1;
+      width: 100%;
+    }
+
+    ion-icon.password-toggle {
+      color: #1a237e;
+      font-size: 22px;
+    }
+  }
+
+  ion-item.register-field:has(ion-input.error),
+  ion-item.register-field:has(ion-select.error) {
+    --border-color: #ef4444;
+  }
+
+  .password-toggle {
+    cursor: pointer;
+    color: #3b82f6;
+  }
+
+  .terms-item {
+    --background: linear-gradient(135deg, #f8faff 0%, #e3f2fd 100%);
+    color: #1a237e;
+    font-size: 13px;
+
+    a {
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 500;
+    }
+  }
+
+  .error-messages {
+    margin: 10px 0;
+    padding: 10px;
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 4px solid #ef4444;
+    border-radius: 8px;
+    color: #f04a4a;
+    font-size: 13px;
+
+    div {
+      margin-bottom: 3px;
+    }
+  }
+
+  .submit-btn {
+    margin-top: 1.5rem;
+    height: 52px;
+    font-weight: 700;
+    --border-radius: 12px;
+    --background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+    --background-hover: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    --color: white;
+    font-size: 1.1rem;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  ion-button[disabled] {
+    opacity: 0.6;
+    --background: #90a4ae;
+    box-shadow: none;
+  }
+
+  .footer-links {
+    text-align: center;
+    margin-top: 20px;
+    color: #cbd5f5;
+
+    a {
+      color: #60a5fa;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  }
+}
+
+@keyframes register-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

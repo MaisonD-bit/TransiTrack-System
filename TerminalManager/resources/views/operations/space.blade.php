@@ -592,6 +592,15 @@
                 <button class="panel-close" onclick="closePanel()">×</button>
             </div>
 
+            <div id="extensionRequestBanner" class="alert alert-warning py-2 px-3 small" style="display: none; margin: 0 12px 12px;">
+                <div class="fw-semibold mb-1">Driver extension request</div>
+                <div>Extra time requested: <span id="pendingExtensionMins">—</span> minutes</div>
+                <div class="d-flex gap-2 mt-2 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-success" onclick="approveExtensionRequest(event)">Approve</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="denyExtensionRequest(event)">Deny</button>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label class="form-label">Route Name</label>
                 <input type="text" class="form-control" id="panelRouteName" readonly>

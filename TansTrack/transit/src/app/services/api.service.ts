@@ -261,6 +261,23 @@ export class ApiService {
       }, { headers: this.getHeaders() });
   }
 
+  /**
+   * Driver incident report with GPS + optional place name (operator sees in Notifications + Trip Logs map).
+   */
+  reportIncident(payload: {
+    driver_id: number;
+    incident_type: string;
+    latitude: number;
+    longitude: number;
+    location_label?: string;
+    schedule_id?: number;
+    notes?: string;
+  }): Observable<any> {
+    return this.http.post(`${this.apiUrl}/v1/notifications/incident`, payload, {
+      headers: this.getHeaders(),
+    });
+  }
+
   getDriverNotifications(driverId: number): Observable<any> {
     return this.http.get(`${this.apiUrl}/v1/notifications/driver/${driverId}`, {
       headers: this.getHeaders()
@@ -274,5 +291,24 @@ export class ApiService {
     return this.http.patch(`${this.apiUrl}/v1/notifications/${notificationId}/read`, {
       driver_id: driverId
     }, { headers: this.getHeaders() });
+  }
+
+  getTerminalParkingStatus(driverId: number): Observable<any> {
+    const url = `${this.apiUrl}/v1/terminal/driver-space-status?driver_id=${encodeURIComponent(String(driverId))}`;
+    return this.http.get(url, { headers: this.getHeaders() }).pipe(
+      tap(response => console.log('Terminal parking status:', response)),
+      catchError(this.handleError)
+    );
+  }
+
+  requestTerminalParkingExtension(driverId: number, additionalMinutes: number): Observable<any> {
+    return this.http.post(
+      `${this.apiUrl}/v1/terminal/request-space-extension`,
+      { driver_id: driverId, additional_minutes: additionalMinutes },
+      { headers: this.getHeaders() }
+    ).pipe(
+      tap(response => console.log('Terminal extension request:', response)),
+      catchError(this.handleError)
+    );
   }
 }

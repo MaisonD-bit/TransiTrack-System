@@ -1,3 +1,5 @@
+@use "./theme/transitrack-pages" as tt;
+
 /*
  * App Global CSS
  * ----------------------------------------------------------------------------
@@ -24,6 +26,17 @@
 @import "@ionic/angular/css/text-alignment.css";
 @import "@ionic/angular/css/text-transformation.css";
 @import "@ionic/angular/css/flex-utils.css";
+
+/* Status bar / notch: keep headers usable on Capacitor WebViews */
+ion-header ion-toolbar {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+app-trip-history,
+app-feedback,
+app-customer-support {
+  @include tt.commuter-inner-page;
+}
 
 /**
  * Ionic Dark Mode

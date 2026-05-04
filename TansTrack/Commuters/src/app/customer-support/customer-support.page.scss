@@ -1,3 +1,33 @@
+@use "../../theme/transitrack-pages" as tt;
+
+:host ion-modal {
+  @include tt.tt-modal-surface;
+}
+
+.modal-body {
+  --padding-bottom: 28px;
+}
+
+.surface-card {
+  margin: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 84, 233, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 84, 233, 0.06);
+}
+
+.support-content {
+  --padding-top: 12px;
+}
+
+.support-segment {
+  margin: 0 16px 16px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 84, 233, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 84, 233, 0.06);
+}
+
 .tab-content {
   padding: 16px 0;
 }
@@ -7,7 +37,9 @@
 .search-card,
 .info-card {
   margin: 16px;
-  border-radius: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 84, 233, 0.1);
+  box-shadow: 0 2px 10px rgba(0, 84, 233, 0.05);
 }
 
 .empty-state {
@@ -20,7 +52,8 @@
   gap: 16px;
 
   ion-icon {
-    color: var(--ion-color-medium);
+    color: tt.$tt-blue;
+    opacity: 0.65;
     font-size: 64px;
   }
 
@@ -38,13 +71,14 @@
 
 .ticket-card {
   margin: 0 16px 12px 16px;
-  border-radius: 12px;
-  border-left: 4px solid var(--ion-color-primary);
+  border-radius: 14px;
+  border-left: 4px solid #0054e9;
+  box-shadow: 0 2px 10px rgba(0, 84, 233, 0.07);
   cursor: pointer;
   transition: all 0.3s ease;
 
   &:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 84, 233, 0.15);
     transform: translateY(-2px);
   }
 
@@ -115,9 +149,18 @@
   }
 }
 
+ion-item-divider {
+  --background: rgba(0, 84, 233, 0.07);
+  --color: #0054e9;
+  font-weight: 700;
+  font-size: 12px;
+}
+
 .faq-card {
   margin: 0 16px 12px 16px;
-  border-radius: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 84, 233, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 84, 233, 0.05);
 
   ion-card-header {
     padding: 16px;

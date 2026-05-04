@@ -153,10 +153,16 @@ class TerminalSpaceController extends Controller
                 'current_driver_id' => $driver->id,
                 'current_company_id' => $operator->id,
                 'current_duration_minutes' => $request->duration_minutes,
+                'five_min_warning_sent' => false,
+                'three_min_warning_sent' => false,
+                'pending_extension_minutes' => null,
+                'terminal_extension_request_used' => false,
                 'route_name' => $request->route_name,
                 'accommodation_type' => $request->accommodation_type,
                 'status' => 'occupied'
             ]);
+
+            $this->notifyDriverParkingAssignment($space, $driver, $request->duration_minutes);
 
             TerminalOccupancyHistory::create([
                 'space_id' => $space->space_id,
@@ -223,6 +229,10 @@ class TerminalSpaceController extends Controller
             'current_driver_id' => null,
             'current_company_id' => null,
             'current_duration_minutes' => null,
+            'five_min_warning_sent' => false,
+            'three_min_warning_sent' => false,
+            'pending_extension_minutes' => null,
+            'terminal_extension_request_used' => false,
             'status' => 'available'
         ]);
 
@@ -268,6 +278,10 @@ class TerminalSpaceController extends Controller
                 'current_driver_id' => null,
                 'current_company_id' => null,
                 'current_duration_minutes' => null,
+                'five_min_warning_sent' => false,
+                'three_min_warning_sent' => false,
+                'pending_extension_minutes' => null,
+                'terminal_extension_request_used' => false,
                 'status' => 'available'
             ]);
 
@@ -297,12 +311,21 @@ class TerminalSpaceController extends Controller
                 return response()->json(['success' => false, 'message' => 'Space is not occupied'], 400);
             }
 
-            // Extend the available_at time
-            $newAvailableAt = $space->available_at->addMinutes($request->additional_minutes);
+            if ($space->pending_extension_minutes !== null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This bay has a pending driver extension request. Approve or deny it before adding time manually.',
+                ], 400);
+            }
+
+            // Extend the available_at time (use copy() so the model attribute is not mutated in memory incorrectly)
+            $newAvailableAt = $space->available_at->copy()->addMinutes($request->additional_minutes);
 
             $space->update([
                 'available_at' => $newAvailableAt,
-                'current_duration_minutes' => $space->current_duration_minutes + $request->additional_minutes
+                'current_duration_minutes' => $space->current_duration_minutes + $request->additional_minutes,
+                'five_min_warning_sent' => false,
+                'three_min_warning_sent' => false,
             ]);
 
             // Update the most recent history record for this space to show additional time was added
@@ -506,6 +529,8 @@ class TerminalSpaceController extends Controller
     public function checkAndReleaseExpiredSpaces()
     {
         try {
+            $this->processCountdownWarnings();
+
             $expiredSpaces = TerminalSpace::where('is_occupied', true)
                 ->where('available_at', '<=', now())
                 ->get();
@@ -553,6 +578,10 @@ class TerminalSpaceController extends Controller
                     'current_driver_id' => null,
                     'current_company_id' => null,
                     'current_duration_minutes' => null,
+                    'five_min_warning_sent' => false,
+                    'three_min_warning_sent' => false,
+                    'pending_extension_minutes' => null,
+                    'terminal_extension_request_used' => false,
                     'status' => 'available'
                 ]);
             }
@@ -566,5 +595,152 @@ class TerminalSpaceController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    public function approveDriverExtension(Request $request)
+    {
+        $request->validate([
+            'space_id' => 'required|exists:terminal_spaces,space_id',
+        ]);
+
+        $space = TerminalSpace::findOrFail($request->space_id);
+
+        if (!$space->is_occupied || $space->pending_extension_minutes === null) {
+            return response()->json(['success' => false, 'message' => 'No pending extension request for this bay'], 400);
+        }
+
+        $minutes = (int) $space->pending_extension_minutes;
+        if ($minutes < 5 || $minutes > 20) {
+            return response()->json(['success' => false, 'message' => 'Invalid pending extension amount'], 422);
+        }
+
+        $newAvailableAt = $space->available_at->copy()->addMinutes($minutes);
+
+        $space->update([
+            'available_at' => $newAvailableAt,
+            'current_duration_minutes' => ($space->current_duration_minutes ?? 0) + $minutes,
+            'pending_extension_minutes' => null,
+            'five_min_warning_sent' => false,
+            'three_min_warning_sent' => false,
+        ]);
+
+        $lastHistory = TerminalOccupancyHistory::where('space_id', $space->space_id)
+            ->where('action', 'occupied')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($lastHistory) {
+            $note = "Driver extension approved: +{$minutes} min at " . now()->format('H:i:s');
+            $lastHistory->update([
+                'duration_minutes' => $space->current_duration_minutes,
+                'additional_notes' => trim(($lastHistory->additional_notes ?? '') . ' | ' . $note),
+            ]);
+        }
+
+        $this->insertDriverParkingNotification(
+            $space,
+            "Your request for +{$minutes} minutes at bay {$space->space_id} was approved. New time limit updated.",
+            'terminal_parking_extension_approved'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Approved +{$minutes} minutes",
+            'expiration_time' => $newAvailableAt->toIso8601String(),
+        ]);
+    }
+
+    public function denyDriverExtension(Request $request)
+    {
+        $request->validate([
+            'space_id' => 'required|exists:terminal_spaces,space_id',
+        ]);
+
+        $space = TerminalSpace::findOrFail($request->space_id);
+
+        if (!$space->is_occupied || $space->pending_extension_minutes === null) {
+            return response()->json(['success' => false, 'message' => 'No pending extension request for this bay'], 400);
+        }
+
+        $requested = (int) $space->pending_extension_minutes;
+        $space->update(['pending_extension_minutes' => null]);
+
+        $this->insertDriverParkingNotification(
+            $space,
+            "Your request for +{$requested} extra minutes at bay {$space->space_id} was not granted. Please prepare to depart before your timer ends.",
+            'terminal_parking_extension_denied'
+        );
+
+        return response()->json(['success' => true, 'message' => 'Extension request declined']);
+    }
+
+    private function processCountdownWarnings(): void
+    {
+        $spaces = TerminalSpace::query()
+            ->where('is_occupied', true)
+            ->whereNotNull('available_at')
+            ->where('available_at', '>', now())
+            ->get();
+
+        foreach ($spaces as $space) {
+            $remaining = max(0, $space->available_at->getTimestamp() - now()->getTimestamp());
+            $patch = [];
+
+            if (!$space->five_min_warning_sent && $remaining > 0 && $remaining <= 300) {
+                $this->insertDriverParkingNotification(
+                    $space,
+                    "Bay {$space->space_id}: about 5 minutes remain before you should depart. You may request a one-time extension (5–20 minutes) from the driver app when 5 minutes or less are left.",
+                    'terminal_parking_countdown'
+                );
+                $patch['five_min_warning_sent'] = true;
+            }
+
+            if (!$space->three_min_warning_sent && $remaining > 0 && $remaining <= 180) {
+                $this->insertDriverParkingNotification(
+                    $space,
+                    "Bay {$space->space_id}: about 3 minutes left. If you still need more time, send your one-time extension request to the terminal manager now (5–20 minutes).",
+                    'terminal_parking_countdown'
+                );
+                $patch['three_min_warning_sent'] = true;
+            }
+
+            if ($patch !== []) {
+                $space->update($patch);
+            }
+        }
+    }
+
+    private function notifyDriverParkingAssignment(TerminalSpace $space, Driver $driver, int $durationMinutes): void
+    {
+        if (!$space->current_company_id) {
+            return;
+        }
+
+        $this->insertDriverParkingNotification(
+            $space,
+            "You are assigned to bay {$space->space_id} for {$durationMinutes} minutes. You will receive reminders when about 5 and 3 minutes remain.",
+            'terminal_parking_assignment'
+        );
+    }
+
+    private function insertDriverParkingNotification(TerminalSpace $space, string $message, string $type): void
+    {
+        if (!$space->current_driver_id || !$space->current_company_id) {
+            return;
+        }
+
+        DB::table('notifications')->insert([
+            'type' => $type,
+            'message' => $message,
+            'sender_id' => $space->current_company_id,
+            'recipient_id' => null,
+            'driver_id' => $space->current_driver_id,
+            'schedule_id' => null,
+            'bus_id' => null,
+            'is_read' => false,
+            'read_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

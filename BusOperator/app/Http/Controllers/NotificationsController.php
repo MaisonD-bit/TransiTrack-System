@@ -10,9 +10,21 @@ use App\Models\Bus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class NotificationsController extends Controller
 {
+    /** @var array<string, string> */
+    private const INCIDENT_TYPE_LABELS = [
+        'flat_tire' => 'Flat tire',
+        'road_blockage' => 'Road blockage',
+        'mechanical' => 'Mechanical issue',
+        'accident' => 'Accident',
+        'medical' => 'Medical emergency',
+        'weather' => 'Weather',
+        'other' => 'Other incident',
+    ];
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -21,13 +33,13 @@ class NotificationsController extends Controller
         }
 
         // ✅ FIXED: Get RECEIVED notifications (from drivers to me, where sender_id is NULL and I'm the recipient)
-        $receivedQuery = Notification::with(['sender', 'driver', 'schedule', 'bus', 'routeApprovalRequest'])
+        $receivedQuery = Notification::with(['sender', 'driver', 'schedule.route', 'bus', 'routeApprovalRequest'])
             ->where('recipient_id', $user->id)
             ->whereNull('sender_id') // Only notifications FROM drivers (sender_id is null)
             ->orderBy('created_at', 'desc');
 
         // ✅ FIXED: Get SENT notifications (from me to drivers, where I am the sender)
-        $sentQuery = Notification::with(['driver', 'schedule', 'bus'])
+        $sentQuery = Notification::with(['driver', 'schedule.route', 'bus'])
             ->where('sender_id', $user->id) // I sent these
             ->whereNotNull('driver_id') // Sent to drivers
             ->orderBy('created_at', 'desc');
@@ -210,6 +222,106 @@ class NotificationsController extends Controller
             return response()->json([
                 'success' => false, 
                 'message' => 'An internal server error occurred: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Driver app: structured incident with GPS + optional reverse-geocoded label (consultation spec).
+     */
+    public function reportIncident(Request $request)
+    {
+        try {
+            $validator = \Validator::make($request->all(), [
+                'driver_id' => 'required|exists:drivers,id',
+                'incident_type' => 'required|in:flat_tire,road_blockage,mechanical,accident,medical,weather,other',
+                'latitude' => 'required|numeric|between:-90,90',
+                'longitude' => 'required|numeric|between:-180,180',
+                'location_label' => 'nullable|string|max:512',
+                'schedule_id' => 'nullable|exists:schedules,id',
+                'notes' => 'nullable|string|max:500',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            }
+
+            $driver = Driver::find($request->driver_id);
+            if (! $driver) {
+                return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
+            }
+
+            $recipientId = $driver->user_id;
+            if (! $recipientId) {
+                return response()->json(['success' => false, 'message' => 'Driver has no associated operator'], 400);
+            }
+
+            $scheduleId = $request->input('schedule_id');
+            $busId = null;
+            $schedule = null;
+            if ($scheduleId) {
+                $schedule = Schedule::with(['route', 'bus'])->find((int) $scheduleId);
+                if (! $schedule || (int) $schedule->driver_id !== (int) $driver->id) {
+                    return response()->json(['success' => false, 'message' => 'Invalid schedule for this driver'], 422);
+                }
+                if ((int) $schedule->user_id !== (int) $recipientId) {
+                    return response()->json(['success' => false, 'message' => 'Invalid schedule for this operator'], 422);
+                }
+                $busId = $schedule->bus_id;
+            }
+
+            $typeKey = (string) $request->incident_type;
+            $typeLabel = self::INCIDENT_TYPE_LABELS[$typeKey] ?? ucfirst(str_replace('_', ' ', $typeKey));
+
+            $loc = $request->filled('location_label')
+                ? trim((string) $request->location_label)
+                : sprintf('%.5f°, %.5f°', (float) $request->latitude, (float) $request->longitude);
+
+            $at = Carbon::now(config('app.timezone'));
+            $message = "{$typeLabel} at {$loc} at ".$at->format('M j Y').' on '.$at->format('g:i A');
+            if ($request->filled('notes')) {
+                $message .= '. '.trim((string) $request->notes);
+            }
+
+            $ctx = ['Driver: '.$driver->name];
+            if ($schedule) {
+                if ($schedule->route) {
+                    $ctx[] = 'Route: '.$schedule->route->name;
+                }
+                if ($schedule->bus) {
+                    $bn = $schedule->bus->bus_number ?? '';
+                    $ctx[] = $schedule->bus->model
+                        ? 'Bus: '.$bn.' — '.$schedule->bus->model
+                        : 'Bus: '.$bn;
+                }
+            }
+            $message .= ' · '.implode(' · ', $ctx);
+
+            $notification = Notification::create([
+                'type' => 'incident',
+                'message' => $message,
+                'sender_id' => null,
+                'recipient_id' => $recipientId,
+                'driver_id' => $driver->id,
+                'schedule_id' => $scheduleId,
+                'bus_id' => $busId,
+                'latitude' => (float) $request->latitude,
+                'longitude' => (float) $request->longitude,
+                'location_label' => $request->input('location_label'),
+                'incident_type' => $typeKey,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Incident reported to your operator',
+                'notification' => $notification,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('reportIncident failed', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not submit incident: '.$e->getMessage(),
             ], 500);
         }
     }

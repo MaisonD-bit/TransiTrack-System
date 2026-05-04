@@ -1,6 +1,6 @@
 <div class="sidebar">
     <div class="logo">
-        <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img" style="width: 40px; height: 40px; margin-right: 10px; object-fit: contain;">
+        <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
         <h1>TransiTrack</h1>
     </div>
     <div class="nav-links">
@@ -8,10 +8,9 @@
             <i class="fas fa-tachometer-alt"></i>
             <span>Operator Panel</span>
         </a>
-        <a href="{{ route('notifications.panel') }}" class="nav-item {{ request()->routeIs('notifications.panel') ? 'active' : '' }}" style="position: relative;">
+        <a href="{{ route('notifications.panel') }}" class="nav-item {{ request()->routeIs('notifications.panel') ? 'active' : '' }}">
             <i class="fas fa-bell"></i>
             <span>Notifications</span>
-            <span id="notificationBadge" class="badge bg-danger rounded-pill" style="position: absolute; top: 5px; right: 5px; display: none; font-size: 0.7rem; padding: 2px 6px;">0</span>
         </a>
         <a href="{{ route('schedule.panel') }}" class="nav-item {{ request()->routeIs('schedule.panel') ? 'active' : '' }}">
             <i class="fas fa-calendar-alt"></i>
@@ -45,7 +44,9 @@
             <i class="fas fa-cog"></i>
             <span>Settings</span>
         </a>
-        <a href="#" class="nav-item d-flex align-items-center gap-2 mt-4" onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
+    </div>
+    <div class="sidebar-footer">
+        <a href="#" class="nav-item nav-item--logout d-flex align-items-center gap-2" onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
             <i class="fas fa-sign-out-alt"></i>
             <span>Logout</span>
         </a>

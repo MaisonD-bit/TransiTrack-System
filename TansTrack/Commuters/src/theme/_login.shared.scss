@@ -1,0 +1,191 @@
+// Shared login layout: included from login.page.scss (:host) and login-global.scss (app-login).
+
+@mixin login-form-and-container {
+  .login-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 20px;
+    justify-content: center;
+
+    .login-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 24px;
+
+      .app-icon {
+        font-size: 6rem;
+        color: #1e3a8a;
+        margin-bottom: 1rem;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        animation: login-icon-bounce 2s ease-in-out infinite;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 0 0 10px;
+        color: #000 !important;
+        text-align: center;
+      }
+
+      p {
+        color: rgba(255, 255, 255, 0.9) !important;
+        margin: 0;
+        font-size: 1.1rem;
+      }
+    }
+
+    .error-messages {
+      background: rgba(255, 107, 107, 0.2);
+      border: 1px solid rgba(255, 107, 107, 0.4);
+      border-radius: 10px;
+      padding: 15px;
+      margin-left: 20px;
+      color: #ff6b6b;
+      font-size: 0.9rem;
+
+      div {
+        margin-bottom: 5px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+    }
+
+    .submit-btn {
+      --border-radius: 15px;
+      height: 56px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 30px;
+
+      ion-spinner {
+        width: 20px;
+        height: 20px;
+      }
+    }
+
+    .footer-links {
+      text-align: center;
+
+      p {
+        margin: 10px 0;
+        color: rgba(255, 255, 255, 0.8);
+
+        a {
+          color: #fff;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: none;
+
+          &:hover {
+            text-decoration: underline;
+          }
+        }
+      }
+    }
+
+    .password-toggle {
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.7);
+
+      &:hover {
+        color: #fff;
+      }
+    }
+  }
+
+  form {
+    /* Avoid backdrop-filter on form: breaks hit-testing on some Android WebViews */
+    background: rgba(255, 255, 255, 0.98);
+    padding: 2.5rem;
+    border-radius: 20px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    margin-bottom: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    animation: login-slide-up 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+
+    ion-item.field-item {
+      --inner-border-width: 0;
+      --highlight-height: 0;
+      --ripple-color: transparent;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+      --border-radius: 12px;
+      --background: #f8faff;
+      --border-color: #e3f2fd;
+      --color: #1a237e;
+      --border-width: 2px;
+      --inner-padding-end: 16px;
+      --inner-padding-start: 16px;
+      --padding-top: 4px;
+      --padding-bottom: 4px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+      ion-input {
+        --color: #1a237e;
+        --placeholder-color: rgba(26, 35, 126, 0.45);
+        --placeholder-opacity: 1;
+
+        &.error {
+          --border-color: #ff6b6b !important;
+        }
+      }
+    }
+
+    .password-reset {
+      padding-bottom: 5px;
+    }
+
+    .signup-link {
+      border: 1px solid #0f172a;
+      border-radius: 10px;
+    }
+
+    .no-account-sign {
+      padding-bottom: 5px;
+      color: rgba(0, 0, 0, 0.7);
+    }
+
+    .login-btn {
+      --background: #1e3a8a;
+      --color: #fff;
+      margin-top: 0.5rem;
+    }
+  }
+}
+
+@mixin login-responsive-inner {
+  padding: 15px;
+
+  .login-header h1 {
+    font-size: 2rem;
+  }
+}
+
+@keyframes login-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes login-icon-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}

@@ -8,6 +8,8 @@ export interface Schedule {
   date: string;
   start_time: string;
   end_time: string;
+  /** When true, end_time is on the calendar day after `date` (past-midnight trip). */
+  ends_next_day?: boolean;
   status: string;
   fare_regular: number;
   fare_aircon: number;
@@ -113,34 +115,64 @@ export class ScheduleService {
   /**
    * Update current and next schedules based on all schedules
    */
+  private normalizeHm(timeString: string): string {
+    if (!timeString) return '00:00';
+    const parts = timeString.split(':');
+    const h = (parts[0] || '0').padStart(2, '0');
+    const m = (parts[1] || '0').padStart(2, '0');
+    return `${h}:${m}`;
+  }
+
+  /** Real trip window in local time (handles ends_next_day). */
+  scheduleWindow(schedule: Schedule): { start: Date; end: Date } {
+    const d = (schedule.date || '').split('T')[0];
+    const st = this.normalizeHm(schedule.start_time);
+    const en = this.normalizeHm(schedule.end_time);
+    const start = new Date(`${d}T${st}:00`);
+    const end = new Date(`${d}T${en}:00`);
+    if (schedule.ends_next_day) {
+      end.setDate(end.getDate() + 1);
+    }
+    return { start, end };
+  }
+
+  private scheduleOverlapsToday(schedule: Schedule, todayYmd: string): boolean {
+    const startOfDay = new Date(`${todayYmd}T00:00:00`);
+    const endOfDay = new Date(`${todayYmd}T23:59:59.999`);
+    const { start, end } = this.scheduleWindow(schedule);
+    return start.getTime() <= endOfDay.getTime() && end.getTime() >= startOfDay.getTime();
+  }
+
   private updateCurrentAndNextSchedules(allSchedules: Schedule[]) {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
+    const endOfToday = new Date(`${today}T23:59:59.999`);
     
     // Find current active schedule
-    const activeSchedule = allSchedules.find(schedule => 
-      schedule.status === 'active' && schedule.date === today
-    );
+    const activeSchedule = allSchedules.find(schedule => {
+      if (schedule.status !== 'active') return false;
+      const { start, end } = this.scheduleWindow(schedule);
+      return now.getTime() >= start.getTime() && now.getTime() <= end.getTime();
+    });
     
     if (activeSchedule) {
       this.currentScheduleSubject.next(activeSchedule);
     } else {
-      // Find next accepted schedule for today that hasn't started
+      // Find next accepted schedule whose window overlaps today and hasn't started yet
       const todayAcceptedSchedules = allSchedules
-        .filter(schedule => 
-          schedule.status === 'accepted' && 
-          schedule.date === today
+        .filter(schedule =>
+          schedule.status === 'accepted' &&
+          this.scheduleOverlapsToday(schedule, today)
         )
         .sort((a, b) => {
-          const timeA = this.timeToMinutes(a.start_time);
-          const timeB = this.timeToMinutes(b.start_time);
+          const timeA = this.scheduleWindow(a).start.getTime();
+          const timeB = this.scheduleWindow(b).start.getTime();
           return timeA - timeB;
         });
       
       const nextTodaySchedule = todayAcceptedSchedules.find(schedule => {
-        const scheduleTime = this.timeToMinutes(schedule.start_time);
-        return scheduleTime > currentTime;
+        const { start } = this.scheduleWindow(schedule);
+        return start.getTime() > now.getTime();
       });
       
       this.currentScheduleSubject.next(nextTodaySchedule || null);
@@ -152,25 +184,19 @@ export class ScheduleService {
         if (schedule.status !== 'accepted' && schedule.status !== 'scheduled') {
           return false;
         }
-        
-        if (schedule.date > today) {
+        const { start } = this.scheduleWindow(schedule);
+        if (start.getTime() > endOfToday.getTime()) {
           return true;
         }
-        
-        if (schedule.date === today) {
-          const scheduleTime = this.timeToMinutes(schedule.start_time);
-          return scheduleTime > currentTime && schedule.status === 'accepted';
+        if (this.scheduleOverlapsToday(schedule, today) && schedule.status === 'accepted') {
+          return start.getTime() > now.getTime();
         }
-        
         return false;
       })
       .sort((a, b) => {
-        if (a.date !== b.date) {
-          return a.date.localeCompare(b.date);
-        }
-        const timeA = this.timeToMinutes(a.start_time);
-        const timeB = this.timeToMinutes(b.start_time);
-        return timeA - timeB;
+        const startA = this.scheduleWindow(a).start.getTime();
+        const startB = this.scheduleWindow(b).start.getTime();
+        return startA - startB;
       });
     
     // Set next schedule (skip current active one)
@@ -310,10 +336,16 @@ export class ScheduleService {
    */
   private recategorizeSchedules(data: SchedulesResponse) {
     const today = new Date().toISOString().split('T')[0];
+    const endOfToday = new Date(`${today}T23:59:59.999`);
     
-    // Recategorize all schedules
-    data.schedules.today = data.schedules.all.filter(schedule => schedule.date === today);
-    data.schedules.upcoming = data.schedules.all.filter(schedule => schedule.date > today);
+    // Recategorize all schedules (overnight trips use ends_next_day / window)
+    data.schedules.today = data.schedules.all.filter(schedule =>
+      this.scheduleOverlapsToday(schedule, today)
+    );
+    data.schedules.upcoming = data.schedules.all.filter(schedule => {
+      const { start } = this.scheduleWindow(schedule);
+      return start.getTime() > endOfToday.getTime();
+    });
     
     // Update summary
     data.summary.today_schedules = data.schedules.today.length;
@@ -376,8 +408,10 @@ export class ScheduleService {
   }
 
   canStart(schedule: Schedule): boolean {
-    const today = new Date().toISOString().split('T')[0];
-    return schedule.status === 'accepted' && schedule.date === today;
+    if (schedule.status !== 'accepted') return false;
+    const now = new Date().getTime();
+    const { start, end } = this.scheduleWindow(schedule);
+    return now >= start.getTime() && now <= end.getTime();
   }
 
   canComplete(schedule: Schedule): boolean {

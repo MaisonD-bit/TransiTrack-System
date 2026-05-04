@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Schedule;
+use App\Support\TicketBoarding;
 use App\Models\Driver;
 use App\Models\Route;
 use App\Models\RouteApprovalRequest;
@@ -51,7 +52,16 @@ class ScheduleController extends Controller
             $schedules = $query->orderBy('updated_at', 'desc')
                 ->orderBy('created_at', 'desc')
                 ->orderBy('date', 'desc')
-                ->paginate(10);
+                ->paginate(10)
+                ->withQueryString();
+
+            // Avoid "empty" list when ?page= is beyond last page after filters change
+            if ($schedules->isEmpty() && $schedules->total() > 0) {
+                $qs = request()->query();
+                $qs['page'] = max(1, $schedules->lastPage());
+
+                return redirect()->route('schedule.panel', $qs);
+            }
 
             return view('panels.schedule', compact('routes', 'buses', 'drivers', 'schedules'));
 
@@ -115,12 +125,15 @@ class ScheduleController extends Controller
                 'bus_id' => 'required|exists:buses,id',
                 'date' => 'required|date_format:Y-m-d|after_or_equal:today',
                 'start_time' => 'required|date_format:H:i',
-                'end_time' => 'required|date_format:H:i|after:start_time',
+                'end_time' => 'required|date_format:H:i',
+                'ends_next_day' => 'nullable|boolean',
                 'status' => 'required|in:scheduled,active,completed,cancelled',
             ], [
                 'date.after_or_equal' => 'The schedule date must be today or a future date.',
-                'end_time.after' => 'End time must be after start time.',
             ]);
+
+            $endsNext = filter_var($validated['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $this->assertScheduleTimeOrder($validated['date'], $validated['start_time'], $validated['end_time'], $endsNext);
 
             $this->assertScheduleStartNotInPast($validated['date'], $validated['start_time']);
 
@@ -129,17 +142,21 @@ class ScheduleController extends Controller
                 $validated['driver_id'],
                 $validated['date'],
                 $validated['start_time'],
-                $validated['end_time']
+                $validated['end_time'],
+                null,
+                $endsNext
             );
 
             if ($overlappingSchedule) {
+                $msg = $this->scheduleOverlapMessage('create', $overlappingSchedule);
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
-                        'message' => "Cannot create schedule: Driver already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}."
+                        'message' => $msg,
                     ], 422);
                 }
-                return redirect()->back()->with('error', "Cannot create schedule: Driver already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}.")->withInput();
+
+                return redirect()->back()->with('error', $msg)->withInput();
             }
 
             $this->ensureRouteApprovedForOperator((int) $validated['route_id'], (int) auth()->id());
@@ -175,6 +192,7 @@ class ScheduleController extends Controller
                 'date' => $validated['date'],
                 'start_time' => $validated['start_time'],
                 'end_time' => $validated['end_time'],
+                'ends_next_day' => $endsNext,
                 'status' => 'scheduled',
                 'fare_regular' => $fare_regular,
                 'fare_aircon' => $fare_aircon,
@@ -240,11 +258,14 @@ class ScheduleController extends Controller
                 'bus_id' => 'required|exists:buses,id',
                 'date' => 'required|date_format:Y-m-d',
                 'start_time' => 'required|date_format:H:i',
-                'end_time' => 'required|date_format:H:i|after:start_time',
+                'end_time' => 'required|date_format:H:i',
+                'ends_next_day' => 'nullable|boolean',
                 'status' => 'required|in:scheduled,active,completed,cancelled,accepted,declined',
-            ], [
-                'end_time.after' => 'End time must be after start time.',
             ]);
+
+            $validated['ends_next_day'] = $request->boolean('ends_next_day');
+            $endsNext = (bool) $validated['ends_next_day'];
+            $this->assertScheduleTimeOrder($validated['date'], $validated['start_time'], $validated['end_time'], $endsNext);
 
             $todayStr = Carbon::today()->format('Y-m-d');
             $oldYmd = $schedule->date instanceof \Carbon\CarbonInterface
@@ -267,17 +288,20 @@ class ScheduleController extends Controller
                 $validated['date'],
                 $validated['start_time'],
                 $validated['end_time'],
-                $schedule->id
+                $schedule->id,
+                $endsNext
             );
 
             if ($overlappingSchedule) {
+                $msg = $this->scheduleOverlapMessage('update', $overlappingSchedule);
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
-                        'message' => "Cannot update schedule: Driver already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}."
+                        'message' => $msg,
                     ], 422);
                 }
-                return redirect()->back()->with('error', "Cannot update schedule: Driver already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}.")->withInput();
+
+                return redirect()->back()->with('error', $msg)->withInput();
             }
 
             $this->ensureRouteApprovedForOperator((int) $validated['route_id'], (int) auth()->id());
@@ -370,6 +394,7 @@ class ScheduleController extends Controller
             'schedules.*.date' => 'required|date_format:Y-m-d|after_or_equal:today',
             'schedules.*.start_time' => 'required|date_format:H:i',
             'schedules.*.end_time' => 'required|date_format:H:i',
+            'schedules.*.ends_next_day' => 'nullable|boolean',
         ], [
             'schedules.required' => 'Add at least one schedule.',
             'schedules.min' => 'Add at least one schedule.',
@@ -391,12 +416,12 @@ class ScheduleController extends Controller
 
                 if ($date && $start && $end) {
                     try {
-                        $startAt = Carbon::parse(trim($date).' '.trim($start));
-                        $endAt = Carbon::parse(trim($date).' '.trim($end));
+                        $endsNext = filter_var($row['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                        [$startAt, $endAt] = $this->resolveScheduleWindowBounds((string) $date, (string) $start, (string) $end, $endsNext);
                         if ($endAt->lte($startAt)) {
                             $validator->errors()->add(
                                 "schedules.{$i}.end_time",
-                                "Schedule {$n}: end time must be after start time."
+                                "Schedule {$n}: end time must be after start time. For times after midnight, enable next-day end (set automatically when route duration crosses midnight)."
                             );
                         }
                     } catch (\Throwable $e) {
@@ -468,15 +493,19 @@ class ScheduleController extends Controller
                     $fare_aircon = $route->route_fare ? $route->route_fare : ($route->aircon_price ?? $fare_regular);
                 }
                 
+                $endsNextBulk = filter_var($scheduleData['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
                 // Check for overlapping schedules
                 $overlappingSchedule = $this->checkForOverlappingSchedules(
                     $scheduleData['driver_id'],
                     $scheduleData['date'],
                     $scheduleData['start_time'],
-                    $scheduleData['end_time']
+                    $scheduleData['end_time'],
+                    null,
+                    $endsNextBulk
                 );
                 if ($overlappingSchedule) {
-                    throw new \Exception("Cannot create schedule: Driver '{$overlappingSchedule->driver->name}' already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}. Please choose a different time.");
+                    throw new \Exception($this->scheduleOverlapMessage('create', $overlappingSchedule));
                 }
                 
                 // ✅ Create the schedule WITHOUT notes field
@@ -488,6 +517,7 @@ class ScheduleController extends Controller
                     'date' => $scheduleData['date'],
                     'start_time' => $scheduleData['start_time'],
                     'end_time' => $scheduleData['end_time'],
+                    'ends_next_day' => $endsNextBulk,
                     'status' => 'scheduled',
                     'fare_regular' => $fare_regular,
                     'fare_aircon' => $fare_aircon,
@@ -521,26 +551,82 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Helper method to check if a driver has any overlapping schedules
-     * @param int $driverId
-     * @param string $date
-     * @param string $startTime
-     * @param string $endTime
-     * @param int|null $excludeId Schedule ID to exclude from check (for updates)
-     * @return \App\Models\Schedule|null
+     * Real start/end instants. If ends_next_day, end clock applies to the calendar day after `date`.
+     *
+     * @return array{0: \Carbon\Carbon, 1: \Carbon\Carbon}
      */
-    private function checkForOverlappingSchedules($driverId, $date, $startTime, $endTime, $excludeId = null)
+    private function resolveScheduleWindowBounds(string $dateYmd, string $startHi, string $endHi, bool $endsNextDay): array
     {
-        $query = Schedule::where('driver_id', $driverId)
-            ->where('date', $date)
-            ->where('start_time', '<', $endTime)
-            ->where('end_time', '>', $startTime);
-
-        if ($excludeId) {
-            $query->where('id', '!=', $excludeId);
+        $startHi = substr(trim($startHi), 0, 5);
+        $endHi = substr(trim($endHi), 0, 5);
+        $startAt = Carbon::parse(trim($dateYmd).' '.$startHi);
+        $endAt = Carbon::parse(trim($dateYmd).' '.$endHi);
+        if ($endsNextDay) {
+            $endAt->addDay();
         }
 
-        return $query->first();
+        return [$startAt, $endAt];
+    }
+
+    private function assertScheduleTimeOrder(string $date, string $start, string $end, bool $endsNextDay): void
+    {
+        [$startAt, $endAt] = $this->resolveScheduleWindowBounds($date, $start, $end, $endsNextDay);
+        if ($endAt->lte($startAt)) {
+            throw ValidationException::withMessages([
+                'end_time' => ['End time must be after start time. For trips that finish after midnight, turn on “end is next day” (or let the form set it when duration crosses midnight).'],
+            ]);
+        }
+    }
+
+    /**
+     * Only trips that still "hold" the driver block double-booking. Finished or declined trips do not.
+     *
+     * @param  int|null  $excludeId  Schedule ID to exclude from check (for updates)
+     */
+    private function checkForOverlappingSchedules($driverId, $date, $startTime, $endTime, $excludeId = null, bool $endsNextDay = false)
+    {
+        [$newStart, $newEnd] = $this->resolveScheduleWindowBounds((string) $date, (string) $startTime, (string) $endTime, $endsNextDay);
+
+        $from = $newStart->copy()->subDay()->format('Y-m-d');
+        $to = $newEnd->copy()->format('Y-m-d');
+
+        $candidates = Schedule::query()
+            ->where('driver_id', $driverId)
+            ->whereBetween('date', [$from, $to])
+            ->whereNotIn('status', ['completed', 'cancelled', 'declined']);
+
+        if ($excludeId) {
+            $candidates->where('id', '!=', $excludeId);
+        }
+
+        foreach ($candidates->cursor() as $existing) {
+            $d = $existing->date instanceof \Carbon\CarbonInterface
+                ? $existing->date->format('Y-m-d')
+                : Carbon::parse((string) $existing->date)->format('Y-m-d');
+            $st = $existing->start_time instanceof \Carbon\CarbonInterface
+                ? $existing->start_time->format('H:i')
+                : Carbon::parse((string) $existing->start_time)->format('H:i');
+            $en = $existing->end_time instanceof \Carbon\CarbonInterface
+                ? $existing->end_time->format('H:i')
+                : Carbon::parse((string) $existing->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+
+            if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
+                return $existing->loadMissing(['driver', 'route']);
+            }
+        }
+
+        return null;
+    }
+
+    private function scheduleOverlapMessage(string $action, Schedule $conflict): string
+    {
+        $verb = $action === 'update' ? 'update this schedule' : 'create this schedule';
+        $driverName = $conflict->driver?->name ?? 'This driver';
+        $routeName = $conflict->route?->name ?? 'a route';
+        $status = $conflict->status ?? 'unknown';
+
+        return "Cannot {$verb}: {$driverName} already has a {$status} trip ({$routeName}) from {$conflict->start_time} to {$conflict->end_time} on {$conflict->date}. Choose a different time, or finish or cancel the existing trip first.";
     }
 
 
@@ -618,17 +704,26 @@ class ScheduleController extends Controller
 
             Log::info("Total schedules found: " . $allSchedules->count());
 
-            // Categorize schedules based on date comparison
-            $todaySchedules = $allSchedules->filter(function ($schedule) use ($today) {
-                return $this->scheduleDateYmd($schedule) === $today;
+            // Categorize by real trip window (handles ends_next_day / past-midnight trips)
+            $startOfToday = Carbon::today()->startOfDay();
+            $endOfToday = Carbon::today()->copy()->endOfDay();
+
+            $todaySchedules = $allSchedules->filter(function ($schedule) use ($startOfToday, $endOfToday) {
+                [$s, $e] = $schedule->windowBounds();
+
+                return $s->lte($endOfToday) && $e->gte($startOfToday);
             })->map(fn (Schedule $s) => $this->enrichScheduleForDriver($s))->values();
 
-            $upcomingSchedules = $allSchedules->filter(function ($schedule) use ($today) {
-                return $this->scheduleDateYmd($schedule) > $today;
+            $upcomingSchedules = $allSchedules->filter(function ($schedule) use ($endOfToday) {
+                [$s, $e] = $schedule->windowBounds();
+
+                return $s->gt($endOfToday);
             })->map(fn (Schedule $s) => $this->enrichScheduleForDriver($s))->values();
 
-            $pastSchedules = $allSchedules->filter(function ($schedule) use ($today) {
-                return $this->scheduleDateYmd($schedule) < $today;
+            $pastSchedules = $allSchedules->filter(function ($schedule) use ($startOfToday) {
+                [$s, $e] = $schedule->windowBounds();
+
+                return $e->lt($startOfToday);
             })->map(fn (Schedule $s) => $this->enrichScheduleForDriver($s))->values();
 
             Log::info("Categorized schedules - Today: {$todaySchedules->count()}, Upcoming: {$upcomingSchedules->count()}, Past: {$pastSchedules->count()}");
@@ -818,24 +913,35 @@ class ScheduleController extends Controller
                 'bus_id' => 'required|exists:buses,id',
                 'date' => 'required|date|after_or_equal:today',
                 'start_time' => 'required|date_format:H:i',
-                'end_time' => 'required|date_format:H:i|after:start_time',
+                'end_time' => 'required|date_format:H:i',
+                'ends_next_day' => 'nullable|boolean',
                 'fare_regular' => 'required|numeric|min:0',
                 'fare_aircon' => 'nullable|numeric|min:0',
                 'notes' => 'nullable|string|max:500'
             ]);
+
+            $endsNextAssign = filter_var($request->input('ends_next_day'), FILTER_VALIDATE_BOOLEAN);
+            $this->assertScheduleTimeOrder(
+                Carbon::parse($request->date)->format('Y-m-d'),
+                $request->start_time,
+                $request->end_time,
+                $endsNextAssign
+            );
 
             // Check for overlapping schedules
             $overlappingSchedule = $this->checkForOverlappingSchedules(
                 $request->driver_id,
                 $request->date,
                 $request->start_time,
-                $request->end_time
+                $request->end_time,
+                null,
+                $endsNextAssign
             );
 
             if ($overlappingSchedule) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot assign schedule: Driver already has a schedule from {$overlappingSchedule->start_time} to {$overlappingSchedule->end_time} on {$overlappingSchedule->date}."
+                    'message' => $this->scheduleOverlapMessage('create', $overlappingSchedule),
                 ], 422);
             }
 
@@ -851,6 +957,7 @@ class ScheduleController extends Controller
                 'date' => $request->date,
                 'start_time' => $request->start_time,
                 'end_time' => $request->end_time,
+                'ends_next_day' => $endsNextAssign,
                 'status' => 'scheduled',
                 'fare_regular' => $request->fare_regular,
                 'fare_aircon' => $request->fare_aircon ?? $request->fare_regular,
@@ -949,19 +1056,20 @@ class ScheduleController extends Controller
             $attributes["schedules.{$i}.date"] = "Schedule {$n} — date";
             $attributes["schedules.{$i}.start_time"] = "Schedule {$n} — start time";
             $attributes["schedules.{$i}.end_time"] = "Schedule {$n} — end time";
+            $attributes["schedules.{$i}.ends_next_day"] = "Schedule {$n} — ends next day";
         }
 
         return $attributes;
     }
 
     /**
-     * Detect overlapping time ranges within the same bulk request (same driver + date).
+     * Detect overlapping real time ranges within the same bulk request (same driver).
      *
      * @param  array<int|string, array<string, mixed>>  $schedules
      */
     private function bulkDriverSchedulesOverlapInBatch(array $schedules): ?string
     {
-        $byDriverDate = [];
+        $byDriver = [];
 
         foreach ($schedules as $idx => $row) {
             if (! is_array($row)) {
@@ -976,39 +1084,36 @@ class ScheduleController extends Controller
                 continue;
             }
 
-            $key = $driverId.'|'.$date;
-            if (! isset($byDriverDate[$key])) {
-                $byDriverDate[$key] = [];
+            $endsNext = filter_var($row['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            try {
+                [$sAt, $eAt] = $this->resolveScheduleWindowBounds($date, $start, $end, $endsNext);
+            } catch (\Throwable) {
+                continue;
             }
 
-            $byDriverDate[$key][] = [
+            if (! isset($byDriver[$driverId])) {
+                $byDriver[$driverId] = [];
+            }
+
+            $byDriver[$driverId][] = [
                 'label' => (int) $idx + 1,
-                'start' => $start,
-                'end' => $end,
+                's' => $sAt,
+                'e' => $eAt,
             ];
         }
 
-        foreach ($byDriverDate as $items) {
+        foreach ($byDriver as $items) {
             $count = count($items);
             for ($i = 0; $i < $count; $i++) {
                 for ($j = $i + 1; $j < $count; $j++) {
-                    if ($this->timeIntervalsOverlap($items[$i]['start'], $items[$i]['end'], $items[$j]['start'], $items[$j]['end'])) {
-                        return 'Schedule '.$items[$i]['label'].' and Schedule '.$items[$j]['label'].' overlap on the same day for this driver. Choose different times.';
+                    if ($items[$i]['s']->lt($items[$j]['e']) && $items[$i]['e']->gt($items[$j]['s'])) {
+                        return 'Schedule '.$items[$i]['label'].' and Schedule '.$items[$j]['label'].' overlap for this driver. Choose different times.';
                     }
                 }
             }
         }
 
         return null;
-    }
-
-    /**
-     * Half-open style overlap: ranges touch at endpoint => NOT overlap for adjacent trips (optional).
-     * Here we treat touching end=start as overlap-safe only if strictly &lt; / &gt; — matches DB query.
-     */
-    private function timeIntervalsOverlap(string $startA, string $endA, string $startB, string $endB): bool
-    {
-        return $startA < $endB && $endA > $startB;
     }
 
     private function assertScheduleStartNotInPast(string $date, string $startTime): void
@@ -1055,7 +1160,9 @@ class ScheduleController extends Controller
             $data['route'] = $this->formatRouteForDriverResponse($schedule->route, (int) $schedule->user_id);
         }
 
-        $data['boarding_passengers'] = $schedule->tickets->map(function ($t) {
+        $stillAboard = $schedule->tickets->filter(fn ($t) => $t->alighted_at === null);
+
+        $data['boarding_passengers'] = $stillAboard->map(function ($t) {
             return [
                 'public_ticket_id' => $t->public_ticket_id,
                 'fare' => (float) $t->fare,
@@ -1063,6 +1170,10 @@ class ScheduleController extends Controller
                 'commuter_email' => $t->commuter?->email,
             ];
         })->values()->all();
+
+        $cap = (int) ($schedule->bus?->capacity ?? 0);
+        $data['aboard_count'] = TicketBoarding::aboardCount($schedule->tickets, $cap);
+        $data['tickets_sold_count'] = $schedule->tickets->count();
 
         return $data;
     }

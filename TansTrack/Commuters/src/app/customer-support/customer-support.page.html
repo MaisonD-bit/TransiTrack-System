@@ -1,12 +1,12 @@
-<ion-header [translucent]="true">
-  <ion-toolbar>
+<ion-header [translucent]="false">
+  <ion-toolbar color="primary">
     <ion-title>Customer Support</ion-title>
   </ion-toolbar>
 </ion-header>
 
-<ion-content [fullscreen]="true">
+<ion-content [fullscreen]="true" class="support-content">
   <!-- Tabs for different sections -->
-  <ion-segment [(ngModel)]="activeTab" color="primary">
+  <ion-segment [(ngModel)]="activeTab" color="primary" class="support-segment">
     <ion-segment-button value="support">
       <ion-label>My Tickets</ion-label>
     </ion-segment-button>
@@ -229,16 +229,19 @@
 <ion-modal [isOpen]="showNewTicketForm" (ionModalDidDismiss)="closeNewTicketForm()">
   <ng-template>
     <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button (click)="closeNewTicketForm()"></ion-back-button>
-        </ion-buttons>
+      <ion-toolbar color="primary">
         <ion-title>New Support Ticket</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeNewTicketForm()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
-    <ion-content>
-      <ion-card>
+    <ion-content class="modal-body">
+      <ion-card class="surface-card">
         <ion-card-content>
           <h3>Ticket Details</h3>
 
@@ -296,16 +299,19 @@
 <ion-modal [isOpen]="showContactForm" (ionModalDidDismiss)="closeContactForm()">
   <ng-template>
     <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button (click)="closeContactForm()"></ion-back-button>
-        </ion-buttons>
+      <ion-toolbar color="primary">
         <ion-title>Contact Us</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeContactForm()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
-    <ion-content>
-      <ion-card>
+    <ion-content class="modal-body">
+      <ion-card class="surface-card">
         <ion-card-content>
           <ion-item>
             <ion-label position="stacked">Name *</ion-label>
@@ -361,16 +367,19 @@
 <ion-modal [isOpen]="showTicketDetail" (ionModalDidDismiss)="closeTicketDetail()">
   <ng-template>
     <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button (click)="closeTicketDetail()"></ion-back-button>
-        </ion-buttons>
+      <ion-toolbar color="primary">
         <ion-title>Ticket Details</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeTicketDetail()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
 
-    <ion-content *ngIf="selectedTicket">
-      <ion-card>
+    <ion-content *ngIf="selectedTicket" class="modal-body">
+      <ion-card class="surface-card">
         <ion-card-header>
           <ion-card-title>{{ selectedTicket.subject }}</ion-card-title>
           <ion-card-subtitle>{{ selectedTicket.id }}</ion-card-subtitle>

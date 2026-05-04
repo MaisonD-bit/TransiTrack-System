@@ -3,16 +3,20 @@
 @section('title', 'Trip Logs')
 
 @section('content')
+@php
+    $incidentCount = count($incidentMarkers ?? []);
+    $tripCount = $tripRows->count();
+@endphp
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div class="d-flex align-items-center">
             <i class="fas fa-clipboard-list me-3 text-primary fs-4"></i>
             <div>
                 <h2 class="mb-0 fw-bold">Trip Logs</h2>
-                <p class="text-muted small mb-0">Daily routes, tickets, passengers boarded, and revenue</p>
+                <p class="text-muted small mb-0">Daily routes, tickets, passengers aboard, and revenue</p>
             </div>
         </div>
-        <form method="get" action="{{ route('trips.panel') }}" class="d-flex align-items-center gap-2">
+        <form method="get" action="{{ route('trips.panel') }}" class="d-flex align-items-center gap-2 flex-wrap">
             <label for="trip_date" class="small text-muted mb-0">Date</label>
             <input type="date" name="date" id="trip_date" class="form-control form-control-sm" value="{{ $date }}">
             <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter me-1"></i> Apply</button>
@@ -20,31 +24,52 @@
     </div>
 
     <div class="row mb-4">
-        <div class="col-lg-4 mb-3">
+        <div class="col-md-4 mb-3">
             <div class="card border-0 shadow-sm h-100 border-start border-success border-4">
                 <div class="card-body">
                     <div class="text-muted small">Total revenue (selected day)</div>
-                    <div class="fs-3 fw-bold text-success">₱ {{ number_format($totalRevenue, 2) }}</div>
+                    <div class="fs-3 fw-bold text-success" id="tripTotalRevenue">₱ {{ number_format($totalRevenue, 2) }}</div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-8 mb-3">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                    <span class="fw-semibold"><i class="fas fa-map-marked-alt me-2 text-primary"></i> Operations map</span>
-                    <small class="text-muted">Incident locations can be cross-checked here (per advisory)</small>
+        <div class="col-md-4 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Driver incidents (this date, on map)</div>
+                    <div class="fs-3 fw-bold text-danger"><span id="tripIncidentCount">{{ $incidentCount }}</span></div>
                 </div>
-                <div class="card-body p-0">
-                    <div id="tripMap" style="height: 280px; width: 100%;"></div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-primary border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Trip rows (table)</div>
+                    <div class="fs-3 fw-bold text-primary"><span id="tripScheduleCount">{{ $tripCount }}</span></div>
                 </div>
             </div>
         </div>
     </div>
 
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-map-marked-alt me-2 text-primary"></i> Operations map</h5>
+            <small class="text-muted">Blue: route reference · Red: driver-reported incidents for the selected date</small>
+        </div>
+        <div class="card-body p-0">
+            <div id="tripMap" class="trip-map-canvas"></div>
+        </div>
+    </div>
+
     <div class="card border-0 shadow-sm">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-list me-2"></i> Trip logs of the day</h5>
-            <span class="badge bg-primary">{{ \Carbon\Carbon::parse($date)->format('M d, Y') }}</span>
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="fas fa-list me-2"></i> Trip logs of the day</h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <small class="text-muted" id="tripLogsLiveStatus" title="Refreshes every 10 seconds while this tab is open">Live sync on</small>
+                    <span class="badge bg-primary">{{ \Carbon\Carbon::parse($date)->format('M d, Y') }}</span>
+                </div>
+            </div>
+            <p class="small text-muted mb-0 mt-2">Passengers shows who is still aboard. Tickets and revenue count every paid sale and do not drop when someone gets off.</p>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -61,7 +86,7 @@
                             <th>Company / type</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="tripLogsTbody">
                         @forelse($tripRows as $row)
                             <tr>
                                 <td class="fw-semibold">{{ $row['route_name'] }}</td>
@@ -87,15 +112,13 @@
                             </tr>
                         @endforelse
                     </tbody>
-                    @if($tripRows->isNotEmpty())
-                    <tfoot class="table-light">
+                    <tfoot class="table-light" id="tripLogsTfoot" style="{{ $tripRows->isEmpty() ? 'display: none;' : '' }}">
                         <tr>
                             <th colspan="6" class="text-end">AMOUNT =</th>
-                            <th class="text-success">₱ {{ number_format($totalRevenue, 2) }}</th>
+                            <th class="text-success" id="tripLogsFootAmount">₱ {{ number_format($totalRevenue, 2) }}</th>
                             <th></th>
                         </tr>
                     </tfoot>
-                    @endif
                 </table>
             </div>
         </div>
@@ -104,18 +127,182 @@
 @endsection
 
 @push('scripts')
+<style>
+.trip-map-canvas { height: min(48vh, 480px); min-height: 320px; width: 100%; }
+.mapboxgl-popup-content { border-radius: 6px !important; padding: 0 !important; overflow: hidden; }
+.mapboxgl-popup-tip { border-top-color: #fff !important; }
+.trip-incident-popup { min-width: 240px; max-width: 320px; }
+.trip-incident-popup__head { background: #f8f9fa; border-bottom: 1px solid #dee2e6; padding: .65rem 3rem .65rem .75rem; font-weight: 600; font-size: .85rem; line-height: 1.45; }
+.trip-incident-popup__row { padding: .45rem .75rem; font-size: .8rem; border-bottom: 1px solid #f1f3f5; color: #495057; display: flex; gap: .5rem; align-items: flex-start; line-height: 1.45; }
+.trip-incident-popup__row:last-child { border-bottom: none; }
+.trip-incident-popup__row i { color: #868e96; width: 1rem; margin-top: .15rem; flex-shrink: 0; text-align: center; }
+.trip-ref-popup { padding: .5rem .75rem; font-size: .82rem; max-width: 220px; }
+.trip-ref-popup strong { color: #0d6efd; }
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    if (typeof mapboxgl === 'undefined') return;
     const center = @json($mapCenter);
-    const map = new mapboxgl.Map({
-        container: 'tripMap',
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: center,
-        zoom: 11
-    });
-    map.addControl(new mapboxgl.NavigationControl());
-    new mapboxgl.Marker({ color: '#3498db' }).setLngLat(center).addTo(map);
+    let incidentMarkers = @json($incidentMarkers ?? []);
+    let tripMap = null;
+    let tripMapStyleLoaded = false;
+    const tripIncidentMapMarkers = [];
+    let routeRefMarker = null;
+
+    function esc(s) {
+        if (s == null || s === '') return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function formatIncidentPopupHtml(raw) {
+        var parts = String(raw).split(/\s·\s/).map(function (p) { return p.trim(); }).filter(Boolean);
+        if (!parts.length) {
+            return '<div class="trip-incident-popup"><div class="trip-incident-popup__head">Incident</div></div>';
+        }
+        var head = esc(parts[0]);
+        var icons = ['fa-user', 'fa-route', 'fa-bus'];
+        var rows = parts.slice(1).map(function (p, i) {
+            var ic = icons[Math.min(i, icons.length - 1)] || 'fa-info-circle';
+            return '<div class="trip-incident-popup__row"><i class="fas ' + ic + '"></i><span>' + esc(p) + '</span></div>';
+        }).join('');
+        return '<div class="trip-incident-popup"><div class="trip-incident-popup__head">' + head + '</div>' + rows + '</div>';
+    }
+
+    function clearTripIncidentMarkers() {
+        tripIncidentMapMarkers.forEach(function (m) { try { m.remove(); } catch (e) {} });
+        tripIncidentMapMarkers.length = 0;
+    }
+
+    function addTripIncidentMarkers(map, markers) {
+        clearTripIncidentMarkers();
+        if (!map || !markers || !markers.length) return;
+        markers.forEach(function (m) {
+            var mk = new mapboxgl.Marker({ color: '#dc3545' }).setLngLat([m.lng, m.lat]);
+            if (m.message) {
+                mk.setPopup(new mapboxgl.Popup({ offset: 22, maxWidth: '360px', className: 'trip-incident-mapbox-popup' })
+                    .setHTML(formatIncidentPopupHtml(m.message)));
+            }
+            mk.addTo(map);
+            tripIncidentMapMarkers.push(mk);
+        });
+    }
+
+    function fitTripMapView(map, baseCenter, markers) {
+        if (!map) return;
+        if (!markers || !markers.length) {
+            map.setCenter(baseCenter);
+            map.setZoom(11);
+            return;
+        }
+        var b = new mapboxgl.LngLatBounds();
+        b.extend(baseCenter);
+        markers.forEach(function (m) { b.extend([m.lng, m.lat]); });
+        map.fitBounds(b, { padding: 48, maxZoom: 14 });
+    }
+
+    if (typeof mapboxgl !== 'undefined') {
+        tripMap = new mapboxgl.Map({
+            container: 'tripMap',
+            style: 'mapbox://styles/mapbox/streets-v12',
+            center: center,
+            zoom: 11
+        });
+        tripMap.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
+        routeRefMarker = new mapboxgl.Marker({ color: '#0d6efd' })
+            .setLngLat(center)
+            .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML(
+                '<div class="trip-ref-popup"><strong>Route reference</strong><br><span class="text-muted">Approx. start / area for the first trip row</span></div>'
+            ))
+            .addTo(tripMap);
+        tripMap.on('load', function () {
+            tripMapStyleLoaded = true;
+            addTripIncidentMarkers(tripMap, incidentMarkers);
+            fitTripMapView(tripMap, center, incidentMarkers);
+        });
+    }
+
+    const pollUrl = @json(route('trips.panel.poll'));
+    let lastChecksum = @json($tripPollChecksum ?? '');
+    const dateInput = document.getElementById('trip_date');
+    const revEl = document.getElementById('tripTotalRevenue');
+    const tbody = document.getElementById('tripLogsTbody');
+    const tfoot = document.getElementById('tripLogsTfoot');
+    const footAmt = document.getElementById('tripLogsFootAmount');
+    const liveEl = document.getElementById('tripLogsLiveStatus');
+    const incidentCountEl = document.getElementById('tripIncidentCount');
+    const scheduleCountEl = document.getElementById('tripScheduleCount');
+
+    function formatMoney(n) {
+        const x = Number(n);
+        if (Number.isNaN(x)) return '0.00';
+        return x.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function renderTripTable(rows, totalRevenue) {
+        if (!tbody) return;
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-5 text-muted">' +
+                '<i class="fas fa-calendar-times fa-2x mb-2 d-block"></i>' +
+                'No schedules for this date. Create schedules in the Schedule panel.</td></tr>';
+            if (tfoot) tfoot.style.display = 'none';
+            return;
+        }
+        tbody.innerHTML = rows.map(function (r) {
+            const cap = r.capacity ? r.capacity : '—';
+            return '<tr>' +
+                '<td class="fw-semibold">' + esc(r.route_name) + '</td>' +
+                '<td>' + esc(r.driver_name) + '</td>' +
+                '<td>' + esc(dateInput && dateInput.value ? dateInput.value : '') + '</td>' +
+                '<td><span class="badge bg-info text-dark">' + esc(String(r.boarded)) + ' / ' + esc(String(cap)) + '</span></td>' +
+                '<td class="small font-monospace">' + esc(r.ticket_id_sample) + '</td>' +
+                '<td><span class="text-muted">' + esc(String(r.ticket_count)) + ' issued</span></td>' +
+                '<td class="fw-semibold">₱ ' + formatMoney(r.revenue) + '</td>' +
+                '<td><small class="d-block">' + esc(r.bus_company) + '</small>' +
+                '<small class="text-muted">' + esc(r.bus_type) + '</small></td>' +
+                '</tr>';
+        }).join('');
+        if (tfoot) tfoot.style.display = '';
+        if (footAmt) footAmt.textContent = '₱ ' + formatMoney(totalRevenue);
+    }
+
+    function applyPollPayload(data) {
+        if (!data || !data.success) return;
+        if (data.checksum === lastChecksum) {
+            if (liveEl) liveEl.textContent = 'Live sync · checked ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return;
+        }
+        lastChecksum = data.checksum;
+        if (revEl) revEl.textContent = '₱ ' + formatMoney(data.totalRevenue);
+        renderTripTable(data.rows || [], data.totalRevenue);
+        if (scheduleCountEl && data.rows) scheduleCountEl.textContent = String(data.rows.length);
+        if (data.incidentMarkers && tripMap && tripMapStyleLoaded) {
+            incidentMarkers = data.incidentMarkers;
+            if (incidentCountEl) incidentCountEl.textContent = String(data.incidentMarkers.length);
+            addTripIncidentMarkers(tripMap, incidentMarkers);
+            fitTripMapView(tripMap, center, incidentMarkers);
+        }
+        if (liveEl) liveEl.textContent = 'Live sync · updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function pollOnce() {
+        const d = dateInput && dateInput.value ? dateInput.value : '';
+        const url = pollUrl + (d ? ('?date=' + encodeURIComponent(d)) : '');
+        fetch(url, {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(function (r) { return r.json(); })
+            .then(applyPollPayload)
+            .catch(function () {
+                if (liveEl) liveEl.textContent = 'Live sync paused (connection error)';
+            });
+    }
+
+    setInterval(pollOnce, 10000);
+    pollOnce();
 });
 </script>
 @endpush

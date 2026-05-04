@@ -1,112 +1,126 @@
 /**
- * Notification System for Bus Operator
- * Handles real-time notification updates, badge counts, and alerts
+ * Bus operator panel: bell badge + soft reload when server data changes.
+ * Trip Logs and Schedule use their own polls; we skip full page reload there.
  */
 
 let lastNotificationCount = 0;
-let notificationCheckInterval = null;
+let operatorSyncInterval = null;
+let lastSyncToken = null;
 
-// Initialize notification system when document is ready
-document.addEventListener('DOMContentLoaded', function() {
-    initializeNotifications();
-});
+const OPERATOR_SYNC_URL = '/panel/operator-sync';
+const SYNC_POLL_MS = 12000;
 
-/**
- * Initialize the notification system
- */
-function initializeNotifications() {
-    console.log('Initializing notification system...');
-    
-    // Initial check
-    updateNotificationBadge();
-    
-    // Start polling for new notifications every 5 seconds
-    notificationCheckInterval = setInterval(updateNotificationBadge, 5000);
-    
-    // Also listen for visibility changes (update when tab becomes visible)
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) {
-            console.log('Tab became visible, checking notifications...');
-            updateNotificationBadge();
-        }
-    });
-    
-    console.log('Notification system initialized');
+function shouldSkipAutoReloadForPath(pathname) {
+    if (!pathname) {
+        return false;
+    }
+    return pathname.includes('/panel/trips') || pathname.includes('/panel/schedule');
 }
 
-/**
- * Update the notification badge with unread count
- */
-async function updateNotificationBadge() {
+function applyUnreadBadge(count) {
+    const unreadCount = Number(count) || 0;
+    const badge = document.getElementById('notificationBadge');
+    if (badge) {
+        if (unreadCount > 0) {
+            badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+    lastNotificationCount = unreadCount;
+}
+
+async function pollOperatorSync(options) {
+    const badgeOnly = options && options.badgeOnly === true;
     try {
-        const response = await fetch('/notifications/unread-count', {
+        const response = await fetch(OPERATOR_SYNC_URL, {
             method: 'GET',
+            credentials: 'same-origin',
             headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
         });
 
         if (!response.ok) {
-            console.warn('Failed to fetch notification count:', response.status);
             return;
         }
 
         const data = await response.json();
-        const unreadCount = data.count || data.unread_count || 0;
-
-        console.log('Current unread notifications:', unreadCount);
-
-        // Update badge display
-        const badge = document.getElementById('notificationBadge');
-        if (badge) {
-            if (unreadCount > 0) {
-                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
-                badge.style.display = 'inline-block';
-                // New items are indicated only by the bell badge (no popup toast)
-            } else {
-                badge.style.display = 'none';
-            }
+        if (!data.success) {
+            return;
         }
 
-        lastNotificationCount = unreadCount;
+        const unread = data.unread_notifications ?? data.count ?? 0;
+        applyUnreadBadge(unread);
 
-    } catch (error) {
-        console.error('Error updating notification badge:', error);
+        if (badgeOnly) {
+            return;
+        }
+
+        const token = data.sync_token;
+        if (typeof token !== 'string') {
+            return;
+        }
+
+        if (lastSyncToken === null) {
+            lastSyncToken = token;
+            return;
+        }
+
+        if (token !== lastSyncToken) {
+            lastSyncToken = token;
+            const path = window.location.pathname || '';
+            if (shouldSkipAutoReloadForPath(path)) {
+                return;
+            }
+            window.location.reload();
+        }
+    } catch (e) {
+        console.warn('Operator sync poll failed', e);
     }
 }
 
-/**
- * Mark notification as read
- */
+document.addEventListener('DOMContentLoaded', function () {
+    pollOperatorSync({ badgeOnly: false });
+    operatorSyncInterval = setInterval(function () {
+        pollOperatorSync({ badgeOnly: false });
+    }, SYNC_POLL_MS);
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) {
+            pollOperatorSync({ badgeOnly: false });
+        }
+    });
+});
+
+async function updateNotificationBadge() {
+    await pollOperatorSync({ badgeOnly: true });
+}
+
 async function markNotificationAsRead(notificationId) {
     try {
-        const response = await fetch(`/notifications/${notificationId}/read`, {
+        const response = await fetch('/notifications/' + notificationId + '/read', {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
+                'X-Requested-With': 'XMLHttpRequest',
+            },
         });
 
         if (response.ok) {
-            console.log('Notification marked as read:', notificationId);
-            updateNotificationBadge();
+            await updateNotificationBadge();
             return true;
-        } else {
-            console.error('Failed to mark notification as read');
-            return false;
         }
+        return false;
     } catch (error) {
         console.error('Error marking notification as read:', error);
         return false;
     }
 }
 
-/**
- * Mark all notifications as read
- */
 async function markAllNotificationsAsRead() {
     try {
         const response = await fetch('/notifications/mark-all-read', {
@@ -114,27 +128,21 @@ async function markAllNotificationsAsRead() {
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
+                'X-Requested-With': 'XMLHttpRequest',
+            },
         });
 
         if (response.ok) {
-            console.log('All notifications marked as read');
-            updateNotificationBadge();
+            await updateNotificationBadge();
             return true;
-        } else {
-            console.error('Failed to mark all notifications as read');
-            return false;
         }
+        return false;
     } catch (error) {
         console.error('Error marking all notifications as read:', error);
         return false;
     }
 }
 
-/**
- * Delete all notifications
- */
 async function deleteAllNotifications() {
     if (!confirm('Are you sure you want to delete all notifications?')) {
         return false;
@@ -146,67 +154,49 @@ async function deleteAllNotifications() {
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
+                'X-Requested-With': 'XMLHttpRequest',
+            },
         });
 
         if (response.ok) {
-            console.log('All notifications deleted');
-            updateNotificationBadge();
+            await updateNotificationBadge();
             location.reload();
             return true;
-        } else {
-            console.error('Failed to delete all notifications');
-            return false;
         }
+        return false;
     } catch (error) {
         console.error('Error deleting all notifications:', error);
         return false;
     }
 }
 
-/**
- * Handle incoming chat message notification
- */
-function handleChatMessageNotification(message) {
+function handleChatMessageNotification() {
     updateNotificationBadge();
 }
 
-/**
- * Handle incoming driver report notification
- */
-function handleDriverReportNotification(report) {
+function handleDriverReportNotification() {
     updateNotificationBadge();
 }
 
-/**
- * Handle incoming announcement notification
- */
-function handleAnnouncementNotification(announcement) {
+function handleAnnouncementNotification() {
     updateNotificationBadge();
 }
 
-/**
- * Cleanup notification system
- */
 function cleanupNotifications() {
-    if (notificationCheckInterval) {
-        clearInterval(notificationCheckInterval);
-        console.log('Notification polling stopped');
+    if (operatorSyncInterval) {
+        clearInterval(operatorSyncInterval);
+        operatorSyncInterval = null;
     }
 }
 
-// Cleanup when page unloads
 window.addEventListener('beforeunload', cleanupNotifications);
 
-// Bell badge emphasis (unread count)
 const style = document.createElement('style');
 style.textContent = `
     #notificationBadge {
         background-color: #dc3545 !important;
         color: white !important;
         font-weight: bold;
-        min-width: 18px;
         text-align: center;
     }
 `;

@@ -13,10 +13,12 @@ class Ticket extends Model
         'fare',
         'commuter_id',
         'qr_payload',
+        'alighted_at',
     ];
 
     protected $casts = [
         'fare' => 'decimal:2',
+        'alighted_at' => 'datetime',
     ];
 
     public function schedule(): BelongsTo

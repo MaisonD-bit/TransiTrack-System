@@ -76,7 +76,8 @@
             <form id="routeForm" method="POST" data-routes-store-url="{{ route('routes.store') }}">
                 @csrf
                 <input type="hidden" id="route_id" name="route_id">
-                <input type="hidden" id="method_field" name="_method">
+                {{-- Empty name="_method" in POST breaks method spoofing and returns 400; PUT is appended in routes.js for updates only. --}}
+                <input type="hidden" id="method_field" value="">
                 <input type="hidden" id="distance_km" name="distance_km">
                 <input type="hidden" id="estimated_duration" name="estimated_duration">
                 <input type="hidden" id="start_coordinates" name="start_coordinates" value="123.920994,10.311008">

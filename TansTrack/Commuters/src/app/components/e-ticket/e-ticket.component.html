@@ -7,99 +7,87 @@
               </div>
               <div class="ticket-title-section">
                 <ion-card-title style="font-size: 18px; margin-bottom: 4px;">Transit e-Ticket</ion-card-title>
-                <ion-card-subtitle style="font-size: 13px;">{{ selectedRoute.name }}</ion-card-subtitle>
+                <ion-card-subtitle style="font-size: 13px;">{{ routeDisplayName }}</ion-card-subtitle>
               </div>
             </div>
           </ion-card-header>
-          
+
           <ion-card-content class="ticket-content">
-            <!-- Route Information -->
-            <div class="ticket-section">
-              <div class="section-label">Route Details</div>
-              <div class="route-info-grid">
-                <div class="info-item">
-                  <ion-icon name="location" color="success"></ion-icon>
-                  <div>
-                    <div class="info-label">From</div>
-                    <div class="info-value">{{ getOrigin() }}</div>
-                  </div>
-                </div>
-                <div class="info-item">
-                  <ion-icon name="flag" color="danger"></ion-icon>
-                  <div>
-                    <div class="info-label">To</div>
-                    <div class="info-value">{{ getDestination() }}</div>
-                  </div>
-                </div>
-              </div>
+            <div class="ticket-section" *ngIf="tripLabel">
+              <div class="section-label">Journey</div>
+              <p class="trip-line">{{ tripLabel }}</p>
             </div>
 
-            <!-- Fare Information -->
+            <div class="ticket-section qr-section" *ngIf="isPaidOnline">
+              <div class="section-label">Validation QR</div>
+              <div class="qr-code-placeholder" *ngIf="qrDataUrl">
+                <img [src]="qrDataUrl" alt="Ticket QR Code" class="qr-image" />
+                <div class="qr-label">Scan to verify prepaid ticket</div>
+              </div>
+              <p class="qr-fallback" *ngIf="!qrDataUrl">Generating QR…</p>
+            </div>
+
+            <div class="ticket-section cash-notice" *ngIf="!isPaidOnline">
+              <ion-icon name="cash-outline"></ion-icon>
+              <span>Cash fare — pay the conductor. No prepaid QR on this ticket.</span>
+            </div>
+
             <div class="ticket-section">
               <div class="fare-display">
                 <div class="fare-label">TOTAL FARE</div>
-                <div class="fare-amount">₱{{ ticketFare || selectedRoute?.basefare }}</div>
+                <div class="fare-amount">₱{{ fareNum | number:'1.2-2' }}</div>
+              </div>
+              <div class="discount-line" *ngIf="discountPercent > 0 || discountAmount > 0">
+                <span>Discount</span>
+                <span *ngIf="discountAmount > 0">−₱{{ discountAmount | number:'1.2-2' }}</span>
+                <span *ngIf="discountPercent > 0"> ({{ discountPercent }}%)</span>
+                <span *ngIf="concessionSummary" class="passenger-tag"> · {{ concessionSummary }}</span>
               </div>
             </div>
 
-            <!-- QR Code Section -->
-            <div class="ticket-section qr-section" *ngIf="paymentMethod !== 'cash'">
-              <div class="qr-code-placeholder">
-                <img src="assets/qrcode.png" alt="Ticket QR Code" class="qr-image" />
-                <div class="qr-label">Scan to validate ticket</div>
-              </div>
-            </div>
-
-            <div class="ticket-section cash-notice" *ngIf="paymentMethod === 'cash'">
-              <ion-icon name="cash-outline"></ion-icon>
-              <span>Please Pay the conductor directly</span>
-            </div>
-
-            <!-- Ticket Details -->
             <div class="ticket-section ticket-details">
+              <div class="section-label">Ticket details</div>
               <div class="detail-row">
-                <span class="detail-label">Ticket ID:</span>
-                <span class="detail-value">#{{ ticketID }}</span>
+                <span class="detail-label">Ticket ID</span>
+                <span class="detail-value mono">#{{ ticketID }}</span>
               </div>
               <div class="detail-row">
-                <span class="detail-label">Issue Date:</span>
+                <span class="detail-label">Route ID</span>
+                <span class="detail-value mono">{{ routeId != null ? routeId : '—' }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Route</span>
+                <span class="detail-value">{{ routeDisplayName }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Operator</span>
+                <span class="detail-value">{{ operatorCompany || '—' }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Bus</span>
+                <span class="detail-value">{{ busLabel || '—' }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Passenger type</span>
+                <span class="detail-value">{{ passengerType || 'Regular' }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Issued</span>
                 <span class="detail-value">{{ currentTime }}</span>
               </div>
-              <div class="detail-row">
-                <span class="detail-label">Route Distance:</span>
-                <span class="detail-value">{{ getRouteDistance() }}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-label">Valid For:</span>
-                <span class="detail-value">Single Journey</span>
-              </div>
               <div class="detail-row payment-row">
-                <span class="detail-label">Payment Method:</span>
-                <ion-select 
-                  [(ngModel)]="paymentMethod"
-                  interface="action-sheet"
-                  class="payment-method-select">
-                  <ion-select-option value="cash">
-                    💵 Cash
-                  </ion-select-option>
-                  <ion-select-option value="paymaya">
-                    💳 PayMaya
-                  </ion-select-option>
-                  <ion-select-option value="gcash">
-                    📱 GCash
-                  </ion-select-option>
-                </ion-select>
+                <span class="detail-label">Payment</span>
+                <span class="detail-value">{{ getPaymentLabel() }}</span>
               </div>
             </div>
 
-            <!-- Terms Notice -->
             <div class="ticket-notice">
               <ion-icon name="information-circle-outline" style="font-size: 16px; margin-right: 6px;"></ion-icon>
-              <span style="font-size: 11px;">Present this ticket to the conductor upon boarding</span>
+              <span style="font-size: 11px;">Present this ticket (or QR if prepaid) when boarding</span>
             </div>
           </ion-card-content>
-          
-          <div class="ticket-footer">           
+
+          <div class="ticket-footer">
             <ion-button expand="block" color="primary" (click)="closeTicket()">
               <ion-icon name="close-circle-outline" slot="start"></ion-icon>
               Close Ticket
@@ -109,4 +97,5 @@
               Share
             </ion-button>
           </div>
-        
+        </ion-card>
+      </div>

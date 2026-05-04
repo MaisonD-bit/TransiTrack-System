@@ -71,6 +71,9 @@
                                         @case('route_approval')
                                             <i class="fas fa-check-circle text-success fa-2x"></i>
                                             @break
+                                        @case('incident')
+                                            <i class="fas fa-exclamation-circle text-danger fa-2x"></i>
+                                            @break
                                         @default
                                             <i class="fas fa-info-circle text-secondary fa-2x"></i>
                                     @endswitch
@@ -96,6 +99,9 @@
                                                         @case('route_approval')
                                                             Route configuration
                                                             @break
+                                                        @case('incident')
+                                                            Driver incident
+                                                            @break
                                                         @default
                                                             📢 Notification
                                                     @endswitch
@@ -117,6 +123,11 @@
                                         </div>
                                     </div>
                                     <p class="mb-2">{{ $notification->message }}</p>
+
+                                    @if($notification->type === 'incident' && $notification->latitude !== null && $notification->longitude !== null)
+                                        <div class="notif-incident-map rounded border mb-2" style="height:220px;width:100%;"
+                                             data-lng="{{ $notification->longitude }}" data-lat="{{ $notification->latitude }}"></div>
+                                    @endif
                                     
                                     @if($notification->driver)
                                         <div class="mb-2">
@@ -125,15 +136,27 @@
                                     @endif
                                     
                                     @if($notification->schedule)
-                                        <div class="mb-2">
-                                            <span class="badge bg-info">Schedule ID: {{ $notification->schedule->id }}</span>
+                                        <div class="mb-2 d-flex flex-wrap gap-1">
+                                            <span class="badge bg-info">Schedule #{{ $notification->schedule->id }}</span>
+                                            @if($notification->schedule->route)
+                                                <span class="badge bg-info text-dark">Route: {{ $notification->schedule->route->name }}</span>
+                                            @endif
                                         </div>
                                     @endif
                                     
                                     @if($notification->bus)
                                         <div class="mb-2">
-                                            <span class="badge bg-primary">Bus: {{ $notification->bus->bus_number }}</span>
+                                            <span class="badge bg-primary">Bus: {{ $notification->bus->bus_number }}@if($notification->bus->model) — {{ $notification->bus->model }}@endif</span>
                                         </div>
+                                    @endif
+
+                                    @if($notification->type === 'incident' && $notification->latitude !== null && $notification->longitude !== null)
+                                        <p class="small text-muted mb-2 font-monospace">
+                                            {{ number_format((float) $notification->latitude, 6) }}, {{ number_format((float) $notification->longitude, 6) }}
+                                            @if($notification->location_label)
+                                                · {{ $notification->location_label }}
+                                            @endif
+                                        </p>
                                     @endif
                                     
                                     <div class="d-flex align-items-center gap-2">
@@ -336,7 +359,27 @@
 
 @push('scripts')
 <script>
+function initNotifIncidentMaps() {
+    if (typeof mapboxgl === 'undefined') return;
+    document.querySelectorAll('.notif-incident-map').forEach(function (el) {
+        if (el.getAttribute('data-mapped')) return;
+        el.setAttribute('data-mapped', '1');
+        var lng = parseFloat(el.dataset.lng);
+        var lat = parseFloat(el.dataset.lat);
+        if (isNaN(lng) || isNaN(lat)) return;
+        var m = new mapboxgl.Map({
+            container: el,
+            style: 'mapbox://styles/mapbox/streets-v12',
+            center: [lng, lat],
+            zoom: 14
+        });
+        m.addControl(new mapboxgl.NavigationControl());
+        new mapboxgl.Marker({ color: '#e74c3c' }).setLngLat([lng, lat]).addTo(m);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+    initNotifIncidentMaps();
     // Count selected drivers
     function updateSelectedCount() {
         const count = document.querySelectorAll('.driver-checkbox:checked').length;
@@ -461,27 +504,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
-
-function updateNotificationBadge() {
-    fetch('/notifications/unread-count', {
-        method: 'GET',
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        const badge = document.getElementById('notificationBadge');
-        if (badge && data.count > 0) {
-            badge.textContent = data.count > 99 ? '99+' : data.count;
-            badge.style.display = 'block';
-        } else if (badge) {
-            badge.style.display = 'none';
-        }
-    })
-    .catch(error => console.error('Error fetching notification count:', error));
-}
 </script>
 @endpush
 @endsection

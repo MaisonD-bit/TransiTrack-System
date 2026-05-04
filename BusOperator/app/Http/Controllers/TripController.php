@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Notification;
 use App\Models\Schedule;
 use App\Models\Ticket;
+use App\Support\TicketBoarding;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 
 class TripController extends Controller
@@ -13,14 +17,65 @@ class TripController extends Controller
     public function index(Request $request)
     {
         $userId = Auth::id();
+        $date = $this->resolveTripDate($request);
+
+        $data = $this->buildTripPanelData((int) $userId, $date);
+
+        return view('panels.trips', [
+            'date' => $data['date'],
+            'tripRows' => $data['tripRows'],
+            'totalRevenue' => $data['totalRevenue'],
+            'mapCenter' => $data['mapCenter'],
+            'tripPollChecksum' => $data['checksum'],
+            'incidentMarkers' => $data['incidentMarkers'],
+        ]);
+    }
+
+    /**
+     * JSON snapshot for live refresh while the operator stays on Trip Logs.
+     */
+    public function poll(Request $request): JsonResponse
+    {
+        $userId = Auth::id();
+        if (! $userId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $date = $this->resolveTripDate($request);
+        $data = $this->buildTripPanelData((int) $userId, $date);
+
+        $rows = $data['tripRows']->map(function (array $row) {
+            unset($row['schedule']);
+
+            return $row;
+        })->values()->all();
+
+        return response()->json([
+            'success' => true,
+            'checksum' => $data['checksum'],
+            'date' => $data['date'],
+            'totalRevenue' => $data['totalRevenue'],
+            'rows' => $rows,
+            'incidentMarkers' => $data['incidentMarkers'],
+        ]);
+    }
+
+    private function resolveTripDate(Request $request): Carbon
+    {
         $dateInput = $request->input('date', Carbon::today()->toDateString());
 
         try {
-            $date = Carbon::parse($dateInput)->startOfDay();
+            return Carbon::parse($dateInput)->startOfDay();
         } catch (\Throwable) {
-            $date = Carbon::today();
+            return Carbon::today()->startOfDay();
         }
+    }
 
+    /**
+     * @return array{date: string, tripRows: Collection<int, array<string, mixed>>, totalRevenue: float, mapCenter: array{0: float, 1: float}, checksum: string}
+     */
+    private function buildTripPanelData(int $userId, Carbon $date): array
+    {
         $schedules = Schedule::query()
             ->where('user_id', $userId)
             ->whereDate('date', $date)
@@ -29,26 +84,21 @@ class TripController extends Controller
             ->get();
 
         $scheduleIds = $schedules->pluck('id');
-        $ticketCountBySchedule = Ticket::query()
-            ->whereIn('schedule_id', $scheduleIds)
-            ->selectRaw('schedule_id, COUNT(*) as c, SUM(fare) as revenue')
-            ->groupBy('schedule_id')
-            ->get()
-            ->keyBy('schedule_id');
-
-        $sampleTicketIds = Ticket::query()
+        $ticketsBySchedule = Ticket::query()
             ->whereIn('schedule_id', $scheduleIds)
             ->orderBy('id')
-            ->get(['schedule_id', 'public_ticket_id'])
+            ->get()
             ->groupBy('schedule_id');
 
-        $tripRows = $schedules->map(function (Schedule $s) use ($ticketCountBySchedule, $sampleTicketIds) {
-            $agg = $ticketCountBySchedule->get($s->id);
-            $ticketCount = (int) ($agg->c ?? 0);
-            $revenue = (float) ($agg->revenue ?? 0);
-            $capacity = $s->bus?->capacity ?? 0;
-            $boarded = $ticketCount > 0 ? $ticketCount : (int) ($s->passengers ?? 0);
-            $ids = ($sampleTicketIds->get($s->id) ?? collect())->take(3)->pluck('public_ticket_id')->filter();
+        $tripRows = $schedules->map(function (Schedule $s) use ($ticketsBySchedule) {
+            $tickets = ($ticketsBySchedule->get($s->id) ?? collect())->values();
+            $ticketCount = $tickets->count();
+            $revenue = (float) $tickets->sum(fn (Ticket $t) => (float) $t->fare);
+            $capacity = (int) ($s->bus?->capacity ?? 0);
+            $aboard = $ticketCount > 0
+                ? TicketBoarding::aboardCount($tickets, $capacity)
+                : (int) ($s->passengers ?? 0);
+            $ids = $tickets->take(3)->pluck('public_ticket_id')->filter();
 
             return [
                 'schedule' => $s,
@@ -57,7 +107,7 @@ class TripController extends Controller
                 'bus_company' => $s->bus?->bus_company ?? '—',
                 'bus_type' => $s->bus?->accommodation_type ?? $s->route?->bus_type ?? '—',
                 'capacity' => $capacity,
-                'boarded' => $boarded,
+                'boarded' => $aboard,
                 'ticket_count' => $ticketCount,
                 'revenue' => $revenue,
                 'ticket_id_sample' => $ids->isNotEmpty() ? $ids->join(', ') : '—',
@@ -77,11 +127,48 @@ class TripController extends Controller
             }
         }
 
-        return view('panels.trips', [
+        $incidentMarkers = Notification::query()
+            ->where('recipient_id', $userId)
+            ->whereNull('sender_id')
+            ->where('type', 'incident')
+            ->whereDate('created_at', $date)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn (Notification $n) => [
+                'id' => $n->id,
+                'lng' => (float) $n->longitude,
+                'lat' => (float) $n->latitude,
+                'label' => $n->location_label,
+                'message' => $n->message,
+            ])
+            ->values()
+            ->all();
+
+        $checksumPayload = [
+            'total' => round($totalRevenue, 2),
+            'n' => $tripRows->count(),
+            'rows' => $tripRows->map(fn (array $r) => [
+                $r['ticket_count'],
+                round($r['revenue'], 2),
+                (string) $r['ticket_id_sample'],
+                (int) $r['boarded'],
+            ])->values()->all(),
+            'incidents' => array_map(
+                fn (array $m) => [$m['id'], $m['lat'], $m['lng']],
+                $incidentMarkers
+            ),
+        ];
+        $checksum = md5(json_encode($checksumPayload));
+
+        return [
             'date' => $date->toDateString(),
             'tripRows' => $tripRows,
             'totalRevenue' => $totalRevenue,
             'mapCenter' => $mapCenter,
-        ]);
+            'checksum' => $checksum,
+            'incidentMarkers' => $incidentMarkers,
+        ];
     }
 }

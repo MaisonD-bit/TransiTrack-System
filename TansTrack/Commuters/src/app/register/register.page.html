@@ -1,7 +1,7 @@
-<ion-content [fullscreen]="true" class="ion-padding">
+<ion-content [fullscreen]="true" class="ion-padding" [scrollY]="true">
   <div class="register-container">
-  <ion-back-button defaultHref="/login" class="back-button" text=""></ion-back-button>  
-   
+    <ion-back-button defaultHref="/login" class="back-button" text=""></ion-back-button>
+
     <div class="hero-section">
       <div class="logo">
         <ion-icon name="person-add-outline" size="large"></ion-icon>
@@ -10,117 +10,123 @@
       <p>Join TransitTrack today</p>
     </div>
 
-    <!-- Register Form -->
     <form [formGroup]="registerForm" (ngSubmit)="onSubmit()" novalidate>
-      <ion-list>
-        <!-- Name Input -->
-        <ion-label position="floating">Full Name *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full" important>
-          <ion-input      
+      <ion-list lines="none">
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
             formControlName="firstName"
             type="text"
-            [class.error]="registerForm.get('firstName')?.invalid && registerForm.get('firstName')?.touched"
-            placeholder="Enter your first name *">
+            label="Full Name *"
+            labelPlacement="stacked"
+            placeholder="Enter your first name *"
+            [class.error]="registerForm.get('firstName')?.invalid && registerForm.get('firstName')?.touched">
           </ion-input>
         </ion-item>
 
-          <ion-label>Middle Name</ion-label>
-          <ion-item class="ion-margin-bottom" lines="full">
-          <ion-input 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
             formControlName="middleName"
             type="text"
+            label="Middle Name"
+            labelPlacement="stacked"
             placeholder="Enter your middle name">
           </ion-input>
         </ion-item>
 
-        <ion-label>Last Name *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full">
-          <ion-input 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
             formControlName="lastName"
             type="text"
-            [class.error]="registerForm.get('lastName')?.invalid && registerForm.get('lastName')?.touched"
-            placeholder="Enter your last name *">
+            label="Last Name *"
+            labelPlacement="stacked"
+            placeholder="Enter your last name *"
+            [class.error]="registerForm.get('lastName')?.invalid && registerForm.get('lastName')?.touched">
           </ion-input>
-          </ion-item>
+        </ion-item>
 
-        <!-- Email Input -->
-         <ion-label>Email *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full">
-          <ion-input 
-            formControlName="email" 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
+            formControlName="email"
             type="email"
-            [class.error]="registerForm.get('email')?.invalid && registerForm.get('email')?.touched"
-            placeholder="Enter your email *">
+            label="Email *"
+            labelPlacement="stacked"
+            placeholder="Enter your email *"
+            [class.error]="registerForm.get('email')?.invalid && registerForm.get('email')?.touched">
           </ion-input>
         </ion-item>
 
-          <ion-label>Address *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full">
-          <ion-input 
-            formControlName="address" 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
+            formControlName="address"
             type="text"
-            [class.error]="registerForm.get('address')?.invalid && registerForm.get('address')?.touched"
-            placeholder="Enter your address *">
+            label="Address *"
+            labelPlacement="stacked"
+            placeholder="Enter your address *"
+            [class.error]="registerForm.get('address')?.invalid && registerForm.get('address')?.touched">
           </ion-input>
         </ion-item>
 
-        <ion-label>Contact Number</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full">
-          <ion-input 
-            formControlName="contactNumber" 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
+            formControlName="contactNumber"
             type="text"
-            [class.error]="registerForm.get('contactNumber')?.invalid && registerForm.get('contactNumber')?.touched"
-            placeholder="Enter your contact number">
+            label="Contact Number *"
+            labelPlacement="stacked"
+            placeholder="Enter your contact number"
+            [class.error]="registerForm.get('contactNumber')?.invalid && registerForm.get('contactNumber')?.touched">
           </ion-input>
         </ion-item>
 
-        <ion-label>Gender *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="">
-          <ion-select style="color: black;" formControlName="gender" placeholder="Select your gender *" [class.error]="registerForm.get('gender')?.invalid && registerForm.get('gender')?.touched">
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-select
+            formControlName="gender"
+            label="Gender *"
+            labelPlacement="stacked"
+            interface="popover"
+            placeholder="Select your gender *"
+            [class.error]="registerForm.get('gender')?.invalid && registerForm.get('gender')?.touched">
             <ion-select-option value="male">Male</ion-select-option>
             <ion-select-option value="female">Female</ion-select-option>
           </ion-select>
         </ion-item>
 
-        <!-- Password Input -->
-         <ion-label>Password *</ion-label>
-        <ion-item class="ion-margin-bottom" lines="full">
-          
-          <ion-input 
-            formControlName="password" 
+        <ion-item class="ion-margin-bottom register-field" lines="none">
+          <ion-input
+            formControlName="password"
             [type]="showPassword ? 'text' : 'password'"
-            [class.error]="registerForm.get('password')?.invalid && registerForm.get('password')?.touched"
-            placeholder="Create a strong password *">
+            label="Password *"
+            labelPlacement="stacked"
+            placeholder="Create a strong password *"
+            [class.error]="registerForm.get('password')?.invalid && registerForm.get('password')?.touched">
           </ion-input>
-          <ion-icon 
-            (click)="togglePasswordVisibility('password')" 
-            [name]="showPassword ? 'eye-outline' : 'eye-off-outline'" 
-            slot="end" 
+          <ion-icon
+            (click)="togglePasswordVisibility('password')"
+            [name]="showPassword ? 'eye-outline' : 'eye-off-outline'"
+            slot="end"
             class="password-toggle"
-            size="sm">
+            size="small">
           </ion-icon>
         </ion-item>
 
-        <!-- Confirm Password Input -->
-        <ion-label>Confirm Password *</ion-label>
-        <ion-item lines="full">
-          <ion-input 
-            formControlName="confirmPassword" 
+        <ion-item class="register-field" lines="none">
+          <ion-input
+            formControlName="confirmPassword"
             [type]="showConfirmPassword ? 'text' : 'password'"
-            [class.error]="registerForm.get('confirmPassword')?.invalid && registerForm.get('confirmPassword')?.touched"
-            placeholder="Confirm your password *">
+            label="Confirm Password *"
+            labelPlacement="stacked"
+            placeholder="Confirm your password *"
+            [class.error]="registerForm.get('confirmPassword')?.invalid && registerForm.get('confirmPassword')?.touched">
           </ion-input>
-          <ion-icon 
-            (click)="togglePasswordVisibility('confirmPassword')" 
-            [name]="showConfirmPassword ? 'eye-outline' : 'eye-off-outline'" 
-            slot="end" 
+          <ion-icon
+            (click)="togglePasswordVisibility('confirmPassword')"
+            [name]="showConfirmPassword ? 'eye-outline' : 'eye-off-outline'"
+            slot="end"
             class="password-toggle"
-            size="sm">
+            size="small">
           </ion-icon>
         </ion-item>
       </ion-list>
 
-      <!-- Terms Checkbox -->
       <ion-item lines="none" class="terms-item">
         <ion-checkbox formControlName="terms" slot="start"></ion-checkbox>
         <ion-label class="ion-text-wrap">
@@ -128,7 +134,6 @@
         </ion-label>
       </ion-item>
 
-      <!-- Error Messages -->
       <div class="error-messages" *ngIf="registerForm.invalid && registerForm.touched">
         <div *ngIf="registerForm.get('name')?.hasError('required')">
           Name is required
@@ -150,21 +155,17 @@
         </div>
       </div>
 
-      <!-- Submit Button -->
-      <ion-button 
-        type="submit" 
-        expand="block" 
+      <ion-button
+        type="submit"
+        expand="block"
         class="submit-btn"
         [disabled]="registerForm.invalid || isLoading"
-        color="success"
-        >
+        color="success">
         <ion-spinner name="crescent" *ngIf="isLoading"></ion-spinner>
         <span *ngIf="!isLoading">Create Account</span>
-        
       </ion-button>
     </form>
 
-    <!-- Login Link -->
     <div class="footer-links">
       <p>Already have an account? <a (click)="goToLogin()">Sign in</a></p>
     </div>

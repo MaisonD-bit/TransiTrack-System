@@ -726,6 +726,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            if (!document.getElementById('end_coordinates')?.value?.trim()) {
+                showToast('End coordinates are missing. Re-select the destination on the map.', 'error');
+                return;
+            }
+            if (!document.getElementById('distance_km')?.value?.trim() || !document.getElementById('estimated_duration')?.value?.trim()) {
+                showToast('Distance and duration are not set. Wait for the route line to finish loading, then try again.', 'error');
+                return;
+            }
+
             const formData = new FormData(form);
             
             // ✅ Ensure start_location is set

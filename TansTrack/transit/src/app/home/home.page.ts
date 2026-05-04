@@ -1,8 +1,15 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { AlertController, ToastController, ViewWillEnter } from '@ionic/angular';
+import {
+  AlertController,
+  LoadingController,
+  ToastController,
+  ViewWillEnter,
+} from '@ionic/angular';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
+import { environment } from '../../environments/environment';
 
 interface Schedule {
   id: number;
@@ -10,7 +17,9 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
-  /** Ticket rows for this schedule (same bus/route booking) — length = boarding count */
+  /** Passengers still on board (distinct commuters + guests, capped by capacity). */
+  aboard_count?: number;
+  /** Active ticket rows only (not yet alighted). */
   boarding_passengers?: unknown[];
   route?: {
     id: number;
@@ -67,12 +76,23 @@ export class HomePage implements OnInit, ViewWillEnter {
   unreadNotificationsCount: number = 0;
   private schedulePoll?: ReturnType<typeof setInterval>;
 
+  /** Live terminal bay countdown when the driver is assigned a space from Terminal Manager */
+  terminalParking: {
+    occupied: boolean;
+    space_id?: string;
+    remaining_seconds?: number;
+    pending_extension_minutes?: number | null;
+    can_request_extension?: boolean;
+    extension_request_used?: boolean;
+  } | null = null;
+
   constructor(
     private authService: AuthService,
     private apiService: ApiService,
     private router: Router,
     private alertController: AlertController,
-    private toastController: ToastController
+    private toastController: ToastController,
+    private loadingController: LoadingController
   ) {}
 
   async ngOnInit() {
@@ -87,10 +107,14 @@ export class HomePage implements OnInit, ViewWillEnter {
     }, 10000);
 
     this.schedulePoll = setInterval(() => this.loadDriverSchedules(), 30000);
+
+    this.loadTerminalParking();
+    setInterval(() => this.loadTerminalParking(), 15000);
   }
 
   ionViewWillEnter() {
     this.loadDriverSchedules();
+    this.loadTerminalParking();
   }
 
   async loadRecentNotifications() {
@@ -113,6 +137,116 @@ export class HomePage implements OnInit, ViewWillEnter {
     const now = new Date();
     this.currentTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     this.greeting = this.getGreeting(now);
+
+    if (this.terminalParking?.occupied && (this.terminalParking.remaining_seconds ?? 0) > 0) {
+      this.terminalParking = {
+        ...this.terminalParking,
+        remaining_seconds: (this.terminalParking.remaining_seconds ?? 0) - 1,
+      };
+    }
+  }
+
+  getTerminalBayCountdownDisplay(): string {
+    const sec = this.terminalParking?.remaining_seconds ?? 0;
+    if (sec <= 0) return '00:00';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  async loadTerminalParking() {
+    const driverId = this.authService.getDriverId();
+    if (!driverId) {
+      this.terminalParking = null;
+      return;
+    }
+    try {
+      const res: any = await firstValueFrom(
+        this.apiService.getTerminalParkingStatus(Number(driverId))
+      );
+      if (!res?.success || !res.occupied) {
+        this.terminalParking = null;
+        return;
+      }
+      this.terminalParking = {
+        occupied: true,
+        space_id: res.space_id,
+        remaining_seconds: res.remaining_seconds,
+        pending_extension_minutes: res.pending_extension_minutes ?? null,
+        can_request_extension: !!res.can_request_extension,
+        extension_request_used: !!res.extension_request_used,
+      };
+    } catch {
+      /* keep last known state */
+    }
+  }
+
+  async promptTerminalExtension() {
+    const driverId = this.authService.getDriverId();
+    if (!driverId) return;
+
+    const alert = await this.alertController.create({
+      header: 'Request extra time',
+      message: 'One request per bay stay. Enter 5–20 minutes.',
+      inputs: [
+        {
+          name: 'mins',
+          type: 'number',
+          placeholder: 'Minutes (5–20)',
+          min: 5,
+          max: 20,
+        },
+      ],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Send',
+          handler: async (data) => {
+            const raw = Number(data.mins);
+            if (Number.isNaN(raw) || raw < 5 || raw > 20) {
+              const t = await this.toastController.create({
+                message: 'Enter a number between 5 and 20.',
+                duration: 2500,
+                color: 'warning',
+              });
+              await t.present();
+              return false;
+            }
+            try {
+              const out: any = await firstValueFrom(
+                this.apiService.requestTerminalParkingExtension(Number(driverId), raw)
+              );
+              if (out?.success) {
+                const ok = await this.toastController.create({
+                  message: out.message || 'Request sent',
+                  duration: 2500,
+                  color: 'success',
+                });
+                await ok.present();
+                await this.loadTerminalParking();
+                await this.loadRecentNotifications();
+              } else {
+                const bad = await this.toastController.create({
+                  message: out?.message || 'Could not send request',
+                  duration: 3000,
+                  color: 'danger',
+                });
+                await bad.present();
+              }
+            } catch (e: any) {
+              const err = await this.toastController.create({
+                message: e?.message || 'Request failed',
+                duration: 3000,
+                color: 'danger',
+              });
+              await err.present();
+            }
+            return true;
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   getGreeting(date: Date): string {
@@ -242,9 +376,13 @@ export class HomePage implements OnInit, ViewWillEnter {
       this.expectedCapacity = 0;
       return;
     }
-    this.currentPassengers = Array.isArray(current.boarding_passengers)
-      ? current.boarding_passengers.length
-      : 0;
+    if (typeof current.aboard_count === 'number' && !Number.isNaN(current.aboard_count)) {
+      this.currentPassengers = current.aboard_count;
+    } else {
+      this.currentPassengers = Array.isArray(current.boarding_passengers)
+        ? current.boarding_passengers.length
+        : 0;
+    }
     const cap = current.bus?.capacity;
     this.expectedCapacity =
       typeof cap === 'number' && !isNaN(cap) && cap > 0 ? cap : 0;
@@ -400,27 +538,52 @@ export class HomePage implements OnInit, ViewWillEnter {
 
   async presentReportIssueAlert() {
     const alert = await this.alertController.create({
-      header: 'Report Issue',
-      message: 'Select the type of issue and provide details.',
+      header: 'Report incident',
+      message:
+        'Choose the incident type. Your current GPS location will be sent to your operator (shown on Trip Logs map and Notifications).',
       inputs: [
         {
           name: 'issueType',
           type: 'radio',
-          label: 'Mechanical Problem',
-          value: 'mechanical',
-          checked: true
+          label: 'Flat tire',
+          value: 'flat_tire',
+          checked: true,
         },
         {
           name: 'issueType',
           type: 'radio',
-          label: 'Traffic Delay',
-          value: 'traffic',
+          label: 'Road blockage / delay',
+          value: 'road_blockage',
+        },
+        {
+          name: 'issueType',
+          type: 'radio',
+          label: 'Mechanical problem',
+          value: 'mechanical',
         },
         {
           name: 'issueType',
           type: 'radio',
           label: 'Accident',
           value: 'accident',
+        },
+        {
+          name: 'issueType',
+          type: 'radio',
+          label: 'Medical',
+          value: 'medical',
+        },
+        {
+          name: 'issueType',
+          type: 'radio',
+          label: 'Weather',
+          value: 'weather',
+        },
+        {
+          name: 'issueType',
+          type: 'radio',
+          label: 'Other',
+          value: 'other',
         },
       ],
       buttons: [
@@ -430,9 +593,9 @@ export class HomePage implements OnInit, ViewWillEnter {
         },
         {
           text: 'Next',
-          handler: async (issueType) => {
+          handler: (issueType) => {
             if (issueType) {
-              this.presentIssueDetailsAlert(issueType);
+              void this.presentIssueDetailsAlert(String(issueType));
             }
           },
         },
@@ -442,21 +605,74 @@ export class HomePage implements OnInit, ViewWillEnter {
     await alert.present();
   }
 
+  /** Maps legacy or UI keys to API incident_type. */
+  private mapToIncidentType(raw: string): string {
+    const key = String(raw || '').toLowerCase();
+    const legacy: Record<string, string> = {
+      traffic: 'road_blockage',
+      traffic_delay: 'road_blockage',
+    };
+    const allowed = new Set([
+      'flat_tire',
+      'road_blockage',
+      'mechanical',
+      'accident',
+      'medical',
+      'weather',
+      'other',
+    ]);
+    if (legacy[key]) {
+      return legacy[key];
+    }
+    if (allowed.has(key)) {
+      return key;
+    }
+    return 'other';
+  }
+
+  private async reverseGeocode(lng: number, lat: number): Promise<string> {
+    const token = environment.mapbox?.accessToken || '';
+    if (!token) {
+      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+      `${lng},${lat}`
+    )}.json?access_token=${encodeURIComponent(token)}&limit=1`;
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      const name = data?.features?.[0]?.place_name;
+      if (typeof name === 'string' && name.length > 0) {
+        return name;
+      }
+    } catch {
+      /* ignore */
+    }
+    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  }
+
   async presentIssueDetailsAlert(issueType: string) {
-    const issueLabels: any = {
-      mechanical: 'Mechanical Problem',
-      traffic: 'Traffic Delay',
-      accident: 'Accident'
+    const incidentType = this.mapToIncidentType(issueType);
+    const issueLabels: Record<string, string> = {
+      flat_tire: 'Flat tire',
+      road_blockage: 'Road blockage / delay',
+      mechanical: 'Mechanical problem',
+      accident: 'Accident',
+      medical: 'Medical',
+      weather: 'Weather',
+      other: 'Other',
+      traffic: 'Road blockage / delay',
     };
 
     const alert = await this.alertController.create({
-      header: `Report ${issueLabels[issueType]}`,
-      message: 'Please provide additional details about the issue.',
+      header: `Report: ${issueLabels[incidentType] || issueLabels[issueType] || 'Incident'}`,
+      message:
+        'Add optional notes, then submit. We will use your device GPS so the operator can see you on the map.',
       inputs: [
         {
           name: 'details',
           type: 'textarea',
-          placeholder: 'Describe the issue...',
+          placeholder: 'Optional details…',
         },
       ],
       buttons: [
@@ -467,35 +683,83 @@ export class HomePage implements OnInit, ViewWillEnter {
         {
           text: 'Submit',
           handler: async (data) => {
-            try {
-              const driverId = this.authService.getDriverId();
-              const driverIdNum = Number(driverId);
-              
-              if (isNaN(driverIdNum)) {
-                console.error('Invalid driver ID');
-                this.presentToast('Invalid driver ID', 'danger');
-                return;
-              }
-
-              const message = data.details || `Driver reported a ${issueType} issue.`;
-              
-              const response = await this.apiService.reportIssue(driverIdNum, issueType, message).toPromise();
-              
-              if (response.success) {
-                this.presentToast('Issue reported successfully to your operator.', 'success');
-              } else {
-                this.presentToast(response.message || 'Error reporting issue.', 'danger');
-              }
-            } catch (error) {
-              console.error('Error reporting issue:', error);
-              this.presentToast('Error reporting issue.', 'danger');
-            }
+            await this.submitIncidentWithGps(incidentType, String(data?.details || ''));
           },
         },
       ],
     });
 
     await alert.present();
+  }
+
+  private async submitIncidentWithGps(
+    incidentType: string,
+    details: string
+  ): Promise<void> {
+    const driverIdNum = Number(this.authService.getDriverId());
+    if (isNaN(driverIdNum)) {
+      await this.presentToast('Invalid driver ID', 'danger');
+      return;
+    }
+
+    const loading = await this.loadingController.create({
+      message: 'Getting location…',
+    });
+    await loading.present();
+
+    try {
+      const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve(p),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 22000, maximumAge: 0 }
+        );
+      });
+
+      if (!pos) {
+        await loading.dismiss();
+        await this.presentToast(
+          'Location required. Enable GPS and try again.',
+          'danger'
+        );
+        return;
+      }
+
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+
+      const locationLabel = await this.reverseGeocode(lng, lat);
+      const scheduleId = this.currentSchedule?.id;
+
+      await firstValueFrom(
+        this.apiService.reportIncident({
+          driver_id: driverIdNum,
+          incident_type: incidentType,
+          latitude: lat,
+          longitude: lng,
+          location_label: locationLabel,
+          ...(scheduleId ? { schedule_id: scheduleId } : {}),
+          ...(details.trim() ? { notes: details.trim() } : {}),
+        })
+      );
+
+      await loading.dismiss();
+      await this.presentToast(
+        'Incident reported with your location. Operator can see it on Trip Logs and Notifications.',
+        'success'
+      );
+    } catch (error) {
+      console.error('Incident report error:', error);
+      await loading.dismiss();
+      await this.presentToast(
+        'Could not send incident. Check connection and try again.',
+        'danger'
+      );
+    }
   }
 
   async presentEmergencyAlert() {
