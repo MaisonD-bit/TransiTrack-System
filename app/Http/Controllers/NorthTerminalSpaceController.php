@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\TerminalSpace;
-use App\Models\TerminalOccupancyHistory;
+use App\Models\NorthTerminalSpace;
+use App\Models\NorthTerminalOccupancyHistory;
 use App\Models\Driver;
 use App\Models\Route;
 use Illuminate\Http\Request;
@@ -12,28 +12,28 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
-class TerminalSpaceController extends Controller
+class NorthTerminalSpaceController extends Controller
 {
     // Private method to verify manager terminal authorization for API endpoints
     private function checkTerminalAuthorization()
     {
         $manager = Auth::user();
-        if (!$manager || $manager->terminal !== 'south') {
-            abort(403, 'Unauthorized access to South Terminal');
+        if (!$manager || $manager->terminal !== 'north') {
+            abort(403, 'Unauthorized access to North Terminal');
         }
     }
-    
+
     // Get all spaces with current driver info
     public function index()
     {
-        // Check if manager is authorized for South Terminal
+        // Check if manager is authorized for North Terminal
         $manager = Auth::user();
-        if ($manager && $manager->terminal !== 'south') {
-            return redirect()->route('north-spaces.index')->with('message', 'You do not have access to South Terminal. Redirecting to North Terminal.');
+        if ($manager && $manager->terminal !== 'north') {
+            return redirect()->route('spaces.index')->with('message', 'You do not have access to North Terminal. Redirecting to South Terminal.');
         }
 
         // Get terminal spaces with current driver and company info
-        $spaces = TerminalSpace::with('currentDriver.user', 'currentCompany')->get();
+        $spaces = NorthTerminalSpace::with('currentDriver.user', 'currentCompany')->get();
 
         // Get actual drivers for the DRIVER dropdown
         $drivers = Driver::with('user')->where('status', 'active')->get();
@@ -45,16 +45,16 @@ class TerminalSpaceController extends Controller
             ->select('id', 'name', 'first_name', 'last_name', 'company_name', 'company_contact')
             ->get();
 
-        return view('operations.space', compact('spaces', 'drivers', 'operators'));
+        return view('operations.northspace', compact('spaces', 'drivers', 'operators'));
     }
 
-    // Get all drivers for dropdown (from BusOperator drivers table) - SOUTH TERMINAL ONLY
+    // Get all drivers for dropdown (from BusOperator drivers table) - NORTH TERMINAL ONLY
     public function getDrivers()
     {
-        // Get drivers assigned to SOUTH terminal routes only
+        // Get drivers assigned to NORTH terminal routes only
         $drivers = Driver::with('user')
             ->whereHas('routes', function ($query) {
-                $query->where('terminal', 'south');
+                $query->where('terminal', 'north');
             })
             ->where('status', 'active')
             ->get()
@@ -73,11 +73,11 @@ class TerminalSpaceController extends Controller
                 ];
             });
 
-        // Get bus operators assigned to SOUTH terminal
+        // Get bus operators assigned to NORTH terminal
         $operators = DB::table('users')
             ->where('role', 'bus_operator')
             ->where('status', 'active')
-            ->where('terminal', 'south')
+            ->where('terminal', 'north')
             ->get()
             ->map(function ($user) {
                 return [
@@ -101,12 +101,12 @@ class TerminalSpaceController extends Controller
     {
         try {
             $request->validate([
-                'space_id' => 'required|exists:terminal_spaces,space_id',
+                'space_id' => 'required|exists:north_terminal_spaces,space_id',
                 'route_name' => 'nullable|string',
                 'accommodation_type' => 'nullable|string|in:Aircon,Non-Aircon',
             ]);
 
-            $space = TerminalSpace::find($request->space_id);
+            $space = NorthTerminalSpace::find($request->space_id);
 
             if (!$space) {
                 return response()->json(['success' => false, 'message' => 'Space not found'], 404);
@@ -128,7 +128,7 @@ class TerminalSpaceController extends Controller
             $space->update($updateData);
 
             // Record in history
-            TerminalOccupancyHistory::create([
+            NorthTerminalOccupancyHistory::create([
                 'space_id' => $space->space_id,
                 'action' => 'edited',
                 'route_name' => $request->route_name,
@@ -154,7 +154,7 @@ class TerminalSpaceController extends Controller
             Log::info('Occupy request received:', $request->all());
 
             $request->validate([
-                'space_id' => 'required|exists:terminal_spaces,space_id',
+                'space_id' => 'required|exists:north_terminal_spaces,space_id',
                 'driver_id' => 'required|exists:drivers,id',
                 'operator_id' => 'required|exists:users,id',
                 'duration_minutes' => 'required|integer|between:1,360',
@@ -162,7 +162,7 @@ class TerminalSpaceController extends Controller
                 'accommodation_type' => 'nullable|string'
             ]);
 
-            $space = TerminalSpace::findOrFail($request->space_id);
+            $space = NorthTerminalSpace::findOrFail($request->space_id);
             $driver = Driver::with('user')->findOrFail($request->driver_id);
             $operator = DB::table('users')->find($request->operator_id);
 
@@ -181,7 +181,7 @@ class TerminalSpaceController extends Controller
                 'status' => 'occupied'
             ]);
 
-            TerminalOccupancyHistory::create([
+            NorthTerminalOccupancyHistory::create([
                 'space_id' => $space->space_id,
                 'action' => 'occupied',
                 'driver_id' => $driver->id,
@@ -219,14 +219,14 @@ class TerminalSpaceController extends Controller
         $this->checkTerminalAuthorization();
 
         $request->validate([
-            'space_id' => 'required|exists:terminal_spaces,space_id',
+            'space_id' => 'required|exists:north_terminal_spaces,space_id',
             'notes' => 'nullable|string'
         ]);
 
-        $space = TerminalSpace::find($request->space_id);
+        $space = NorthTerminalSpace::find($request->space_id);
 
         // Find and update the most recent occupied record instead of creating a new one
-        $lastOccupancy = TerminalOccupancyHistory::where('space_id', $space->space_id)
+        $lastOccupancy = NorthTerminalOccupancyHistory::where('space_id', $space->space_id)
             ->where('action', 'occupied')
             ->orderBy('created_at', 'desc')
             ->first();
@@ -261,18 +261,18 @@ class TerminalSpaceController extends Controller
 
         try {
             $request->validate([
-                'space_id' => 'required|exists:terminal_spaces,space_id',
+                'space_id' => 'required|exists:north_terminal_spaces,space_id',
                 'reason' => 'nullable|string'
             ]);
 
-            $space = TerminalSpace::find($request->space_id);
+            $space = NorthTerminalSpace::find($request->space_id);
 
             if (!$space) {
                 return response()->json(['success' => false, 'message' => 'Space not found'], 404);
             }
 
             // Find and update the most recent occupied record instead of creating a new one
-            $lastOccupancy = TerminalOccupancyHistory::where('space_id', $space->space_id)
+            $lastOccupancy = NorthTerminalOccupancyHistory::where('space_id', $space->space_id)
                 ->where('action', 'occupied')
                 ->orderBy('created_at', 'desc')
                 ->first();
@@ -312,11 +312,11 @@ class TerminalSpaceController extends Controller
             Log::info('addTime called with:', $request->all());
 
             $request->validate([
-                'space_id' => 'required|exists:terminal_spaces,space_id',
+                'space_id' => 'required|exists:north_terminal_spaces,space_id',
                 'additional_minutes' => 'required|integer|between:1,360'
             ]);
 
-            $space = TerminalSpace::findOrFail($request->space_id);
+            $space = NorthTerminalSpace::findOrFail($request->space_id);
             Log::info('Space found:', ['space_id' => $space->space_id, 'is_occupied' => $space->is_occupied]);
 
             if (!$space->is_occupied) {
@@ -324,153 +324,81 @@ class TerminalSpaceController extends Controller
                 return response()->json(['success' => false, 'message' => 'Space is not occupied'], 400);
             }
 
-            // Extend the available_at time
-            $newAvailableAt = $space->available_at->addMinutes($request->additional_minutes);
+            $additionalTime = $request->additional_minutes;
+            $newAvailableAt = $space->available_at->addMinutes($additionalTime);
+            $totalDuration = $space->current_duration_minutes + $additionalTime;
 
             $space->update([
                 'available_at' => $newAvailableAt,
-                'current_duration_minutes' => $space->current_duration_minutes + $request->additional_minutes
+                'current_duration_minutes' => $totalDuration,
             ]);
-
-            // Update the most recent history record for this space to show additional time was added
-            $lastHistory = TerminalOccupancyHistory::where('space_id', $space->space_id)
-                ->where('action', 'occupied')
-                ->orderBy('created_at', 'desc')
-                ->first();
-
-            Log::info('Last history found:', ['has_record' => $lastHistory ? true : false]);
-
-            if ($lastHistory) {
-                // Append additional time to the notes
-                $currentNotes = $lastHistory->additional_notes ?? '';
-                $addedNote = "Added +{$request->additional_minutes} min at " . now()->format('H:i:s');
-                $newNotes = $currentNotes ? $currentNotes . " | " . $addedNote : $addedNote;
-
-                $lastHistory->update([
-                    'duration_minutes' => $space->current_duration_minutes,
-                    'additional_notes' => $newNotes
-                ]);
-
-                Log::info('Updated history notes:', ['new_notes' => $newNotes, 'new_total_duration' => $space->current_duration_minutes]);
-            }
 
             return response()->json([
                 'success' => true,
-                'message' => "Added {$request->additional_minutes} minutes successfully",
-                'expiration_time' => $newAvailableAt->toIso8601String()
+                'message' => "Added $additionalTime minutes successfully",
+                'new_expiration_time' => $newAvailableAt->toIso8601String(),
+                'total_duration' => $totalDuration
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation failed:', $e->errors());
             return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['success' => false, 'message' => 'Space not found'], 404);
         } catch (\Exception $e) {
-            Log::error('Add time error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
-        }
-    }
-
-    public function getSpaces()
-    {
-        $spaces = TerminalSpace::all();
-        return response()->json($spaces);
-    }
-
-    // Get all active routes
-    public function getRoutes()
-    {
-        $routes = DB::table('routes')
-            ->where('status', 'active')
-            ->orderBy('name')
-            ->pluck('name')
-            ->unique()
-            ->values();
-
-        return response()->json($routes);
-    }
-
-    // Get driver's assigned routes
-    public function getDriverRoutes($driverId)
-    {
-        try {
-            $routes = Route::whereHas('schedules', function ($query) use ($driverId) {
-                $query->where('driver_id', $driverId);
-            })
-                ->where('status', 'active')
-                ->select('id', 'name', 'bus_type')
-                ->orderBy('name')
-                ->get();
-
-            return response()->json(['success' => true, 'routes' => $routes]);
-        } catch (\Exception $e) {
-            Log::error('Get driver routes error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
+            Log::error('addTime error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     // Get history for a specific space
     public function getHistory($spaceId)
     {
-        $this->checkTerminalAuthorization();
-
-        $history = TerminalOccupancyHistory::where('space_id', $spaceId)
+        $history = NorthTerminalOccupancyHistory::where('space_id', $spaceId)
             ->orderBy('created_at', 'desc')
-            ->limit(50)
             ->get();
 
-        return response()->json($history);
+        return response()->json(['success' => true, 'data' => $history]);
     }
 
-    // Get all history with filters
+    // Get all history with pagination
     public function getAllHistory(Request $request)
     {
         $this->checkTerminalAuthorization();
 
-        $query = TerminalOccupancyHistory::query();
+        $query = NorthTerminalOccupancyHistory::query();
 
-        // Handle date range filtering
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $dateFrom = \Carbon\Carbon::createFromFormat('Y-m-d', $request->date_from)->startOfDay();
-            $dateTo = \Carbon\Carbon::createFromFormat('Y-m-d', $request->date_to)->endOfDay();
-            $query->whereBetween('time_occupied', [$dateFrom, $dateTo]);
-        } elseif ($request->filled('date_from')) {
-            $dateFrom = \Carbon\Carbon::createFromFormat('Y-m-d', $request->date_from)->startOfDay();
-            $query->whereDate('time_occupied', '>=', $dateFrom);
-        } elseif ($request->filled('date_to')) {
-            $dateTo = \Carbon\Carbon::createFromFormat('Y-m-d', $request->date_to)->endOfDay();
-            $query->whereDate('time_occupied', '<=', $dateTo);
-        } else {
-            // Default to today if no date range specified
-            $selectedDate = now()->startOfDay();
-            $query->whereDate('time_occupied', $selectedDate);
-        }
-
-        // Filter by action/status
-        if ($request->filled('action')) {
-            $query->where('action', $request->action);
-        }
-
-        // Filter by space_id
-        if ($request->filled('space_id')) {
-            $query->where('space_id', $request->space_id);
-        }
-
-        // Filter by driver_id
-        if ($request->filled('driver_id')) {
-            $query->where('driver_id', $request->driver_id);
-        }
-
-        // Filter by route_name
-        if ($request->filled('route_name')) {
-            $query->where('route_name', $request->route_name);
-        }
-
-        // Handle search filter
+        // Apply filters
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
-                $q->where('space_id', 'LIKE', "%{$search}%")
-                    ->orWhere('route_name', 'LIKE', "%{$search}%")
-                    ->orWhere('driver_name', 'LIKE', "%{$search}%");
+                $q->where('space_id', 'like', "%$search%")
+                    ->orWhere('driver_name', 'like', "%$search%")
+                    ->orWhere('company_name', 'like', "%$search%")
+                    ->orWhere('route_name', 'like', "%$search%");
             });
+        }
+
+        if ($request->filled('space_filter')) {
+            $query->where('space_id', $request->space_filter);
+        }
+
+        if ($request->filled('driver_filter')) {
+            $query->where('driver_name', 'like', "%{$request->driver_filter}%");
+        }
+
+        if ($request->filled('company_filter')) {
+            $query->where('company_name', 'like', "%{$request->company_filter}%");
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('time_occupied', '>=', $request->date_from);
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('time_occupied', '<=', $request->date_to);
+        }
+
+        if ($request->filled('action_filter')) {
+            $query->where('action', $request->action_filter);
         }
 
         // Check if CSV export is requested
@@ -513,68 +441,56 @@ class TerminalSpaceController extends Controller
 
             return response($content, 200, [
                 'Content-Type' => 'text/csv; charset=UTF-8',
-                'Content-Disposition' => 'attachment; filename="terminal_history_' . now()->format('Y-m-d_H-i-s') . '.csv"',
+                'Content-Disposition' => 'attachment; filename="north_terminal_history_' . now()->format('Y-m-d_H-i-s') . '.csv"',
             ]);
         }
 
-        // PAGINATION: 10 records per page (for JSON response)
         $history = $query->orderBy('created_at', 'desc')->paginate(10);
 
-        return response()->json($history);
+        return response()->json(['success' => true, 'data' => $history]);
+    }
+
+    // Get spaces - for JS to fetch
+    public function getSpaces()
+    {
+        $spaces = NorthTerminalSpace::all();
+        return response()->json($spaces);
     }
 
     public function getHistoryDetail($id)
     {
-        $record = TerminalOccupancyHistory::find($id);
+        $history = NorthTerminalOccupancyHistory::find($id);
 
-        if (!$record) {
-            return response()->json(['success' => false, 'message' => 'Record not found'], 404);
+        if (!$history) {
+            return response()->json(['success' => false, 'message' => 'History record not found'], 404);
         }
 
-        return response()->json($record);
+        return response()->json(['success' => true, 'data' => $history]);
     }
 
+    // Check and release expired spaces
     public function checkAndReleaseExpiredSpaces()
     {
         try {
-            $expiredSpaces = TerminalSpace::where('is_occupied', true)
+            $expiredSpaces = NorthTerminalSpace::where('is_occupied', true)
+                ->whereNotNull('available_at')
                 ->where('available_at', '<=', now())
                 ->get();
 
             foreach ($expiredSpaces as $space) {
-                // Get operator info BEFORE resetting
-                $companyName = 'Unknown Company';
-                $companyContact = 'N/A';
+                // Find the last occupancy record
+                $lastOccupancy = NorthTerminalOccupancyHistory::where('space_id', $space->space_id)
+                    ->where('action', 'occupied')
+                    ->orderBy('created_at', 'desc')
+                    ->first();
 
-                if ($space->current_company_id) {
-                    $operator = DB::table('users')
-                        ->where('id', $space->current_company_id)
-                        ->where('role', 'bus_operator')
-                        ->first();
-
-                    if ($operator) {
-                        $companyName = $operator->company_name ?? 'Unknown Company';
-                        $companyContact = $operator->company_contact ?? 'N/A';
-                    }
+                if ($lastOccupancy) {
+                    $lastOccupancy->update([
+                        'action' => 'released',
+                        'time_released' => now(),
+                        'additional_notes' => ($lastOccupancy->additional_notes ?? '') . ' | Auto-released (time expired)'
+                    ]);
                 }
-
-                // Record in history with ALL the occupied info
-                TerminalOccupancyHistory::create([
-                    'space_id' => $space->space_id,
-                    'action' => 'released',
-                    'driver_id' => $space->current_driver_id,
-                    'driver_name' => $space->currentDriver?->name,
-                    'driver_contact' => $space->currentDriver?->contact_number ?? 'N/A',
-                    'company_id' => $space->current_company_id,
-                    'company_name' => $companyName,
-                    'company_contact' => $companyContact,
-                    'route_name' => $space->route_name,
-                    'accommodation_type' => $space->accommodation_type,
-                    'duration_minutes' => $space->current_duration_minutes,
-                    'time_occupied' => $space->occupied_at,
-                    'time_released' => now(),
-                    'additional_notes' => 'Auto-released: duration expired'
-                ]);
 
                 // Reset space
                 $space->update([
@@ -590,12 +506,36 @@ class TerminalSpaceController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Checked and released ' . count($expiredSpaces) . ' expired spaces',
-                'released_count' => count($expiredSpaces),
-                'spaces' => $expiredSpaces->pluck('space_id')
+                'message' => 'Expired spaces released',
+                'released_count' => $expiredSpaces->count()
             ]);
         } catch (\Exception $e) {
+            Log::error('checkAndReleaseExpiredSpaces error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getRoutes()
+    {
+        $routes = Route::all();
+        return response()->json($routes);
+    }
+
+    public function getDriverRoutes($driverId)
+    {
+        try {
+            $routes = Route::whereHas('schedules', function ($query) use ($driverId) {
+                $query->where('driver_id', $driverId);
+            })
+                ->where('status', 'active')
+                ->select('id', 'name', 'bus_type')
+                ->orderBy('name')
+                ->get();
+
+            return response()->json(['success' => true, 'routes' => $routes]);
+        } catch (\Exception $e) {
+            Log::error('Get driver routes error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
         }
     }
 }

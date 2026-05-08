@@ -103,7 +103,7 @@
             z-index: 10;
             height: 74.19px;
         }
-        
+
         h4 {
             font-weight: 600;
             color: black;
@@ -241,9 +241,23 @@
                 <span>Chat</span>
             </a>
 
+            @if(Auth::check() && Auth::user()->terminal === 'south')
             <a href="{{ route('spaces.index') }}" class="sidebar-link {{ request()->routeIs('spaces.*') ? 'active' : '' }}">
                 <i class="fas fa-map-marker-alt"></i>
-                <span>Spaces</span>
+                <span>South Terminal Spaces</span>
+            </a>
+            @endif
+
+            @if(Auth::check() && Auth::user()->terminal === 'north')
+            <a href="{{ route('north-spaces.index') }}" class="sidebar-link {{ request()->routeIs('north-spaces.*') ? 'active' : '' }}">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>North Terminal Spaces</span>
+            </a>
+            @endif
+
+            <a href="{{ route('approval') }}" class="sidebar-link {{ request()->routeIs('approval') ? 'active' : '' }}">
+                <i class="fas fa-check-circle"></i>
+                <span>Operator Approvals</span>
             </a>
 
             <form action="{{ route('logout') }}" method="POST">

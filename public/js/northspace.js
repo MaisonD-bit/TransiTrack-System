@@ -15,10 +15,10 @@ const spaceMapping = {}; // Map to store element references
 document.addEventListener('DOMContentLoaded', () => {
     const tooltip = document.getElementById('tooltip');
 
-    // Step 1: Get all green bays (.cls-9)
-    const bays = Array.from(document.querySelectorAll('.cls-9'));
+    // Step 1: Get all green bays (rects with fill="#35d335" or "#0CBB00" for North Terminal)
+    const bays = Array.from(document.querySelectorAll('rect[fill="#35d335"], rect[fill="#0CBB00"]'));
     if (!bays.length) {
-        console.error('❌ No SVG elements found with class .cls-9');
+        console.error('❌ No SVG parking bay elements found');
         return;
     }
 
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log(`✓ Clustering: LEFT=${leftBays.length}, TOP=${topBays.length}, RIGHT=${rightBays.length}`);
 
     // Step 5: Fetch space data
-    fetch('/api/terminal/spaces')
+    fetch('/api/north-terminal/spaces')
         .then(res => res.json())
         .then(spacesData => {
             const spaceMap = new Map();
@@ -273,7 +273,7 @@ function updateTooltip(spaceElement) {
 
 function startTooltipCountdown(spaceId, timeEl) {
     // Fetch current space data to get expiration time
-    fetch('/api/terminal/spaces')
+    fetch('/api/north-terminal/spaces')
         .then(res => res.json())
         .then(spacesData => {
             const space = spacesData.find(s => s.space_id === spaceId);
@@ -338,7 +338,7 @@ function completeSpaceFromTooltip(e) {
 
     // Show modal for notes
     showReasonModal('Complete Space', 'Complete', function(notes) {
-        fetch('/api/terminal/release', {
+        fetch('/api/north-terminal/release', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -376,7 +376,8 @@ function completeSpaceFromTooltip(e) {
 document.addEventListener('click', (e) => {
     if (tooltipSticky) {
         const tooltip = document.getElementById('tooltip');
-        if (!tooltip.contains(e.target) && !e.target.closest('.cls-9')) {
+        // Check if click is outside tooltip and not on a parking bay rect
+        if (!tooltip.contains(e.target) && !e.target.closest('rect[data-space-id]')) {
             closeTooltip();
         }
     }
@@ -429,7 +430,7 @@ function getTooltipPosition(spaceId, element) {
 }
 
 function loadSpacesFromDatabase() {
-    fetch('/api/terminal/drivers')
+    fetch('/api/north-terminal/drivers')
         .then(response => response.json())
         .catch(error => console.log('Space loading - will load from history'));
 }
@@ -439,7 +440,7 @@ function fillCompanyOperator() {
     // Driver selected, now populate operator dropdown and fetch driver's routes
     if (driverId) {
         // Fetch operators
-        fetch(`/api/terminal/drivers`)
+        fetch(`/api/north-terminal/drivers`)
             .then(response => response.json())
             .then(data => {
                 const operatorSelect = document.getElementById('panelOperator');
@@ -457,7 +458,7 @@ function fillCompanyOperator() {
             .catch(error => console.error('Error fetching operators:', error));
 
         // Fetch driver's assigned routes
-        fetch(`/api/terminal/driver-routes/${driverId}`)
+        fetch(`/api/north-terminal/driver-routes/${driverId}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success && data.routes.length > 0) {
@@ -675,7 +676,7 @@ function markSpaceComplete() {
     if (!spaceId) return;
 
     if (confirm('Mark this space as complete and available?')) {
-        fetch('/api/terminal/release', {
+        fetch('/api/north-terminal/release', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -720,7 +721,7 @@ function saveSpaceOccupancy() {
             return;
         }
 
-        fetch('/api/terminal/add-time', {
+        fetch('/api/north-terminal/add-time', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -763,7 +764,7 @@ function saveSpaceOccupancy() {
             return;
         }
 
-        fetch('/api/terminal/update-space', {
+        fetch('/api/north-terminal/update-space', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -823,7 +824,7 @@ function saveSpaceOccupancy() {
         console.log('Sending occupy request:', occupyPayload);
         console.log('Space ID:', spaceId, 'Driver ID:', driverId, 'Duration:', mins);
 
-        fetch('/api/terminal/occupy', {
+        fetch('/api/north-terminal/occupy', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -870,7 +871,7 @@ function releaseSpace() {
     const spaceId = currentSpace.getAttribute('data-space-id');
     if (!spaceId) return;
 
-    fetch('/api/terminal/release', {
+    fetch('/api/north-terminal/release', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -905,7 +906,7 @@ function cancelSpaceOccupancy(e) {
 
     // Show modal for cancellation reason
     showReasonModal('Cancel Occupancy', 'Cancel', function(reason) {
-        fetch('/api/terminal/cancel', {
+        fetch('/api/north-terminal/cancel', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1000,12 +1001,17 @@ function loadHistoryFromDatabase(page = 1) {
     if (routeFilter) params.append('route_name', routeFilter);
     params.append('page', page);
 
-    fetch(`/api/terminal/history-all?${params.toString()}`)
+    fetch(`/api/north-terminal/history-all?${params.toString()}`)
         .then(response => response.json())
         .then(data => {
-            currentHistoryPage = data.current_page; // Track current page
-            updateHistoryTable(data.data || []);
-            updateHistoryPagination(data);
+            if (data.success && data.data) {
+                const paginator = data.data;
+                currentHistoryPage = paginator.current_page;
+                updateHistoryTable(paginator.data || []);
+                updateHistoryPagination(paginator);
+            } else {
+                console.error('Invalid API response:', data);
+            }
         })
         .catch(error => console.error('Error loading history:', error));
 }
@@ -1065,9 +1071,11 @@ function updateHistoryTable(records = []) {
         
         row.innerHTML = `
             <td>${record.space_id}</td>
-            <td>${record.route_name || 'N/A'}</td>
-            <td>${record.driver_name || 'N/A'}</td>
             <td><span class="badge" style="background-color: ${actionBadgeColor};">${record.action.toUpperCase()}</span></td>
+            <td>${record.driver_name || 'N/A'}</td>
+            <td>${record.company_name || 'N/A'}</td>
+            <td>${record.route_name || 'N/A'}</td>
+            <td>${record.duration_minutes || 'N/A'}</td>
             <td>${new Date(record.time_occupied).toLocaleString()}</td>
             <td>${timeReleasedDisplay}</td>
             <td>${actionButtons}</td>
@@ -1087,7 +1095,7 @@ function completeOccupancy(spaceId, recordId, buttonEl) {
     }
 
     showReasonModal('Complete Space', 'Complete', function(notes) {
-        fetch('/api/terminal/release', {
+        fetch('/api/north-terminal/release', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1136,7 +1144,7 @@ function cancelOccupancyFromHistory(spaceId, recordId, buttonEl) {
     }
 
     showReasonModal('Cancel Occupancy', 'Cancel', function(reason) {
-        fetch('/api/terminal/cancel', {
+        fetch('/api/north-terminal/cancel', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1177,9 +1185,11 @@ function cancelOccupancyFromHistory(spaceId, recordId, buttonEl) {
 
 function showHistoryDetail(recordId) {
     // Fetch the specific record with all details
-    fetch(`/api/terminal/history-detail/${recordId}`)
+    fetch(`/api/north-terminal/history-detail/${recordId}`)
         .then(response => response.json())
-        .then(record => {
+        .then(data => {
+            // Handle wrapped API response
+            const record = data.success && data.data ? data.data : data;
             const timeOccupied = record.time_occupied ? new Date(record.time_occupied).toLocaleString() : 'N/A';
             const timeReleased = record.time_released ? new Date(record.time_released).toLocaleString() : 'Ongoing';
             const durationMins = record.duration_minutes ? `${record.duration_minutes} minutes` : 'N/A';
@@ -1304,14 +1314,17 @@ function initializeDateFilter() {
 }
 
 function populateDriverFilter() {
-    fetch('/api/terminal/history-all')
+    fetch('/api/north-terminal/history-all')
         .then(response => response.json())
         .then(data => {
             const driverFilter = document.getElementById('driverFilter');
-            if (!driverFilter || !data.data) return;
+            if (!driverFilter || !data || !data.data) return;
 
+            const paginator = data.data;
+            const records = paginator.data || [];
             const drivers = new Map();
-            data.data.forEach(record => {
+            
+            records.forEach(record => {
                 if (record.driver_name && record.driver_id) {
                     drivers.set(record.driver_id, record.driver_name);
                 }
@@ -1329,7 +1342,7 @@ function populateDriverFilter() {
 }
 
 function populateRouteFilter() {
-    fetch('/api/terminal/routes')
+    fetch('/api/north-terminal/routes')
         .then(response => response.json())
         .then(routes => {
             const routeFilter = document.getElementById('routeFilter');
@@ -1347,7 +1360,7 @@ function populateRouteFilter() {
 }
 
 function checkAndReleaseExpiredSpaces() {
-    fetch('/api/terminal/check-expired') 
+    fetch('/api/north-terminal/check-expired') 
         .then(res => res.json())
         .then(data => {
             if (data.released_count > 0) {
@@ -1395,5 +1408,5 @@ function downloadHistoryData() {
     params.append('export', 'csv'); // Request CSV format
 
     // Redirect to the download URL
-    window.location.href = `/api/terminal/history-all?${params.toString()}`;
+    window.location.href = `/api/north-terminal/history-all?${params.toString()}`;
 }

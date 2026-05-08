@@ -20,6 +20,7 @@ return new class extends Migration
             $table->enum('status', ['unread','read'])
                   ->default('unread');
             $table->timestamps();
+            $table->enum('recipient_type', ['operators', 'managers', 'all'])->default('all')->after('recipient_id');
             $table->foreign('sender_id')->references('id')->on('users')->onDelete('cascade');
             $table->foreign('recipient_id')->references('id')->on('users')->onDelete('cascade');
         });

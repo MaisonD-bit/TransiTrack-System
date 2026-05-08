@@ -30,7 +30,7 @@ class UserController extends Controller
     {
         $valid = $request->validate([
             'email' => 'required|email|max:255',
-            'password' => 'required|string|min:6',
+            'password' => 'required|string|min:8',
         ]);
 
         if (Auth::attempt(['email' => $request->email, 'password' => $request->password])) {

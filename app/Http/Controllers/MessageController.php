@@ -12,18 +12,11 @@ class MessageController extends Controller
 {
     public function index()
     {
-        $messages = Message::where(function ($q) {
-            $q->where('recipient_id', Auth::id())
-                ->orWhere('sender_id', Auth::id())
-                ->orWhereNull('recipient_id');
-        })
+        $messages = Message::whereNull('recipient_id')
             ->latest()
             ->get();
 
-        // Get all users except the current one
-        $users = User::where('id', '!=', Auth::id())->get();
-
-        return view('operations.message', compact('messages', 'users'));
+        return view('operations.message', compact('messages'));
     }
 
     public function store(Request $request)
@@ -31,33 +24,34 @@ class MessageController extends Controller
         $validated = $request->validate([
             'subject' => 'required|string|max:255',
             'body' => 'required|string',
-            'recipient_id' => 'nullable|exists:users,id',
+            'recipient_type' => 'required|in:operators,managers,all',
         ]);
 
-        // Create the message
+        // Create the announcement
         $message = Message::create([
             'sender_id'    => Auth::id(),
-            'recipient_id' => $validated['recipient_id'] ?? null,
+            'recipient_id' => null,
             'subject'      => $validated['subject'],
             'body'         => $validated['body'],
             'status'       => 'unread',
+            'recipient_type' => $validated['recipient_type'],
         ]);
 
-        // Send to all operators (broadcast)
-        $operators = User::where('role', 'operator')->get();
-        foreach ($operators as $operator) {
-            $operator->notify(new NewUserMessage($message));
+        // Send to specified recipients (announcement broadcast)
+        $recipients = [];
+        if ($validated['recipient_type'] === 'operators') {
+            $recipients = User::where('role', 'operator')->get();
+        } elseif ($validated['recipient_type'] === 'managers') {
+            $recipients = User::where('role', 'manager')->get();
+        } else { // 'all'
+            $recipients = User::whereIn('role', ['operator', 'manager'])->get();
         }
 
-        // Send to a specific recipient (if provided)
-        if (!empty($validated['recipient_id'])) {
-            $recipient = User::find($validated['recipient_id']);
-            if ($recipient) {
-                $recipient->notify(new NewUserMessage($message));
-            }
+        foreach ($recipients as $recipient) {
+            $recipient->notify(new NewUserMessage($message));
         }
 
-        return redirect()->route('messages.index')->with('success', 'Message sent successfully.');
+        return redirect()->route('messages.index')->with('success', 'Announcement sent successfully.');
     }
 
 
@@ -65,17 +59,29 @@ class MessageController extends Controller
     {
         $message = Message::findOrFail($id);
 
-        // Restrict access — must be sender, recipient, or broadcast (recipient_id null)
-        if (
-            $message->sender_id !== Auth::id() &&
-            $message->recipient_id !== Auth::id() &&
-            !($message->recipient_id === null && Auth::user()->role === 'operator')
-        ) {
-            abort(403, 'You are not authorized to view this message.');
+        // Check if user is sender
+        if ($message->sender_id === Auth::id()) {
+            // Sender can always view
+        } else {
+            // Check if user role matches recipient_type
+            $userRole = Auth::user()->role;
+            $canView = false;
+
+            if ($message->recipient_type === 'operators' && $userRole === 'operator') {
+                $canView = true;
+            } elseif ($message->recipient_type === 'managers' && $userRole === 'manager') {
+                $canView = true;
+            } elseif ($message->recipient_type === 'all' && in_array($userRole, ['operator', 'manager'])) {
+                $canView = true;
+            }
+
+            if (!$canView) {
+                abort(403, 'You are not authorized to view this announcement.');
+            }
         }
 
-        // Mark as read if recipient is the current user
-        if ($message->status === 'unread' && $message->recipient_id === Auth::id()) {
+        // Mark as read if it's an announcement
+        if ($message->status === 'unread' && $message->recipient_id === null) {
             $message->update(['status' => 'read']);
         }
 
