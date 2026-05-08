@@ -40,6 +40,8 @@ interface Schedule {
   };
   created_at: string;
   updated_at: string;
+  /** UI-only: marks a rest-period block */
+  is_rest?: boolean;
 }
 
 interface Summary {
@@ -63,6 +65,7 @@ export class SchedulePage implements OnInit, OnDestroy {
   upcomingSchedules: Schedule[] = [];
   pastSchedules: Schedule[] = [];
   completedSchedules: Schedule[] = [];
+  todayScheduleItems: Schedule[] = [];
   isLoading: boolean = false;
   error: string = '';
   driverId: string = '';
@@ -148,6 +151,8 @@ export class SchedulePage implements OnInit, OnDestroy {
             this.todaySchedules = response.schedules.today || [];
             this.upcomingSchedules = response.schedules.upcoming || [];
             this.pastSchedules = response.schedules.past || [];
+
+            this.todayScheduleItems = this.buildTodayScheduleItems(this.todaySchedules);
             
             // Also get completed schedules
             this.completedSchedules = this.schedules.filter(s => s.status === 'completed');
@@ -175,6 +180,67 @@ export class SchedulePage implements OnInit, OnDestroy {
       this.isLoading = false;
       await loading.dismiss();
     }
+  }
+
+  private buildTodayScheduleItems(today: Schedule[]): Schedule[] {
+    const items: Schedule[] = Array.isArray(today) ? [...today] : [];
+    if (items.length === 0) {
+      return [];
+    }
+
+    const baseDate = (items[0].date || '').toString().split('T')[0] || new Date().toISOString().split('T')[0];
+
+    const toHm = (raw: string | undefined): string | null => {
+      if (!raw) return null;
+      const s = String(raw);
+      const t = s.includes('T') ? (s.split('T')[1] || '') : s;
+      const m = t.replace(/Z$/i, '').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (!m) return null;
+      return `${m[1].padStart(2, '0')}:${m[2]}`;
+    };
+
+    const scheduleWindow = (s: Schedule): { start: Date; end: Date } | null => {
+      const day = (s.date || '').toString().split('T')[0] || baseDate;
+      const st = toHm(s.start_time);
+      const en = toHm(s.end_time);
+      if (!st || !en) return null;
+      const start = new Date(`${day}T${st}:00`);
+      const end = new Date(`${day}T${en}:00`);
+      if (s.ends_next_day) {
+        end.setDate(end.getDate() + 1);
+      }
+      return { start, end };
+    };
+
+    const restStart = new Date(`${baseDate}T12:00:00`);
+    const restEnd = new Date(`${baseDate}T13:00:00`);
+
+    const overlapsRest = items.some((s) => {
+      const w = scheduleWindow(s);
+      if (!w) return false;
+      return w.start.getTime() < restEnd.getTime() && w.end.getTime() > restStart.getTime();
+    });
+
+    if (!overlapsRest) {
+      const rest: Schedule = {
+        id: -1,
+        route_id: 0,
+        driver_id: 0,
+        bus_id: 0,
+        date: baseDate,
+        start_time: '12:00:00',
+        end_time: '13:00:00',
+        status: 'rest',
+        created_at: '',
+        updated_at: '',
+        is_rest: true,
+      } as any;
+      items.push(rest);
+    }
+
+    const toKey = (s: Schedule) => (s.start_time || '').toString();
+    items.sort((a, b) => toKey(a).localeCompare(toKey(b)));
+    return items;
   }
 
   private updateSummary() {

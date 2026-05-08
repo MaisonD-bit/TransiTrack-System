@@ -313,7 +313,11 @@ export class MapService {
       navigator.geolocation.getCurrentPosition(
         (position) => this.handlePositionUpdate(position),
         (error) => this.handlePositionError(error),
-        { enableHighAccuracy: highAccuracy }
+        {
+          enableHighAccuracy: highAccuracy,
+          maximumAge: 0,
+          timeout: 20000,
+        }
       );
       
       // Start watching position
@@ -322,8 +326,8 @@ export class MapService {
         (error) => this.handlePositionError(error),
         { 
           enableHighAccuracy: highAccuracy,
-          maximumAge: 10000,      // Accept positions up to 10 seconds old
-          timeout: 10000          // Wait up to 10 seconds for a position
+          maximumAge: 0,          // Do not accept cached positions (important for mock GPS testing)
+          timeout: 20000          // Wait up to 20 seconds for a position
         }
       );
       

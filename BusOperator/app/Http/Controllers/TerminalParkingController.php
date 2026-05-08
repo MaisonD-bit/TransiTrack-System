@@ -32,6 +32,18 @@ class TerminalParkingController extends Controller
         $availableAt = Carbon::parse($space->available_at);
         $remainingSeconds = max(0, $availableAt->getTimestamp() - now()->getTimestamp());
 
+        // If time is already up, treat this as no active bay assignment on the driver side.
+        // TerminalManager auto-release may happen on its own poll/cron; this prevents the driver UI
+        // from showing a stuck "occupied" bay at 00:00.
+        if ($remainingSeconds <= 0) {
+            return response()->json([
+                'success' => true,
+                'occupied' => false,
+                'expired' => true,
+                'space_id' => $space->space_id,
+            ]);
+        }
+
         $pending = $space->pending_extension_minutes !== null
             ? (int) $space->pending_extension_minutes
             : null;

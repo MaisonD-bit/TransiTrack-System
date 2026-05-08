@@ -11,6 +11,7 @@ use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\RouteApprovalWebController;
+use App\Http\Controllers\PasswordRecoveryController;
 
 // Authentication routes (no auth middleware)
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login')->middleware('guest');
@@ -19,9 +20,34 @@ Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('regi
 Route::post('/register', [AuthController::class, 'register'])->name('register.post')->middleware('guest');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout')->middleware('auth');
 
+// Password recovery (Bus Operator website)
+Route::get('/forgot-password', [PasswordRecoveryController::class, 'showForgot'])->name('password.forgot')->middleware('guest');
+Route::post('/forgot-password', [PasswordRecoveryController::class, 'submitForgotWeb'])->name('password.forgot.submit')->middleware('guest');
+Route::get('/reset-password', [PasswordRecoveryController::class, 'showReset'])->name('password.reset')->middleware('guest');
+Route::post('/reset-password', [PasswordRecoveryController::class, 'submitResetWeb'])->name('password.reset.submit')->middleware('guest');
+
 // Redirect root to login
 Route::get('/', function () {
     return redirect()->route('login');
+});
+
+// Simulated checkout page (development / testing).
+// The commuter app opens this URL in a browser window.
+Route::get('/simulated-checkout', function (\Illuminate\Http\Request $request) {
+    $amount = htmlspecialchars((string) $request->query('amount', ''), ENT_QUOTES, 'UTF-8');
+    $ref = htmlspecialchars((string) $request->query('ref', ''), ENT_QUOTES, 'UTF-8');
+    $ticket = htmlspecialchars((string) $request->query('ticket', ''), ENT_QUOTES, 'UTF-8');
+
+    return response()->make(
+        "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>".
+        "<title>Simulated Checkout</title></head><body style='font-family:system-ui;padding:24px'>".
+        "<h1>Simulated Checkout</h1>".
+        "<p><strong>Amount:</strong> {$amount}</p>".
+        "<p><strong>Ref:</strong> {$ref}</p>".
+        "<p><strong>Ticket:</strong> {$ticket}</p>".
+        "<p>This is a test page. Return to the app and tap <strong>I paid</strong> to confirm.</p>".
+        "</body></html>"
+    );
 });
 
 // Web Panel Routes (REQUIRE AUTH MIDDLEWARE - for web admin)
@@ -40,6 +66,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/terminal', [TerminalController::class, 'index'])->name('terminal.panel');
     Route::get('/panel/trips', [TripController::class, 'index'])->name('trips.panel');
     Route::get('/panel/trips/poll', [TripController::class, 'poll'])->name('trips.panel.poll');
+    Route::get('/panel/live-tracking', [PanelController::class, 'liveTracking'])->name('live-tracking.panel');
     Route::get('/panel/route-requests', [RouteApprovalWebController::class, 'index'])->name('route-requests.panel');
     Route::post('/panel/route-requests', [RouteApprovalWebController::class, 'store'])->name('route-requests.store');
     Route::delete('/panel/route-requests/{routeApprovalRequest}', [RouteApprovalWebController::class, 'destroy'])->name('route-requests.destroy');

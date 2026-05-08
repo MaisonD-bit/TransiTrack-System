@@ -11,6 +11,9 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\CommuterRoutesController;
 use App\Http\Controllers\TerminalParkingController;
+use App\Http\Controllers\DriverLocationController;
+use App\Http\Controllers\TicketScanController;
+use App\Http\Controllers\PasswordRecoveryController;
 
 Route::prefix('v1')->group(function () {
 
@@ -40,6 +43,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/{driverId}/schedules', [ScheduleController::class, 'getDriverSchedules']);
         
         Route::get('/{id}', [DriverController::class, 'show']);
+
+        // Driver live tracking (phone GPS → backend)
+        Route::post('/{driverId}/location', [DriverLocationController::class, 'store']);
+        // Driver reached a stop/destination: mark matching tickets as alighted.
+        Route::post('/{driverId}/arrived', [CommuterRoutesController::class, 'driverArrived']);
 
         Route::post('/register', [DriverController::class, 'registerFromApp']);
         
@@ -93,6 +101,10 @@ Route::prefix('v1')->group(function () {
         Route::patch('/{id}/read', [NotificationsController::class, 'markNotificationAsRead']);
     });
 
+    // Operator-only live tracking feed (web auth)
+    Route::get('/live/driver-locations', [DriverLocationController::class, 'latestForOperator'])
+        ->middleware(['web', 'auth']);
+
     Route::get('drivers', [DriverController::class, 'index']);
 
     // Commuter: approved routes with terminal bus stops + fare preview (no auth)
@@ -103,6 +115,18 @@ Route::prefix('v1')->group(function () {
     Route::post('commuter/fare-calculate', [CommuterRoutesController::class, 'fareCalculate']);
     Route::post('commuter/book-ticket', [CommuterRoutesController::class, 'bookTicket']);
     Route::post('commuter/alight', [CommuterRoutesController::class, 'alight']);
+
+    // Payment endpoints (Commuters app uses /api/v1/*)
+    Route::post('payments/maya/create', [PaymentController::class, 'createMayaCheckout']);
+    Route::get('payments/maya/verify/{id}', [PaymentController::class, 'verifyMayaPayment']);
+    Route::post('payments/maya/webhook', [PaymentController::class, 'handleWebhook']);
+
+    // Driver scan & validate boarding (signed QR token)
+    Route::post('tickets/scan-validate', [TicketScanController::class, 'scanValidate']);
+
+    // Password recovery (email-based)
+    Route::post('password/forgot', [PasswordRecoveryController::class, 'forgot']);
+    Route::post('password/reset', [PasswordRecoveryController::class, 'reset']);
 });
 
 // Simple simulated checkout page (development only)

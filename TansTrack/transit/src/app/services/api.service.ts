@@ -125,10 +125,37 @@ export class ApiService {
   // Driver profile methods (these call your existing DriverController methods)
   getDriverProfile(driverId: number): Observable<any> {
     console.log(`API: Getting driver profile ${driverId}`);
-    return this.http.get(`${this.apiUrl}/drivers/${driverId}`, {
-      headers: this.getHeaders()
-    }).pipe(
-      tap(response => console.log('Driver profile response:', response)),
+    // Prefer versioned API when available; fall back to legacy /drivers/{id}.
+    const v1Url = `${this.apiUrl}/v1/drivers/${driverId}`;
+    const legacyUrl = `${this.apiUrl}/drivers/${driverId}`;
+
+    return this.http.get(v1Url, { headers: this.getHeaders() }).pipe(
+      tap(response => console.log('Driver profile response (v1):', response)),
+      catchError(() => {
+        return this.http.get(legacyUrl, { headers: this.getHeaders() }).pipe(
+          tap(response => console.log('Driver profile response (legacy):', response)),
+          catchError(this.handleError)
+        );
+      })
+    );
+  }
+
+  /**
+   * Driver live tracking: send GPS ping to backend.
+   * BusOperator route: POST /api/v1/drivers/{driverId}/location
+   */
+  postDriverLocation(driverId: number, payload: {
+    latitude: number;
+    longitude: number;
+    accuracy_m?: number;
+    speed_mps?: number;
+    heading_deg?: number;
+    schedule_id?: number;
+    recorded_at?: string;
+  }): Observable<any> {
+    const url = `${this.apiUrl}/v1/drivers/${driverId}/location`;
+    return this.http.post(url, payload, { headers: this.getHeaders() }).pipe(
+      tap(response => console.log('Driver location ping response:', response)),
       catchError(this.handleError)
     );
   }
@@ -241,6 +268,30 @@ export class ApiService {
         tap(response => console.log('Login API Response:', response)),
         catchError(this.handleError)
       );
+  }
+
+  requestPasswordReset(role: 'driver' | 'commuter' | 'operator', email: string): Observable<any> {
+    const endpoint = 'v1/password/forgot';
+    const url = `${this.apiUrl}/${endpoint}`;
+    return this.http.post(url, { role, email }, { headers: this.getHeaders() }).pipe(
+      tap(response => console.log('Password reset request response:', response)),
+      catchError(this.handleError)
+    );
+  }
+
+  resetPassword(payload: {
+    role: 'driver' | 'commuter' | 'operator';
+    email: string;
+    token: string;
+    password: string;
+    password_confirmation: string;
+  }): Observable<any> {
+    const endpoint = 'v1/password/reset';
+    const url = `${this.apiUrl}/${endpoint}`;
+    return this.http.post(url, payload, { headers: this.getHeaders() }).pipe(
+      tap(response => console.log('Password reset response:', response)),
+      catchError(this.handleError)
+    );
   }
 
   reportIssue(driverId: number, issueType: string, message: string): Observable<any> {

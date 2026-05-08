@@ -93,8 +93,40 @@ export class LoginPage implements OnInit {
   async forgotPassword() {
     const alert = await this.alertController.create({
       header: 'Forgot Password',
-      message: 'Contact support@transitrack.com for password reset.',
-      buttons: ['OK'],
+      message: 'Enter your email address to reset your password.',
+      inputs: [
+        {
+          name: 'email',
+          type: 'email',
+          placeholder: 'Email',
+        },
+      ],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Send reset email',
+          handler: async (data) => {
+            const email = String(data?.email || '').trim();
+            if (!email) {
+              this.errorMessage = 'Please enter your email address';
+              return false;
+            }
+            try {
+              await this.authService.requestPasswordReset(email);
+              const ok = await this.alertController.create({
+                header: 'Email sent',
+                message: 'If your email exists, a password reset link was sent to your inbox.',
+                buttons: ['OK'],
+              });
+              await ok.present();
+              return true;
+            } catch (error: any) {
+              this.errorMessage = error?.message || 'Failed to send reset email';
+              return false;
+            }
+          },
+        },
+      ],
     });
     await alert.present();
   }

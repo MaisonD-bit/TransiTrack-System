@@ -8,6 +8,7 @@ import { environment } from '../../environments/environment';
 })
 export class AuthService {  
   private apiUrl = `${environment.apiUrl}/commuters`;  // ✅ FIXED: /commuters not /auth
+  private baseApiUrl = environment.apiUrl;
   private currentUser: any = null;
 
   constructor(private http: HttpClient) {
@@ -169,6 +170,23 @@ export class AuthService {
       localStorage.removeItem('currentUser');
       localStorage.removeItem('authToken');
     }
+  }
+
+  async requestPasswordReset(email: string): Promise<void> {
+    await firstValueFrom(
+      this.http.post(`${this.baseApiUrl}/v1/password/forgot`, { role: 'commuter', email })
+    );
+  }
+
+  async resetPassword(payload: {
+    email: string;
+    token: string;
+    password: string;
+    password_confirmation: string;
+  }): Promise<void> {
+    await firstValueFrom(
+      this.http.post(`${this.baseApiUrl}/v1/password/reset`, { role: 'commuter', ...payload })
+    );
   }
 
   isLoggedIn(): boolean {

@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\PasswordRecoveryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\BusSchedulesController;
 use App\Http\Controllers\MessageController;
@@ -17,6 +18,12 @@ Route::get('login', [UserController::class, 'login'])->name('login');
 Route::post('login', [UserController::class, 'authenticate'])->name('authenticate');
 Route::get('register', [UserController::class, 'register'])->name('register');
 Route::post('register', [UserController::class, 'store'])->name('store');
+
+// Password recovery (Terminal Manager)
+Route::get('forgot-password', [PasswordRecoveryController::class, 'showForgot'])->name('password.forgot');
+Route::post('forgot-password', [PasswordRecoveryController::class, 'sendForgot'])->name('password.forgot.send');
+Route::get('reset-password', [PasswordRecoveryController::class, 'showReset'])->name('password.reset');
+Route::post('reset-password', [PasswordRecoveryController::class, 'submitReset'])->name('password.reset.submit');
 
 
 Route::middleware(['auth'])->group(function () {

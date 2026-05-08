@@ -262,6 +262,8 @@
             </button>
 
             <div class="links mt-3">
+                <a href="javascript:void(0)" onclick="openForgotPasswordModal()">Forgot password?</a>
+                <span class="mx-2">•</span>
                 Don't have an account? <a href="{{ route('register') }}">Register here</a>
             </div>
         </form>
@@ -271,6 +273,66 @@
         </div>
     </div>
 
+    <!-- Forgot Password Modal -->
+    <div class="modal fade" id="forgotPasswordModal" tabindex="-1" aria-labelledby="forgotPasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background-color: var(--primary-medium); border: 1px solid var(--input-border);">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title" id="forgotPasswordModalLabel" style="color: var(--text-light);">
+                        <i class="fas fa-key me-2"></i>Forgot Password
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <p class="small" style="color: #adb5bd;">Enter your email. If it exists, we’ll send a reset link.</p>
+                    <div class="mb-3">
+                        <label class="form-label" style="color: var(--text-light);">Email</label>
+                        <input type="email" class="form-control" id="forgotEmail" placeholder="Enter your email">
+                    </div>
+                    <div class="alert alert-success d-none" id="forgotSuccess">If your email exists, a reset link was sent.</div>
+                    <div class="alert alert-danger d-none" id="forgotError">Failed to send reset email.</div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-primary" onclick="submitForgotPassword()">Send reset email</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function openForgotPasswordModal() {
+            const modal = new bootstrap.Modal(document.getElementById('forgotPasswordModal'));
+            document.getElementById('forgotEmail').value = '';
+            document.getElementById('forgotSuccess').classList.add('d-none');
+            document.getElementById('forgotError').classList.add('d-none');
+            modal.show();
+        }
+
+        async function submitForgotPassword() {
+            const email = (document.getElementById('forgotEmail').value || '').trim();
+            if (!email) return;
+
+            const successEl = document.getElementById('forgotSuccess');
+            const errorEl = document.getElementById('forgotError');
+            successEl.classList.add('d-none');
+            errorEl.classList.add('d-none');
+
+            try {
+                const res = await fetch('/api/v1/password/forgot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ role: 'operator', email })
+                });
+
+                if (!res.ok) throw new Error('Request failed');
+                successEl.classList.remove('d-none');
+            } catch (e) {
+                errorEl.classList.remove('d-none');
+            }
+        }
+    </script>
 </body>
 </html>

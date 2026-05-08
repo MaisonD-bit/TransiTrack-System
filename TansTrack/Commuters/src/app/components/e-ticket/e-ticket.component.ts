@@ -20,6 +20,10 @@ export class ETicketComponent implements OnChanges {
   @Input() tripLabel: string | null = null;
   @Input() currentTime: string = '';
   @Input() paymentMethod: string = 'cash';
+  /** Signed server token to embed in QR (preferred). */
+  @Input() qrToken: string | null = null;
+  /** unpaid|pending|paid|failed */
+  @Input() paymentStatus: string = 'unpaid';
   @Input() visible: boolean = false;
   @Input() discountPercent: number = 0;
   @Input() discountAmount: number = 0;
@@ -34,6 +38,10 @@ export class ETicketComponent implements OnChanges {
 
   get isPaidOnline(): boolean {
     return this.paymentMethod !== 'cash';
+  }
+
+  get isQrAllowed(): boolean {
+    return this.isPaidOnline && (this.paymentStatus || '').toLowerCase() === 'paid' && !!this.qrToken;
   }
 
   get routeDisplayName(): string {
@@ -65,25 +73,12 @@ export class ETicketComponent implements OnChanges {
   }
 
   private async regenerateQr(): Promise<void> {
-    if (!this.visible || !this.selectedRoute || !this.isPaidOnline || !this.ticketID) {
+    if (!this.visible || !this.selectedRoute || !this.ticketID || !this.isQrAllowed) {
       this.qrDataUrl = null;
       return;
     }
 
-    const payload = {
-      v: 1,
-      ticket_id: this.ticketID,
-      route_id: this.routeId != null ? String(this.routeId) : '',
-      route_name: this.routeDisplayName,
-      trip: this.tripLabel || this.routeDisplayName,
-      operator: this.operatorCompany || '',
-      bus: this.busLabel || '',
-      fare: this.fareNum,
-      discount_percent: this.discountPercent,
-      discount_amount: this.discountAmount,
-      passenger_type: this.passengerType || 'Regular',
-      payment: this.paymentMethod,
-    };
+    const payload = { token: this.qrToken };
 
     try {
       this.qrDataUrl = await QRCode.toDataURL(JSON.stringify(payload), {

@@ -69,6 +69,9 @@
           interface="popover"
           label="Board at"
           labelPlacement="stacked">
+          <ion-select-option [value]="-1">
+            {{ commuterTerminal === 'south' ? 'South terminal' : 'North terminal' }}
+          </ion-select-option>
           <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
             {{ s.name || ('Stop ' + (i + 1)) }}
           </ion-select-option>
@@ -79,13 +82,20 @@
           [(ngModel)]="toStopIndex"
           (ionChange)="onSegmentStopsChange()"
           interface="popover"
-          label="Alight at"
+          label="Arrive at"
           labelPlacement="stacked">
           <ion-select-option
             *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
             [value]="i"
-            [disabled]="i <= fromStopIndex">
-            {{ s.name || ('Stop ' + (i + 1)) }}
+            [disabled]="i <= effectiveFromStopIndex">
+            {{ (s.name || ('Stop ' + (i + 1))) + (s.eta_minutes_from_start != null ? (' · ETA +' + s.eta_minutes_from_start + 'm') : '') }}
+          </ion-select-option>
+          <!-- Destination option (separate from last stop: value is one past last index) -->
+          <ion-select-option
+            *ngIf="selectedRoute?.name && (selectedRoute?.stops?.length ?? 0) >= 2"
+            [value]="(selectedRoute?.stops?.length ?? 0)"
+            [disabled]="(selectedRoute?.stops?.length ?? 0) <= effectiveFromStopIndex">
+            {{ selectedRoute?.name ?? '' }}
           </ion-select-option>
         </ion-select>
       </ng-container>
@@ -112,35 +122,26 @@
         <p class="live-buses-hint" *ngIf="liveBuses.length === 0">
           No live trips right now. You can still purchase an e-ticket; when buses appear below, tap one to attach your trip.
         </p>
-        <p class="live-buses-tap-hint" *ngIf="liveBuses.length > 0">
-          <strong>Tap a bus</strong> to select it for your e-ticket. A green checkmark shows which one is selected.
-        </p>
-        <ion-list class="live-buses-list" lines="full" *ngIf="liveBuses.length > 0">
-          <ion-item
-            *ngFor="let b of liveBuses"
-            button
-            detail="false"
-            (click)="selectLiveBus(b)"
-            [class.live-bus-selected]="selectedScheduleId === b.schedule_id && !b.is_full"
-            [class.live-bus-full]="b.is_full">
-            <ion-label>
-              <h3 class="live-bus-title">
-                {{ b.bus_number || 'Bus' }}
-                <span class="live-bus-operator" *ngIf="b.operator_company"> · {{ b.operator_company }}</span>
-              </h3>
-              <p class="live-bus-meta">
-                {{ b.driver_name || 'Driver' }} · {{ b.aboard }}/{{ b.capacity }} aboard · {{ b.status }}
-              </p>
-            </ion-label>
-            <ion-badge *ngIf="b.is_full" color="danger" slot="end">Full</ion-badge>
-            <ion-icon
-              *ngIf="selectedScheduleId === b.schedule_id && !b.is_full"
-              name="checkmark-outline"
-              color="success"
-              slot="end">
-            </ion-icon>
-          </ion-item>
-        </ion-list>
+        <ng-container *ngIf="liveBuses.length > 0">
+          <ion-select
+            class="route-select ion-margin-top"
+            interface="popover"
+            label="Select active bus"
+            labelPlacement="stacked"
+            [(ngModel)]="selectedBusScheduleId"
+            (ionChange)="onBusDropdownChange($event.detail.value)">
+            <ion-select-option [value]="null">Show all active buses</ion-select-option>
+            <ion-select-option *ngFor="let b of liveBuses" [value]="b.schedule_id" [disabled]="b.is_full">
+              {{ b.bus_number || 'Bus' }}{{ b.operator_company ? (' · ' + b.operator_company) : '' }} · {{ b.aboard }}/{{ b.capacity }}{{ b.is_full ? ' · FULL' : '' }}
+            </ion-select-option>
+          </ion-select>
+          <p class="live-buses-tap-hint ion-margin-top">
+            Selecting a bus will show <strong>only that bus</strong> on the map.
+          </p>
+          <div class="ion-text-center ion-margin-top" *ngIf="getSelectedBusCapacityLabel() as cap">
+            <ion-badge color="primary">Capacity: {{ cap }}</ion-badge>
+          </div>
+        </ng-container>
       </div>
 
       <ion-button
@@ -197,7 +198,8 @@
           [endCoord]="selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
           [liveBusMarkers]="liveBusMapPins"
-          [disableSimulator]="liveBuses.length > 0">
+          [routeLineVariants]="routeLineVariants"
+          [disableSimulator]="true">
         </app-route-map>
       </div>
 
@@ -267,6 +269,8 @@
         [tripLabel]="ticketDestination"
         [currentTime]="currentTime"
         [paymentMethod]="paymentMethod"
+        [paymentStatus]="paymentStatus"
+        [qrToken]="qrToken"
         (close)="closeTicket()"
         (share)="shareTicket()">
       </app-e-ticket>

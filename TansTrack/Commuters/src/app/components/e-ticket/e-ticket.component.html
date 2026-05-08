@@ -18,7 +18,7 @@
               <p class="trip-line">{{ tripLabel }}</p>
             </div>
 
-            <div class="ticket-section qr-section" *ngIf="isPaidOnline">
+            <div class="ticket-section qr-section" *ngIf="isQrAllowed">
               <div class="section-label">Validation QR</div>
               <div class="qr-code-placeholder" *ngIf="qrDataUrl">
                 <img [src]="qrDataUrl" alt="Ticket QR Code" class="qr-image" />
@@ -30,6 +30,11 @@
             <div class="ticket-section cash-notice" *ngIf="!isPaidOnline">
               <ion-icon name="cash-outline"></ion-icon>
               <span>Cash fare — pay the conductor. No prepaid QR on this ticket.</span>
+            </div>
+
+            <div class="ticket-section cash-notice" *ngIf="isPaidOnline && !isQrAllowed">
+              <ion-icon name="time-outline"></ion-icon>
+              <span>Online payment pending — your QR will appear after payment is confirmed.</span>
             </div>
 
             <div class="ticket-section">
@@ -66,6 +71,10 @@
               <div class="detail-row">
                 <span class="detail-label">Bus</span>
                 <span class="detail-value">{{ busLabel || '—' }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Fare Amount</span>
+                <span class="detail-value">₱{{ fareNum | number:'1.2-2' }}</span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">Passenger type</span>

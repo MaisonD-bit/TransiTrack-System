@@ -9,7 +9,7 @@ export const environment = {
    * `http://192.168.x.x:8000/api/v1`. To hit the tunnel from a device, paste the current Forwarding URL:
    * `https://xxxx.ngrok-free.app/api/v1` (expect ngrok browser-warning quirks on OPTIONS unless using a paid/reserved domain).
    */
-  apiUrl: 'http://localhost:8000/api/v1',
+  apiUrl: 'https://5b6f-113-19-183-130.ngrok-free.app/api/v1',
   ocrApiKey: 'K87693276688957',
 
   messaging: {  

@@ -89,7 +89,31 @@
           </ion-label>
         </ion-item-divider>
 
-        <ion-card *ngFor="let schedule of todaySchedules" class="schedule-card" [class.pending]="schedule.status === 'scheduled'">
+        <ion-card *ngFor="let schedule of todayScheduleItems" class="schedule-card" [class.pending]="schedule.status === 'scheduled'">
+          <ng-container *ngIf="schedule.is_rest; else scheduleCard">
+            <ion-card-header>
+              <div class="schedule-header">
+                <div class="route-info">
+                  <ion-card-title>Rest Period</ion-card-title>
+                  <ion-card-subtitle>Daily break</ion-card-subtitle>
+                </div>
+                <ion-badge color="medium" class="status-badge">
+                  <ion-icon name="cafe-outline" class="status-icon"></ion-icon>
+                  Rest
+                </ion-badge>
+              </div>
+            </ion-card-header>
+            <ion-card-content>
+              <div class="schedule-details">
+                <div class="detail-item">
+                  <ion-icon name="time" color="primary"></ion-icon>
+                  <span>12:00 PM - 1:00 PM</span>
+                </div>
+              </div>
+            </ion-card-content>
+          </ng-container>
+
+          <ng-template #scheduleCard>
           <ion-card-header>
             <div class="schedule-header">
               <div class="route-info">
@@ -154,6 +178,7 @@
               </ion-button>
             </div>
           </ion-card-content>
+          </ng-template>
         </ion-card>
       </ion-item-group>
     </ion-list>

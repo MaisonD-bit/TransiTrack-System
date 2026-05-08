@@ -72,7 +72,17 @@ export interface LiveRoute {
   busPlateNumber?: string;
   startedAt?: string; // When driver started the trip
   /** Terminal-manager stops (approved route package) */
-  stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number }>;
+  stops?: Array<{
+    name?: string;
+    lng: number;
+    lat: number;
+    order?: number;
+    distance_km_from_start?: number;
+    /** Computed ETA (backend) */
+    eta_minutes_from_start?: number | null;
+    /** Computed ETA clock time (if schedule start exists) */
+    eta_time?: string | null;
+  }>;
   approval_request_id?: number;
   bus_type?: string;
 }
@@ -117,6 +127,10 @@ export class CommuterService {
   setTerminal(term: 'north' | 'south'): void {
     this.terminal = term;
     this.loadActiveRoutes();
+  }
+
+  getTerminal(): 'north' | 'south' {
+    return this.terminal as 'north' | 'south';
   }
 
   getBusType(): 'regular' | 'aircon' {
@@ -287,11 +301,26 @@ export class CommuterService {
       'ngrok-skip-browser-warning': 'true'
     });
 
-    const body = {
+    const userData = localStorage.getItem('currentUser');
+    let commuterId: number | undefined = undefined;
+    if (userData) {
+      try {
+        const parsed = JSON.parse(userData) as { id?: number; commuter_id?: number };
+        const id = parsed.id ?? parsed.commuter_id;
+        if (typeof id === 'number' && !Number.isNaN(id)) commuterId = id;
+      } catch {}
+    }
+
+    const body: any = {
       route_id: routeId,
-      passenger_type: passengerType,
       bus_type: this.busType,
     };
+    if (commuterId != null) {
+      body.commuter_id = commuterId;
+    } else {
+      // fallback (older accounts / dev)
+      body.passenger_type = passengerType;
+    }
 
     return this.http.post<any>(`${this.apiUrl}/commuter/fare-calculate`, body, { headers });
   }
@@ -323,12 +352,56 @@ export class CommuterService {
     fare: number;
     commuter_id?: number;
     payment_method?: string;
-  }): Observable<{ success: boolean; message?: string; data?: { id: number; public_ticket_id: string; schedule_id: number } }> {
+    alight_stop_index?: number;
+    alight_is_destination?: boolean;
+  }): Observable<{
+    success: boolean;
+    message?: string;
+    data?: {
+      id: number;
+      public_ticket_id: string;
+      schedule_id: number;
+      payment_method?: string;
+      payment_status?: string;
+      payment_ref?: string | null;
+    };
+  }> {
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
     });
     return this.http.post<any>(`${this.apiUrl}/commuter/book-ticket`, payload, { headers });
+  }
+
+  createPaymayaCheckout(publicTicketId: string): Observable<{
+    success: boolean;
+    error?: string;
+    data?: { ref: string; checkout_url: string };
+  }> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/payments/maya/create`, { public_ticket_id: publicTicketId }, { headers });
+  }
+
+  verifyPaymaya(ref: string): Observable<{
+    success: boolean;
+    message?: string;
+    data?: {
+      ref: string;
+      status: string;
+      ticket?: {
+        public_ticket_id: string;
+        payment_method: string;
+        payment_status: string;
+        paid_at?: string | null;
+        qr_payload?: string | null;
+      };
+    };
+  }> {
+    const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
+    return this.http.get<any>(`${this.apiUrl}/payments/maya/verify/${encodeURIComponent(ref)}`, { headers });
   }
 
   getLiveBuses(
@@ -354,14 +427,28 @@ export class CommuterService {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
     });
-    const body = {
+    const userData = localStorage.getItem('currentUser');
+    let commuterId: number | undefined = undefined;
+    if (userData) {
+      try {
+        const parsed = JSON.parse(userData) as { id?: number; commuter_id?: number };
+        const id = parsed.id ?? parsed.commuter_id;
+        if (typeof id === 'number' && !Number.isNaN(id)) commuterId = id;
+      } catch {}
+    }
+
+    const body: any = {
       route_id: payload.route_id,
       bus_type: this.busType,
       from_stop_index: payload.from_stop_index,
       to_stop_index: payload.to_stop_index,
       approval_request_id: payload.approval_request_id,
-      passenger_type: this.getPassengerType(),
     };
+    if (commuterId != null) {
+      body.commuter_id = commuterId;
+    } else {
+      body.passenger_type = this.getPassengerType();
+    }
     return this.http.post<any>(`${this.apiUrl}/commuter/fare-segment`, body, { headers });
   }
 

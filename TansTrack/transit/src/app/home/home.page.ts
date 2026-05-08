@@ -10,6 +10,8 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
+import { MapService } from '../services/map.service';
+import { Subscription } from 'rxjs';
 
 interface Schedule {
   id: number;
@@ -69,12 +71,20 @@ export class HomePage implements OnInit, ViewWillEnter {
   greeting: string = 'Good Morning';
   /** Bus seating capacity for the current schedule */
   expectedCapacity: number = 0;
+  private lastFullToastScheduleId: number | null = null;
   userName: string = 'Driver';
   currentSchedule: Schedule | null = null;
   nextSchedule: Schedule | null = null;
   recentNotifications: Notification[] = []; 
   unreadNotificationsCount: number = 0;
   private schedulePoll?: ReturnType<typeof setInterval>;
+  private liveTrackSub?: Subscription;
+  private liveTrackLastSentAt = 0;
+
+  driverContactNumber: string | null = null;
+  emergencyName: string | null = null;
+  emergencyRelation: string | null = null;
+  emergencyContact: string | null = null;
 
   /** Live terminal bay countdown when the driver is assigned a space from Terminal Manager */
   terminalParking: {
@@ -89,6 +99,7 @@ export class HomePage implements OnInit, ViewWillEnter {
   constructor(
     private authService: AuthService,
     private apiService: ApiService,
+    private mapService: MapService,
     private router: Router,
     private alertController: AlertController,
     private toastController: ToastController,
@@ -263,6 +274,60 @@ export class HomePage implements OnInit, ViewWillEnter {
     } else {
       console.warn('User profile not found in AuthService, using default name.');
     }
+
+    // Pull the full driver profile (includes emergency contact fields)
+    const driverId = this.authService.getDriverId();
+    const driverIdNum = driverId ? Number(driverId) : NaN;
+    if (!driverId || Number.isNaN(driverIdNum)) {
+      return;
+    }
+
+    this.apiService.getDriverProfile(driverIdNum).subscribe({
+      next: (profile: any) => {
+        // DriverController@show returns driver fields directly (not wrapped in {success:...})
+        this.driverContactNumber = profile?.contact_number ?? null;
+        this.emergencyName = profile?.emergency_name ?? null;
+        this.emergencyRelation = profile?.emergency_relation ?? null;
+        this.emergencyContact = profile?.emergency_contact ?? null;
+      },
+      error: (err) => {
+        console.warn('Failed to load driver profile:', err);
+      }
+    });
+  }
+
+  callEmergencyContact() {
+    const num = (this.emergencyContact || '').trim();
+    if (!num) {
+      this.presentToast('No emergency contact number found for your account.', 'warning');
+      return;
+    }
+    window.location.href = `tel:${encodeURIComponent(num)}`;
+  }
+
+  async showEmergencyContactDetails() {
+    const name = (this.emergencyName || '').trim();
+    const rel = (this.emergencyRelation || '').trim();
+    const num = (this.emergencyContact || '').trim();
+
+    if (!num) {
+      this.presentToast('No emergency contact number found for your account.', 'warning');
+      return;
+    }
+
+    const alert = await this.alertController.create({
+      header: 'Emergency Contact',
+      subHeader: name || 'Emergency contact',
+      message: `Relation: ${rel || 'N/A'}\nPhone: ${num}`,
+      buttons: [
+        { text: 'Close', role: 'cancel' },
+        {
+          text: 'Call',
+          handler: () => this.callEmergencyContact(),
+        },
+      ],
+    });
+    await alert.present();
   }
 
   async logout() {
@@ -361,19 +426,72 @@ export class HomePage implements OnInit, ViewWillEnter {
       this.currentSchedule = current;
       this.nextSchedule = next;
       this.applyPassengerCounts(current);
+      this.syncLiveTracking(current);
     } catch (error) {
       console.error('Error loading driver schedules:', error);
       this.presentToast('Error loading schedules.', 'danger');
       this.currentSchedule = null;
       this.nextSchedule = null;
       this.applyPassengerCounts(null);
+      this.syncLiveTracking(null);
     }
+  }
+
+  private syncLiveTracking(current: Schedule | null) {
+    const st = (current?.status || '').toLowerCase();
+    // Treat accepted as "in service" for GPS publishing so operator/commuter can see the bus
+    // while the driver is en route to the terminal / starting point.
+    const isActive = !!current && (st === 'active' || st === 'accepted');
+    if (!isActive) {
+      this.mapService.stopGpsTracking();
+      this.liveTrackSub?.unsubscribe();
+      this.liveTrackSub = undefined;
+      return;
+    }
+
+    if (this.liveTrackSub) {
+      return; // already tracking
+    }
+
+    const driverId = this.authService.getDriverId();
+    const driverIdNum = driverId ? Number(driverId) : NaN;
+    if (!driverId || Number.isNaN(driverIdNum)) {
+      return;
+    }
+
+    this.liveTrackSub = this.mapService.startGpsTracking(true).subscribe({
+      next: (pos) => {
+        if (!pos) return;
+        const now = Date.now();
+        // Throttle pings to ~10 seconds to avoid spamming the backend.
+        if (now - this.liveTrackLastSentAt < 10000) return;
+        this.liveTrackLastSentAt = now;
+
+        this.apiService.postDriverLocation(driverIdNum, {
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracy_m: pos.accuracy,
+          speed_mps: pos.speed,
+          heading_deg: pos.heading,
+          schedule_id: current?.id,
+          recorded_at: new Date(pos.timestamp).toISOString(),
+        }).subscribe({
+          error: () => {
+            // Ignore transient errors; next ping will retry.
+          }
+        });
+      },
+      error: () => {
+        // ignore
+      }
+    });
   }
 
   private applyPassengerCounts(current: Schedule | null) {
     if (!current) {
       this.currentPassengers = 0;
       this.expectedCapacity = 0;
+      this.lastFullToastScheduleId = null;
       return;
     }
     if (typeof current.aboard_count === 'number' && !Number.isNaN(current.aboard_count)) {
@@ -386,6 +504,21 @@ export class HomePage implements OnInit, ViewWillEnter {
     const cap = current.bus?.capacity;
     this.expectedCapacity =
       typeof cap === 'number' && !isNaN(cap) && cap > 0 ? cap : 0;
+
+    if (
+      this.expectedCapacity > 0 &&
+      this.currentPassengers >= this.expectedCapacity &&
+      this.lastFullToastScheduleId !== current.id
+    ) {
+      this.lastFullToastScheduleId = current.id;
+      void this.toastController
+        .create({
+          message: `Bus is full (${this.currentPassengers}/${this.expectedCapacity}).`,
+          duration: 3500,
+          color: 'warning',
+        })
+        .then((t) => t.present());
+    }
   }
 
   private scheduleDateKey(s: Schedule): string {
@@ -576,12 +709,6 @@ export class HomePage implements OnInit, ViewWillEnter {
         {
           name: 'issueType',
           type: 'radio',
-          label: 'Weather',
-          value: 'weather',
-        },
-        {
-          name: 'issueType',
-          type: 'radio',
           label: 'Other',
           value: 'other',
         },
@@ -618,7 +745,6 @@ export class HomePage implements OnInit, ViewWillEnter {
       'mechanical',
       'accident',
       'medical',
-      'weather',
       'other',
     ]);
     if (legacy[key]) {
@@ -659,7 +785,6 @@ export class HomePage implements OnInit, ViewWillEnter {
       mechanical: 'Mechanical problem',
       accident: 'Accident',
       medical: 'Medical',
-      weather: 'Weather',
       other: 'Other',
       traffic: 'Road blockage / delay',
     };

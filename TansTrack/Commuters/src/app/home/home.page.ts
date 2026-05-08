@@ -5,6 +5,7 @@ import { BusSimulatorService } from '../services/bus-simulator.service';
 import { TripHistoryService } from '../services/trip-history.service';
 import { Subscription } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-home',
@@ -29,6 +30,8 @@ export class HomePage implements OnInit, OnDestroy {
   fromStopIndex = 0;
   toStopIndex = 0;
   liveBuses: LiveBusTrip[] = [];
+  /** Dropdown selection for active bus (schedule id) */
+  selectedBusScheduleId: number | null = null;
   liveBusMapPins: {
     lng: number;
     lat: number;
@@ -38,6 +41,8 @@ export class HomePage implements OnInit, OnDestroy {
     selected?: boolean;
   }[] = [];
   selectedScheduleId: number | null = null;
+  /** Route line variants (one per active bus) so each bus looks distinct */
+  routeLineVariants: { id: number; color: string; offsetPx: number; label: string; selected: boolean }[] = [];
   private liveBusPollTimer: ReturnType<typeof setInterval> | null = null;
   private subscriptions: Subscription[] = [];
   // e-ticket state
@@ -46,6 +51,9 @@ export class HomePage implements OnInit, OnDestroy {
   ticketFare: number | null = null;
   ticketId: string = '';
   paymentMethod: string = 'cash';
+  paymentStatus: string = 'unpaid';
+  paymentRef: string | null = null;
+  qrToken: string | null = null;
   discountPercent: number = 0;
   discountAmount: number = 0;
   /** Operator / bus labels for e-ticket QR (from selected live bus). */
@@ -67,7 +75,8 @@ export class HomePage implements OnInit, OnDestroy {
     private loadingController: LoadingController,
     public commuterService: CommuterService,
     private busSimulator: BusSimulatorService,
-    private tripHistoryService: TripHistoryService
+    private tripHistoryService: TripHistoryService,
+    private router: Router
   ) {}
 
   ngOnInit() {
@@ -136,6 +145,35 @@ export class HomePage implements OnInit, OnDestroy {
     this.commuterService.setTerminal(this.commuterTerminal);
   }
 
+  getTerminalLabel(): string {
+    return this.commuterTerminal === 'south' ? 'South Terminal' : 'North Terminal';
+  }
+
+  /** UI uses -1 to represent boarding at the selected terminal. */
+  get effectiveFromStopIndex(): number {
+    const n = Number(this.fromStopIndex);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+
+  /** UI uses stops.length to represent the route destination (separate from last stop). */
+  get destinationIndex(): number {
+    const n = this.selectedRoute?.stops?.length ?? 0;
+    return typeof n === 'number' && Number.isFinite(n) ? n : 0;
+  }
+
+  private getDestinationLabel(): string {
+    const stops = this.selectedRoute?.stops ?? [];
+    if (stops.length >= 2) {
+      const idx =
+        typeof this.toStopIndex === 'number' && this.toStopIndex >= 0 && this.toStopIndex < stops.length
+          ? this.toStopIndex
+          : stops.length - 1;
+      const s: any = stops[idx];
+      return (s?.name || `Stop ${idx + 1}`) as string;
+    }
+    return (this.selectedRoute?.name || 'Destination') as string;
+  }
+
   onBusTypeChange() {
     this.commuterService.setBusType(this.busType);
     this.selectedRouteId = '';
@@ -201,8 +239,10 @@ export class HomePage implements OnInit, OnDestroy {
 
       const stops = this.selectedRoute.stops;
       if (stops && stops.length >= 2) {
-        this.fromStopIndex = 0;
-        this.toStopIndex = stops.length - 1;
+        // Default: commuter boards at the selected terminal (value -1),
+        // then arrives at the destination (separate option).
+        this.fromStopIndex = -1 as any;
+        this.toStopIndex = stops.length; // destinationIndex
         this.ticketFare = null;
         this.discountPercent = 0;
         this.discountAmount = 0;
@@ -252,21 +292,25 @@ export class HomePage implements OnInit, OnDestroy {
 
   onSegmentStopsChange() {
     if (!this.selectedRoute?.stops?.length) return;
-    const max = this.selectedRoute.stops.length - 1;
-    if (this.fromStopIndex < 0) this.fromStopIndex = 0;
+    const max = this.destinationIndex; // allow destination option (one past last stop)
+    // Allow -1 for terminal.
+    if (this.fromStopIndex < -1) this.fromStopIndex = -1 as any;
     if (this.toStopIndex > max) this.toStopIndex = max;
-    if (this.fromStopIndex >= this.toStopIndex) {
-      this.toStopIndex = Math.min(max, this.fromStopIndex + 1);
+    if (this.effectiveFromStopIndex >= this.toStopIndex) {
+      this.toStopIndex = Math.min(max, this.effectiveFromStopIndex + 1);
     }
     this.applySegmentFare();
   }
 
   private applySegmentFare() {
     if (!this.selectedRoute?.stops || this.selectedRoute.stops.length < 2) return;
+    const fromIdx = this.effectiveFromStopIndex;
+    const destIdx = this.destinationIndex;
     this.commuterService
       .fareSegment({
         route_id: parseInt(this.selectedRoute.id, 10),
-        from_stop_index: this.fromStopIndex,
+        // send raw UI value so backend can treat -1 as terminal (0 km)
+        from_stop_index: Number(this.fromStopIndex),
         to_stop_index: this.toStopIndex,
         approval_request_id: this.selectedRoute.approval_request_id,
       })
@@ -276,9 +320,14 @@ export class HomePage implements OnInit, OnDestroy {
             this.ticketFare = res.data.final_fare;
             this.discountPercent = res.data.discount_percent || 0;
             this.discountAmount = res.data.discount_amount || 0;
-            const from = this.selectedRoute!.stops![this.fromStopIndex];
-            const to = this.selectedRoute!.stops![this.toStopIndex];
-            this.ticketDestination = `${from?.name || 'Boarding'} → ${to?.name || 'Alighting'}`;
+            const from = this.selectedRoute!.stops![fromIdx];
+            const fromLabel =
+              (this.fromStopIndex as any) === -1 ? this.getTerminalLabel() : (from?.name || 'Boarding');
+            const toLabel =
+              this.toStopIndex === destIdx
+                ? (this.selectedRoute?.name || 'Destination')
+                : (this.selectedRoute!.stops![this.toStopIndex]?.name || 'Alighting');
+            this.ticketDestination = `${fromLabel} → ${toLabel}`;
           }
         },
         error: () => {
@@ -315,13 +364,16 @@ export class HomePage implements OnInit, OnDestroy {
           return;
         }
         this.liveBuses = res.buses;
-        this.updateLiveBusMapPins();
+        // Keep dropdown value in sync with existing selectedScheduleId
+        this.selectedBusScheduleId = this.selectedScheduleId;
+        this.updateLiveBusMapPinsAndLines();
         if (
           this.selectedScheduleId != null &&
           !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
         ) {
           this.selectedScheduleId = null;
-          this.updateLiveBusMapPins();
+          this.selectedBusScheduleId = null;
+          this.updateLiveBusMapPinsAndLines();
         }
         this.autoSelectSingleLiveBus();
       },
@@ -342,11 +394,17 @@ export class HomePage implements OnInit, OnDestroy {
       return;
     }
     this.selectedScheduleId = open[0].schedule_id;
-    this.updateLiveBusMapPins();
+    this.selectedBusScheduleId = this.selectedScheduleId;
+    this.updateLiveBusMapPinsAndLines();
   }
 
-  private updateLiveBusMapPins(): void {
-    this.liveBusMapPins = this.liveBuses
+  private updateLiveBusMapPinsAndLines(): void {
+    const focusId = this.selectedScheduleId;
+    const visibleBuses =
+      focusId != null ? this.liveBuses.filter((b) => b.schedule_id === focusId) : this.liveBuses;
+
+    // markers
+    this.liveBusMapPins = visibleBuses
       .filter((b) => b.position != null && Number.isFinite(b.position.lng) && Number.isFinite(b.position.lat))
       .map((b) => ({
         lng: b.position!.lng,
@@ -358,6 +416,16 @@ export class HomePage implements OnInit, OnDestroy {
         scheduleId: b.schedule_id,
         selected: this.selectedScheduleId === b.schedule_id,
       }));
+
+    // route line variants (visual separation)
+    const baseOffsets = [0, 6, -6, 10, -10, 14, -14];
+    this.routeLineVariants = this.liveBuses.map((b, idx) => {
+      const selected = this.selectedScheduleId != null && this.selectedScheduleId === b.schedule_id;
+      const color = b.is_full ? '#dc2626' : b.status === 'active' ? '#16a34a' : '#2563eb';
+      const label = `${b.bus_number || 'Bus'}${b.operator_company ? ' · ' + b.operator_company : ''}`;
+      const offsetPx = focusId != null ? 0 : (baseOffsets[idx % baseOffsets.length] ?? 0);
+      return { id: b.schedule_id, color, offsetPx, label, selected };
+    });
   }
 
   selectLiveBus(b: LiveBusTrip): void {
@@ -366,8 +434,35 @@ export class HomePage implements OnInit, OnDestroy {
       return;
     }
     this.selectedScheduleId = b.schedule_id;
-    this.updateLiveBusMapPins();
+    this.selectedBusScheduleId = this.selectedScheduleId;
+    this.updateLiveBusMapPinsAndLines();
     void this.showToast(`Selected ${b.bus_number || 'bus'} — tap Get e-Ticket when ready.`, 'success');
+  }
+
+  onBusDropdownChange(scheduleId: number | string | null): void {
+    const id = scheduleId != null && scheduleId !== '' ? Number(scheduleId) : null;
+    if (id == null || Number.isNaN(id)) {
+      this.selectedScheduleId = null;
+      this.selectedBusScheduleId = null;
+      this.updateLiveBusMapPinsAndLines();
+      return;
+    }
+    const b = this.liveBuses.find((x) => x.schedule_id === id);
+    if (!b) {
+      this.selectedScheduleId = null;
+      this.selectedBusScheduleId = null;
+      this.updateLiveBusMapPinsAndLines();
+      return;
+    }
+    this.selectLiveBus(b);
+  }
+
+  getSelectedBusCapacityLabel(): string | null {
+    const id = this.selectedScheduleId;
+    if (id == null) return null;
+    const b = this.liveBuses.find((x) => x.schedule_id === id);
+    if (!b) return null;
+    return `${b.aboard}/${b.capacity}${b.is_full ? ' · FULL' : ''}`;
   }
 
   private syncTicketBusLabelsForETicket(): void {
@@ -413,9 +508,18 @@ export class HomePage implements OnInit, OnDestroy {
       this.showToast('Please select a route to track', 'warning');
       return;
     }
-    console.log('Tracking route requested for:', this.selectedRoute);
-    // For now we just notify the user; future improvement: navigate to a live-tracking view
-    this.showToast(`Tracking ${this.selectedRoute.name}`, 'success');
+
+    if (this.liveBuses.length > 0 && this.selectedScheduleId == null) {
+      void this.showToast('Select an active bus first to track it live.', 'warning');
+      return;
+    }
+
+    this.router.navigate(['/map'], {
+      queryParams: {
+        routeId: this.selectedRoute.id,
+        scheduleId: this.selectedScheduleId ?? undefined,
+      },
+    });
   }
 
   // Quick pay flow for demo: pays with passenger type discount applied
@@ -627,6 +731,9 @@ export class HomePage implements OnInit, OnDestroy {
 
     this.alightNotified = false;
     this.ticketId = this.generateTicketId();
+    this.paymentStatus = this.paymentMethod === 'cash' ? 'unpaid' : 'pending';
+    this.paymentRef = null;
+    this.qrToken = null;
     this.commuterService
       .bookTicket({
         route_id: parseInt(route.id, 10),
@@ -635,6 +742,13 @@ export class HomePage implements OnInit, OnDestroy {
         fare: finalFare,
         commuter_id: this.getCommuterId(),
         payment_method: this.paymentMethod,
+        // Save the commuter's intended alighting point so driver arrival can drop aboard count.
+        alight_is_destination:
+          (this.selectedRoute?.stops?.length ?? 0) >= 2 && this.toStopIndex === this.destinationIndex,
+        alight_stop_index:
+          (this.selectedRoute?.stops?.length ?? 0) >= 2 && this.toStopIndex !== this.destinationIndex
+            ? this.toStopIndex
+            : undefined,
       })
       .subscribe({
         next: (bookRes) => {
@@ -642,18 +756,77 @@ export class HomePage implements OnInit, OnDestroy {
             void this.showToast(bookRes.message || 'Could not register e-ticket.', 'danger');
             return;
           }
+          this.paymentStatus = (bookRes.data?.payment_status || this.paymentStatus) as string;
+          this.paymentRef = (bookRes.data?.payment_ref || null) as string | null;
           this.ticketFare = finalFare;
           this.discountPercent = discountPercent;
           this.discountAmount = discountAmount;
           this.syncTicketBusLabelsForETicket();
           this.saveInProgressTripSnapshot(finalFare);
-          this.showTicket = true;
-          this.startBusSimulation();
-          let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
-          if (discountAmount > 0) {
-            message += ` (${passengerType} discount: -₱${discountAmount})`;
+
+          if ((this.paymentMethod || '').toLowerCase() === 'cash') {
+            this.showTicket = true;
+            this.startBusSimulation();
+            let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
+            if (discountAmount > 0) {
+              message += ` (${passengerType} discount: -₱${discountAmount})`;
+            }
+            void this.showToast(message, 'success');
+            return;
           }
-          void this.showToast(message, 'success');
+
+          // Online (simulated) checkout: create → open checkout_url → verify/confirm → then show QR ticket.
+          this.commuterService.createPaymayaCheckout(this.ticketId).subscribe({
+            next: async (res) => {
+              if (!res?.success || !res.data?.checkout_url || !res.data?.ref) {
+                void this.showToast(res?.error || 'Could not start checkout.', 'danger');
+                return;
+              }
+              this.paymentRef = res.data.ref;
+              this.paymentStatus = 'pending';
+
+              try {
+                window.open(res.data.checkout_url, '_blank');
+              } catch {
+                // If popup blocked, user can still copy/paste from console or retry.
+              }
+
+              const alert = await this.alertController.create({
+                header: 'Complete PayMaya payment',
+                message:
+                  'A checkout page was opened. After you complete the payment, tap “I paid” to confirm and generate your QR e-ticket.',
+                buttons: [
+                  { text: 'Cancel', role: 'cancel' },
+                  {
+                    text: 'I paid',
+                    handler: () => {
+                      const ref = this.paymentRef;
+                      if (!ref) {
+                        void this.showToast('Missing payment reference.', 'danger');
+                        return;
+                      }
+                      this.commuterService.verifyPaymaya(ref).subscribe({
+                        next: (vr) => {
+                          if (!vr?.success || vr.data?.ticket?.payment_status !== 'paid') {
+                            void this.showToast(vr?.message || 'Payment not confirmed yet.', 'warning');
+                            return;
+                          }
+                          this.paymentStatus = vr.data.ticket.payment_status;
+                          this.qrToken = vr.data.ticket.qr_payload || null;
+                          this.showTicket = true;
+                          this.startBusSimulation();
+                          void this.showToast('Payment confirmed. QR e-ticket ready.', 'success');
+                        },
+                        error: () => void this.showToast('Could not verify payment.', 'danger'),
+                      });
+                    },
+                  },
+                ],
+              });
+              await alert.present();
+            },
+            error: () => void this.showToast('Could not start checkout.', 'danger'),
+          });
         },
         error: (err) => {
           console.error('bookTicket error', err);
@@ -692,6 +865,7 @@ export class HomePage implements OnInit, OnDestroy {
           handler: () => {
             this.showTicket = false;
             this.stopBusSimulation();
+            this.resetRouteSelection();
           },
         },
         {
@@ -703,6 +877,35 @@ export class HomePage implements OnInit, OnDestroy {
       ],
     });
     await alert.present();
+  }
+
+  private resetTicketState(): void {
+    // Reset UI state so commuter can generate a fresh ticket immediately.
+    this.ticketId = '';
+    this.ticketFare = null;
+    this.ticketDestination = this.selectedRoute?.name || null;
+    this.paymentStatus = this.paymentMethod === 'cash' ? 'unpaid' : 'pending';
+    this.paymentRef = null;
+    this.qrToken = null;
+    this.alightNotified = false;
+  }
+
+  private resetRouteSelection(): void {
+    this.showTicket = false;
+    this.stopBusSimulation();
+    this.stopLiveBusPoll();
+    this.alightNotified = false;
+
+    this.selectedRouteId = '';
+    this.selectedRoute = null;
+    this.selectedScheduleId = null;
+    this.liveBuses = [];
+    this.liveBusMapPins = [];
+    this.stopPinsForMap = [];
+    this.ticketOperatorCompany = '';
+    this.ticketBusLabel = '';
+    this.ticketDestination = null;
+    this.ticketFare = null;
   }
 
   /** Completes local trip + notifies operator; call when commuter confirms they have alighted. */
@@ -718,6 +921,8 @@ export class HomePage implements OnInit, OnDestroy {
     }
     this.showTicket = false;
     this.stopBusSimulation();
+    this.resetTicketState();
+    this.resetRouteSelection();
     void this.showToast('Trip completed. Thanks for riding!', 'success');
   }
 

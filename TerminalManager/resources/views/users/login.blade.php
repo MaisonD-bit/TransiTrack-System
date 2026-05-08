@@ -53,6 +53,10 @@
         <button type="submit" class="btn btn-primary w-100">
             <i class="fas fa-sign-in-alt me-2"></i>Login
         </button>
+
+        <div class="text-center mt-3">
+            <a href="{{ route('password.forgot') }}">Forgot password?</a>
+        </div>
         
         <div class="text-center mt-3">
             <p>Don't have an account? <a href="{{ route('register') }}">Register here</a></p>

@@ -23,14 +23,20 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() stopPins: { lng: number; lat: number; label?: string }[] = [];
   /** Live / estimated bus positions from operator schedules (commuter app). */
   @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean }[] = [];
+  /**
+   * Distinct route lines per active bus (same geometry, different color/offset).
+   * Lets commuters visually distinguish multiple active buses on the same route.
+   */
+  @Input() routeLineVariants: { id: number; color: string; offsetPx: number; label: string; selected: boolean }[] = [];
   /** When true, skip the demo bus animation (use live markers instead). */
-  @Input() disableSimulator: boolean = false;
+  @Input() disableSimulator: boolean = true;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
   mapLoaded: boolean = false;
   routeMarkers: any[] = []; // Store markers for cleanup
   private stopPinMarkers: any[] = [];
   private liveBusMapMarkers: any[] = [];
+  private variantLayerIds: string[] = [];
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
   
@@ -106,6 +112,50 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (changes['liveBusMarkers'] || changes['disableSimulator']) {
       this.refreshLiveBusMarkers();
     }
+    if (changes['routeLineVariants']) {
+      this.refreshRouteLineVariants();
+    }
+  }
+
+  private clearRouteLineVariants(): void {
+    if (!this.mapLoaded || !this.map) return;
+    this.variantLayerIds.forEach((id) => {
+      try {
+        if (this.map.getLayer(id)) this.map.removeLayer(id);
+      } catch {}
+    });
+    this.variantLayerIds = [];
+  }
+
+  private refreshRouteLineVariants(): void {
+    if (!this.mapLoaded || !this.map) return;
+    if (!this.map.getSource('route')) return;
+
+    this.clearRouteLineVariants();
+    const variants = Array.isArray(this.routeLineVariants) ? this.routeLineVariants : [];
+    if (!variants.length) return;
+
+    variants.forEach((v) => {
+      const id = `route-line-variant-${v.id}`;
+      try {
+        this.map.addLayer({
+          id,
+          type: 'line',
+          source: 'route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': v.color,
+            'line-width': v.selected ? 7 : 5,
+            'line-opacity': v.selected ? 0.95 : 0.55,
+            'line-translate': [v.offsetPx || 0, 0],
+            'line-translate-anchor': 'viewport',
+          },
+        });
+        this.variantLayerIds.push(id);
+      } catch {
+        // ignore
+      }
+    });
   }
 
   private clearLiveBusMarkers(): void {
@@ -125,9 +175,24 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
     this.liveBusMarkers.forEach((b) => {
       const el = document.createElement('div');
-      const border = b.selected ? '3px solid #fbbf24' : '2px solid #fff';
-      el.style.cssText =
-        `width:14px;height:14px;border-radius:50%;background:${b.color};border:${border};box-shadow:0 1px 4px rgba(0,0,0,.4)`;
+      // Bus icon marker (instead of pin/dot).
+      const size = 30;
+      const ring = b.selected ? '0 0 0 4px rgba(251, 191, 36, 0.8)' : '0 0 0 2px rgba(255,255,255,.9)';
+      el.style.cssText = `width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;`;
+      el.innerHTML = `
+        <div style="
+          width:${size}px;height:${size}px;border-radius:999px;
+          background: ${b.color};
+          box-shadow: ${ring}, 0 6px 14px rgba(0,0,0,.22);
+          display:flex;align-items:center;justify-content:center;
+        ">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M7 4h10a3 3 0 0 1 3 3v9a2 2 0 0 1-2 2h-1v1a1 1 0 1 1-2 0v-1H9v1a1 1 0 1 1-2 0v-1H6a2 2 0 0 1-2-2V7a3 3 0 0 1 3-3Z" fill="rgba(255,255,255,.95)"/>
+            <path d="M7 7h10v5H7V7Z" fill="rgba(0,0,0,.18)"/>
+            <circle cx="8" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
+            <circle cx="16" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
+          </svg>
+        </div>`;
       const mk = new mapboxgl.Marker({ element: el })
         .setLngLat([b.lng, b.lat])
         .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${b.label}</strong>`))
@@ -144,6 +209,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (this.map.getLayer('route-line')) {
       this.map.removeLayer('route-line');
     }
+    this.clearRouteLineVariants();
     if (this.map.getSource('route')) {
       this.map.removeSource('route');
     }
@@ -209,10 +275,13 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           'line-cap': 'round'
         },
         paint: {
-          'line-color': '#0074D9',
-          'line-width': 6
+          'line-color': '#1f2937',
+          'line-width': 4,
+          'line-opacity': 0.25
         }
       });
+
+      this.refreshRouteLineVariants();
 
       const bounds = new mapboxgl.LngLatBounds();
       numericCoords.forEach((coord: number[]) => {

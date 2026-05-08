@@ -20,6 +20,10 @@
             <i class="fas fa-clipboard-list"></i>
             <span>Trip Logs</span>
         </a>
+        <a href="{{ route('live-tracking.panel') }}" class="nav-item {{ request()->routeIs('live-tracking.panel') ? 'active' : '' }}">
+            <i class="fas fa-map-marked-alt"></i>
+            <span>Live Tracking</span>
+        </a>
         <a href="{{ route('route-requests.panel') }}" class="nav-item {{ request()->routeIs('route-requests.*') ? 'active' : '' }}">
             <i class="fas fa-code-branch"></i>
             <span>Route approvals</span>

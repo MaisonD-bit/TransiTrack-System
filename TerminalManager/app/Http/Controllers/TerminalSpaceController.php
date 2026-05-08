@@ -570,6 +570,13 @@ class TerminalSpaceController extends Controller
                     'additional_notes' => 'Auto-released: duration expired'
                 ]);
 
+                // Notify driver that the bay timer ended and the bay is now released.
+                $this->insertDriverParkingNotification(
+                    $space,
+                    "Bay {$space->space_id}: your time is up. The bay is now released/available.",
+                    'terminal_parking_expired'
+                );
+
                 // Reset space
                 $space->update([
                     'is_occupied' => false,

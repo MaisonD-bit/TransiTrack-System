@@ -1,8 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'io.ionic.starter',
-  appName: 'transitrack',
+  // Must match Android `applicationId` (see android/app/build.gradle)
+  appId: 'HoliWorks.com',
+  appName: 'HoliWorks',
   webDir: 'www'
 };
 

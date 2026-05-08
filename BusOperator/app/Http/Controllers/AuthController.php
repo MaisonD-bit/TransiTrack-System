@@ -163,6 +163,7 @@ class AuthController extends Controller
                 'id' => $commuter->id,
                 'name' => $commuter->name,
                 'email' => $commuter->email,
+                'passenger_type' => $commuter->passenger_type ?? 'Regular',
                 'created_at' => $commuter->created_at,
             ],
         ], 200);
@@ -177,16 +178,22 @@ class AuthController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:commuters,email',
             'password' => 'required|string|min:6|confirmed',
+            'passenger_type' => 'nullable|string|in:Regular,Student,Senior,Elderly,PWD',
         ]);
 
         try {
             $name = trim((string) $request->name);
             $email = strtolower(trim((string) $request->email));
+            $ptype = (string) ($request->input('passenger_type') ?: 'Regular');
+            if ($ptype === 'Elderly') {
+                $ptype = 'Senior';
+            }
 
             $commuter = Commuter::create([
                 'name' => $name,
                 'email' => $email,
                 'password' => Hash::make($request->password),
+                'passenger_type' => $ptype,
             ]);
 
             // Generate app token (non-Sanctum)
@@ -200,6 +207,7 @@ class AuthController extends Controller
                     'id' => $commuter->id,
                     'name' => $commuter->name,
                     'email' => $commuter->email,
+                    'passenger_type' => $commuter->passenger_type ?? 'Regular',
                     'created_at' => $commuter->created_at,
                 ],
             ], 201);

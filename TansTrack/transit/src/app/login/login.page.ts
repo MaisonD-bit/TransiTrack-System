@@ -87,10 +87,14 @@ export class LoginPage implements OnInit {
             }
             
             try {
-              // Remove Firebase password reset logic
-              // You may want to implement your own password reset API here
-              this.errorMessage = 'Password reset is not available.';
-              return false;
+              await firstValueFrom(this.apiService.requestPasswordReset('driver', data.email));
+              const ok = await this.alertController.create({
+                header: 'Email sent',
+                message: 'If your email exists, a password reset link was sent to your inbox.',
+                buttons: ['OK']
+              });
+              await ok.present();
+              return true;
             } catch (error: any) {
               this.errorMessage = error.message || 'Failed to send reset email';
               return false;

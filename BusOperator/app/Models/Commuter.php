@@ -20,6 +20,7 @@ class Commuter extends Authenticatable // Extend Authenticatable
         'name',
         'email',
         'password',
+        'passenger_type',
     ];
 
     /**

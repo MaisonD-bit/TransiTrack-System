@@ -252,6 +252,8 @@ class ScheduleController extends Controller
     {
         try {
             $schedule = Schedule::where('user_id', auth()->id())->findOrFail($id);
+            $before = $schedule->loadMissing(['driver', 'route', 'bus']);
+
             $validated = $request->validate([
                 'driver_id' => 'required|exists:drivers,id',
                 'route_id' => 'required|exists:routes,id',
@@ -336,6 +338,52 @@ class ScheduleController extends Controller
             $validated['fare_aircon'] = $fare_aircon;
 
             $schedule->update($validated);
+
+            // Auto-notify the assigned driver about schedule changes.
+            try {
+                $after = $schedule->fresh()->loadMissing(['driver', 'route', 'bus']);
+                $driverId = (int) ($after->driver_id ?? $validated['driver_id']);
+
+                $oldRoute = $before->route?->name ?? 'Route';
+                $newRoute = $after->route?->name ?? 'Route';
+                $oldBus = $before->bus?->bus_number ?? 'Bus';
+                $newBus = $after->bus?->bus_number ?? 'Bus';
+
+                $oldDate = $before->date instanceof \Carbon\CarbonInterface ? $before->date->format('Y-m-d') : (string) $before->date;
+                $newDate = (string) ($validated['date'] ?? $oldDate);
+
+                $oldStart = $before->start_time instanceof \Carbon\CarbonInterface ? $before->start_time->format('H:i') : (string) $before->start_time;
+                $oldEnd = $before->end_time instanceof \Carbon\CarbonInterface ? $before->end_time->format('H:i') : (string) $before->end_time;
+                $newStart = (string) ($validated['start_time'] ?? $oldStart);
+                $newEnd = (string) ($validated['end_time'] ?? $oldEnd);
+
+                $changedParts = [];
+                if ($oldRoute !== $newRoute) $changedParts[] = "Route: {$oldRoute} → {$newRoute}";
+                if ($oldBus !== $newBus) $changedParts[] = "Bus: {$oldBus} → {$newBus}";
+                if ($oldDate !== $newDate) $changedParts[] = "Date: {$oldDate} → {$newDate}";
+                if ($oldStart !== $newStart || $oldEnd !== $newEnd) $changedParts[] = "Time: {$oldStart}-{$oldEnd} → {$newStart}-{$newEnd}";
+                if ((string) $before->status !== (string) ($validated['status'] ?? $before->status)) {
+                    $changedParts[] = "Status: {$before->status} → {$validated['status']}";
+                }
+
+                $summary = $changedParts
+                    ? implode(' | ', $changedParts)
+                    : 'Your schedule details were updated.';
+
+                Notification::create([
+                    'type' => 'schedule_update',
+                    'message' => $summary,
+                    'sender_id' => auth()->id(),
+                    'recipient_id' => null,
+                    'driver_id' => $driverId,
+                    'schedule_id' => $schedule->id,
+                    'bus_id' => (int) ($after->bus_id ?? $validated['bus_id']),
+                    'is_read' => false,
+                ]);
+            } catch (\Exception $e) {
+                // Don't block the update if notification fails.
+                Log::warning('Failed to auto-notify driver schedule_update', ['error' => $e->getMessage()]);
+            }
 
             if ($request->expectsJson()) {
                 return response()->json([
@@ -1186,9 +1234,26 @@ class ScheduleController extends Controller
         $base = $route->toArray();
         $line = $this->routeGeometryAsLineString($route);
         $base['map_geometry'] = $line;
-        $base['stops'] = $this->approvedStopsForOperatorRoute($operatorUserId, (int) $route->id);
+        $stops = $this->approvedStopsForOperatorRoute($operatorUserId, (int) $route->id);
+        $base['stops'] = $this->computeStopEtasForDriver($route, $stops);
 
         return $base;
+    }
+
+    private function computeStopEtasForDriver(Route $route, array $stops): array
+    {
+        $fullKm = max((float) ($route->distance_km ?? 0), 0.001);
+        $durationMin = (int) ($route->estimated_duration ?? 0);
+
+        $out = [];
+        foreach ($stops as $s) {
+            $dist = (float) ($s['distance_km_from_start'] ?? 0);
+            $ratio = min(1.0, max(0.0, $dist / $fullKm));
+            $etaMin = $durationMin > 0 ? (int) round($durationMin * $ratio) : null;
+            $s['eta_minutes_from_start'] = $etaMin;
+            $out[] = $s;
+        }
+        return $out;
     }
 
     /**
