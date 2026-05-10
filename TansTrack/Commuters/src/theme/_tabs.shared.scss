@@ -1,0 +1,48 @@
+// Tabs shell — tab bar flex + safe area (fixes clustered icons on some WebViews).
+
+@mixin tabs-page {
+  ion-tabs {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ion-tabs ion-router-outlet {
+    flex: 1;
+    min-height: 0;
+    contain: layout;
+  }
+
+  ion-tab-bar {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    --background: #ffffff;
+    --background: #f0f4ff;
+    border-top: 1px solid rgba(0, 84, 233, 0.12);
+    min-height: 56px;
+    height: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+
+    ion-tab-button {
+      flex: 1 1 0;
+      min-width: 0;
+      --color: #6b7a99;
+      --color-selected: #0054e9;
+
+      ion-label {
+        font-size: 11px;
+        font-weight: 500;
+      }
+
+      ion-icon {
+        font-size: 22px;
+      }
+    }
+  }
+}

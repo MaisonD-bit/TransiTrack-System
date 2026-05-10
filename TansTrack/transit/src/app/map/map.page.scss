@@ -1,0 +1,85 @@
+ion-content {
+  --background: #f8f9fa;
+}
+
+.app-logo {
+  font-size: 1.5rem;
+  color: white;
+}
+
+.map-controls {
+  padding: 16px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  
+  ion-segment {
+    --background: #f0f0f0;
+    border-radius: 8px;
+  }
+}
+
+.route-info-banner {
+  margin: 0 16px 16px 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  .route-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+
+    .route-details {
+      flex: 1;
+      
+      h3 {
+        margin: 0 0 8px 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--ion-color-dark);
+      }
+
+      p {
+        display: flex;
+        align-items: center;
+        margin: 4px 0;
+        color: var(--ion-color-medium);
+        font-size: 0.9rem;
+
+        ion-icon {
+          margin-right: 8px;
+          font-size: 1rem;
+          color: var(--ion-color-primary);
+        }
+      }
+    }
+
+    .route-status {
+      ion-badge {
+        font-size: 0.7rem;
+        padding: 6px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+      }
+    }
+  }
+}
+
+.full-map-container {
+  height: calc(100vh - 280px);
+  margin: 0 16px 16px 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+ion-fab {
+  ion-fab-button {
+    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  ion-fab-list {
+    ion-fab-button {
+      --color: var(--ion-color-dark);
+    }
+  }
+}

@@ -1,0 +1,139 @@
+.filters-card {
+  margin: 16px;
+  border-radius: 12px;
+
+  ion-searchbar {
+    padding: 8px 0;
+  }
+
+  ion-segment {
+    margin: 12px 0;
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  text-align: center;
+  gap: 16px;
+
+  ion-icon {
+    color: var(--ion-color-medium);
+    font-size: 64px;
+  }
+
+  h2 {
+    color: var(--ion-color-dark);
+    font-weight: 600;
+    margin: 0;
+  }
+
+  p {
+    color: var(--ion-color-medium);
+    margin: 8px 0 0 0;
+  }
+}
+
+.notification-item {
+  &.unread {
+    ion-item {
+      background-color: rgba(var(--ion-color-primary-rgb), 0.05);
+    }
+  }
+
+  ion-item {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+.notification-label {
+  .notification-message {
+    margin: 4px 0 8px 0;
+    color: var(--ion-color-medium);
+    font-size: 14px;
+  }
+
+  .notification-time {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ion-color-step-300);
+  }
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+
+  ion-icon {
+    font-size: 40px;
+    margin-top: 4px;
+  }
+
+  div {
+    flex: 1;
+
+    ion-card-title {
+      margin: 0 0 4px 0;
+    }
+
+    ion-card-subtitle {
+      margin: 0;
+    }
+  }
+}
+
+.message-content {
+  margin: 12px 0;
+  line-height: 1.6;
+  color: var(--ion-color-dark);
+  font-size: 15px;
+}
+
+.description {
+  margin: 16px 0;
+  padding: 12px;
+  background-color: var(--ion-color-light);
+  border-radius: 8px;
+  color: var(--ion-color-dark);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.detail-section {
+  margin-top: 20px;
+
+  h3 {
+    margin: 0 0 12px 0;
+    color: var(--ion-color-dark);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  ion-item {
+    --padding-start: 0;
+    --padding-end: 0;
+    margin-bottom: 8px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+}
+
+.new-time {
+  color: var(--ion-color-warning);
+  font-weight: 600;
+}
+
+ion-badge {
+  margin-left: 8px;
+}
+
+ion-button {
+  margin-top: 20px;
+}

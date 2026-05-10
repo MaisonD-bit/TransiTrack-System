@@ -1,0 +1,26 @@
+// Component-scoped styles for the login page. Shared rules live in src/theme/_login.shared.scss
+// (also used by login-global.scss for Capacitor/WebView).
+
+@use "../../theme/login.shared" as login;
+
+:host {
+  display: block;
+  min-height: 100%;
+
+  ion-content {
+    --background: linear-gradient(135deg, #0f172a, #1e3a8a);
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+
+    &::part(scroll) {
+      pointer-events: auto;
+    }
+  }
+
+  @include login.login-form-and-container;
+
+  @media (max-width: 480px) {
+    .login-container {
+      @include login.login-responsive-inner;
+    }
+  }
+}

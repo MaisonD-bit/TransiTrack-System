@@ -1,0 +1,29 @@
+// Shared look for Commuter tabs (matches Home: light blue canvas + brand blue).
+
+$tt-page-bg: #f0f4ff;
+$tt-blue: #0054e9;
+$tt-blue-dark: #0040b0;
+$tt-toolbar-gradient: linear-gradient(135deg, #{$tt-blue} 0%, #{$tt-blue-dark} 100%);
+
+@mixin commuter-inner-page {
+  ion-content {
+    --background: #{$tt-page-bg};
+    --padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@mixin tt-toolbar-primary {
+  --background: #{$tt-toolbar-gradient};
+  --color: #ffffff;
+  --border-width: 0;
+}
+
+@mixin tt-modal-surface {
+  ion-toolbar {
+    @include tt-toolbar-primary;
+  }
+
+  ion-content {
+    --background: #{$tt-page-bg};
+  }
+}

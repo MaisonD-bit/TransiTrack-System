@@ -1,0 +1,36 @@
+.map-container {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.mapbox-map {
+  width: 100%;
+  height: 100%;
+}
+
+.bus-marker {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ff6b00;
+  color: #fff;
+  font-size: 16px;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+
+.pin-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+}
+.pin-marker svg { display: block; }
+.pin-start svg path { stroke-linejoin: round; }
+.pin-end svg path { stroke-linejoin: round; }
+.pin-vehicle svg path { stroke-linejoin: round; }

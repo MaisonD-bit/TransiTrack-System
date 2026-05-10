@@ -1,0 +1,30 @@
+/**
+ * Same look as login.page.scss, emitted in the main CSS bundle so Capacitor/WebView
+ * always loads it (some devices skip lazy-injected component styles).
+ * Edit layout in _login.shared.scss.
+ */
+@use "./login.shared" as login;
+
+app-login {
+  display: block;
+  min-height: 100%;
+}
+
+app-login ion-content {
+  --background: linear-gradient(135deg, #0f172a, #1e3a8a);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+app-login ion-content::part(scroll) {
+  pointer-events: auto;
+}
+
+app-login {
+  @include login.login-form-and-container;
+}
+
+@media (max-width: 480px) {
+  app-login .login-container {
+    @include login.login-responsive-inner;
+  }
+}

@@ -1,0 +1,7 @@
+@use "../../theme/tabs.shared" as tabs;
+
+:host {
+  display: block;
+  height: 100%;
+  @include tabs.tabs-page;
+}

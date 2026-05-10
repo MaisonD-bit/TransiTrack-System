@@ -1,0 +1,438 @@
+// Home page — shared between :host (home.page.scss) and home-global.scss (app-home).
+
+@use "sass:color";
+
+$blue: #0054e9;
+$blue-dark: #0040b0;
+$blue-light: #e8f0fe;
+$white: #ffffff;
+$text: #1a1a2e;
+$text-muted: #6b7280;
+$border: #e5e7eb;
+$shadow: 0 2px 12px rgba(0, 84, 233, 0.08);
+$radius: 14px;
+
+@mixin home-page {
+  ion-content {
+    --background: #f0f4ff;
+    /* Tab bar (~56px) + gesture inset + breathing room — stops map/list sitting under tabs */
+    --padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .profile-icon {
+    font-size: 28px;
+    color: white;
+  }
+
+  .hero-banner {
+    background: linear-gradient(135deg, $blue 0%, $blue-dark 100%);
+    padding: 24px 20px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: white;
+
+    .hero-content {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+
+      .hero-bus-icon {
+        font-size: 44px;
+        opacity: 0.95;
+      }
+
+      h1 {
+        margin: 0 0 2px;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+
+      p {
+        margin: 0;
+        font-size: 13px;
+        opacity: 0.85;
+      }
+    }
+
+    .hero-time {
+      font-size: 15px;
+      font-weight: 600;
+      opacity: 0.9;
+      background: rgba(255, 255, 255, 0.22);
+      padding: 6px 12px;
+      border-radius: 20px;
+    }
+  }
+
+  .section-wrapper {
+    padding: 16px 16px 0;
+  }
+
+  .browse-hint {
+    margin: 0;
+    font-size: 12px;
+    color: $text-muted;
+  }
+
+  .browse-routes-list {
+    background: transparent;
+    padding: 0;
+  }
+
+  .browse-item-active {
+    --background: rgba(0, 84, 233, 0.08);
+  }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: $blue;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+
+    ion-icon {
+      font-size: 16px;
+    }
+  }
+
+  .route-card,
+  .routes-card {
+    background: $white;
+    border-radius: $radius;
+    padding: 18px;
+    box-shadow: $shadow;
+    border: 1px solid $border;
+  }
+
+  .route-select {
+    --background: $blue-light;
+    --border-radius: 10px;
+    --padding-start: 14px;
+    --padding-end: 14px;
+    border: 1.5px solid color.adjust($blue-light, $lightness: -8%);
+    border-radius: 10px;
+    margin-bottom: 14px;
+    min-height: 52px;
+    font-weight: 500;
+    color: $text;
+  }
+
+  .track-btn {
+    --background: #{$blue};
+    --background-activated: #{$blue-dark};
+    --border-radius: 10px;
+    --box-shadow: 0 4px 12px rgba(0, 84, 233, 0.3);
+    font-weight: 600;
+    font-size: 15px;
+    text-transform: none;
+    height: 48px;
+    margin-bottom: 14px;
+  }
+
+  .route-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+
+      ion-icon {
+        font-size: 14px;
+      }
+
+      &.blue {
+        background: $blue-light;
+        color: $blue;
+      }
+
+      &.green {
+        background: #e6f9f0;
+        color: #16a34a;
+      }
+    }
+  }
+
+  .map-card {
+    background: $white;
+    border-radius: $radius;
+    box-shadow: $shadow;
+    border: 1px solid $border;
+    overflow: hidden;
+
+    .map-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid $border;
+
+      .map-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: $text;
+      }
+
+      .live-badge {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        background: #e6f9f0;
+        color: #16a34a;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
+
+        .live-dot {
+          width: 7px;
+          height: 7px;
+          background: #16a34a;
+          border-radius: 50%;
+          animation: home-pulse 1.8s infinite;
+        }
+      }
+    }
+
+    .full-map-container {
+      height: 380px;
+      overflow: hidden;
+      contain: strict;
+    }
+
+    .no-map-notice {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: $text-muted;
+      background: #fafafa;
+      border-top: 1px solid $border;
+
+      ion-icon {
+        font-size: 16px;
+      }
+    }
+  }
+
+  .checkout-block {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 14px;
+    padding: 18px 16px 20px;
+    background: $blue-light;
+    border-radius: 14px;
+    border: 1px solid color.adjust($blue-light, $lightness: -10%);
+  }
+
+  .checkout-fare {
+    .checkout-fare-label {
+      margin: 0 0 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: $text-muted;
+      font-weight: 700;
+    }
+
+    .checkout-fare-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .checkout-fare-amount {
+      margin: 0;
+      font-size: 32px;
+      font-weight: 800;
+      color: $blue;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+    }
+
+    .discount-badge {
+      background: #16a34a;
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.2px;
+    }
+  }
+
+  .checkout-payment {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    --background: #{$white};
+    --padding-start: 14px;
+    --padding-end: 14px;
+    --padding-top: 12px;
+    --padding-bottom: 12px;
+    --border-radius: 12px;
+    --border-width: 1.5px;
+    --border-color: #{color.adjust($blue-light, $lightness: -18%)};
+    min-height: 56px;
+    font-size: 16px;
+    font-weight: 600;
+    color: $text;
+  }
+
+  .checkout-payment-hint {
+    margin: -8px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: $text-muted;
+  }
+
+  .checkout-cta {
+    margin: 4px 0 0;
+    min-height: 56px;
+    font-size: 17px;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0.2px;
+    --border-radius: 12px;
+    --box-shadow: 0 4px 16px rgba(22, 163, 74, 0.35);
+
+    ion-icon {
+      font-size: 22px;
+    }
+  }
+
+  .loading-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 48px 16px;
+  }
+
+  .loading-card {
+    background: $white;
+    border-radius: $radius;
+    padding: 40px 32px;
+    text-align: center;
+    box-shadow: $shadow;
+    width: 100%;
+
+    ion-spinner {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 14px;
+    }
+
+    p {
+      margin: 0;
+      color: $text-muted;
+      font-size: 14px;
+    }
+  }
+
+  .live-buses-block {
+    padding-top: 4px;
+    border-top: 1px solid $border;
+    margin-top: 8px;
+  }
+
+  .live-buses-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: $text;
+    margin-bottom: 8px;
+
+    ion-icon {
+      font-size: 18px;
+      color: $blue;
+    }
+  }
+
+  .live-buses-hint {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: $text-muted;
+    line-height: 1.4;
+  }
+
+  .live-buses-tap-hint {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: $text;
+    line-height: 1.45;
+  }
+
+  .live-buses-list {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid $border;
+
+    ion-item {
+      --padding-start: 12px;
+      --inner-padding-end: 12px;
+      --min-height: 64px;
+    }
+
+    .live-bus-title {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+      color: $text;
+    }
+
+    .live-bus-operator {
+      font-weight: 500;
+      color: $text-muted;
+    }
+
+    .live-bus-meta {
+      margin: 0;
+      font-size: 12px;
+      color: $text-muted;
+    }
+
+    .live-bus-selected {
+      --background: rgba(0, 84, 233, 0.08);
+    }
+
+    .live-bus-full {
+      --background: rgba(220, 38, 38, 0.12);
+      opacity: 0.95;
+
+      .live-bus-title {
+        color: color.adjust(#dc2626, $lightness: -8%);
+      }
+    }
+  }
+
+  @keyframes home-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(1.3);
+    }
+  }
+}

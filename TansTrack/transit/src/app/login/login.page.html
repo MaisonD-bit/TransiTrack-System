@@ -1,0 +1,44 @@
+<ion-content class="ion-padding">
+  <div class="login-container">
+    <div class="login-header">
+      <ion-icon name="bus-outline" class="app-icon"></ion-icon>
+      <h1>TransiTrack</h1>
+      <p>Welcome back, Driver</p>
+    </div>
+
+    <form [formGroup]="loginForm" (ngSubmit)="login()">
+      <ion-item>
+        <ion-label position="floating">Email</ion-label>
+        <ion-input type="email" formControlName="email"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="loginForm.get('email')?.touched && loginForm.get('email')?.hasError('required')">
+        Email is required
+      </ion-note>
+      <ion-note color="danger" *ngIf="loginForm.get('email')?.touched && loginForm.get('email')?.hasError('email')">
+        Please enter a valid email
+      </ion-note>
+
+      <ion-item>
+        <ion-label position="floating">Password</ion-label>
+        <ion-input type="password" formControlName="password"></ion-input>
+      </ion-item>
+      <ion-note color="danger" *ngIf="loginForm.get('password')?.touched && loginForm.get('password')?.hasError('required')">
+        Password is required
+      </ion-note>
+
+      <div class="ion-text-end">
+        <ion-button fill="clear" size="small" (click)="forgotPassword()">Forgot Password?</ion-button>
+      </div>
+
+      <ion-text color="danger" *ngIf="errorMessage">
+        <p class="ion-text-center">{{ errorMessage }}</p>
+      </ion-text>
+
+      <ion-button expand="block" type="submit" [disabled]="loginForm.invalid">Login</ion-button>
+    </form>
+
+    <div class="ion-text-center">
+      <ion-button (click)="signUp()" fill="clear">Sign Up</ion-button>
+    </div>
+  </div>
+</ion-content>

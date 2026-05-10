@@ -1,0 +1,417 @@
+<ion-header [translucent]="false">
+  <ion-toolbar color="primary">
+    <ion-title>Customer Support</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true" class="support-content">
+  <!-- Tabs for different sections -->
+  <ion-segment [(ngModel)]="activeTab" color="primary" class="support-segment">
+    <ion-segment-button value="support">
+      <ion-label>My Tickets</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="faq">
+      <ion-label>FAQ</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="contact">
+      <ion-label>Contact Us</ion-label>
+    </ion-segment-button>
+  </ion-segment>
+
+  <!-- Support Tickets Tab -->
+  <div *ngIf="activeTab === 'support'" class="tab-content">
+    <!-- Action Button -->
+    <ion-card class="action-card">
+      <ion-button expand="block" color="primary" (click)="openNewTicketForm()">
+        <ion-icon name="add-circle-outline" slot="start"></ion-icon>
+        Create New Ticket
+      </ion-button>
+    </ion-card>
+
+    <!-- Filter -->
+    <ion-card class="filter-card">
+      <ion-card-content>
+        <ion-item>
+          <ion-label>Filter by Status:</ion-label>
+          <ion-select [(ngModel)]="ticketFilter" (ionChange)="onTicketFilterChange()">
+            <ion-select-option value="all">All Tickets</ion-select-option>
+            <ion-select-option value="open">Open</ion-select-option>
+            <ion-select-option value="in-progress">In Progress</ion-select-option>
+            <ion-select-option value="resolved">Resolved</ion-select-option>
+            <ion-select-option value="closed">Closed</ion-select-option>
+          </ion-select>
+        </ion-item>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Loading State -->
+    <ion-loading
+      [isOpen]="isLoadingTickets"
+      message="Loading tickets..."
+      spinner="circles">
+    </ion-loading>
+
+    <!-- Empty State -->
+    <div *ngIf="!isLoadingTickets && displayedTickets.length === 0" class="empty-state">
+      <ion-icon name="ticket-outline" size="large"></ion-icon>
+      <h2>No Support Tickets</h2>
+      <p>You don't have any support tickets yet.</p>
+    </div>
+
+    <!-- Tickets List -->
+    <ion-list *ngIf="!isLoadingTickets && displayedTickets.length > 0">
+      <ion-item-divider sticky>
+        <ion-label>Support Tickets</ion-label>
+      </ion-item-divider>
+
+      <ion-card 
+        *ngFor="let ticket of displayedTickets" 
+        (click)="selectTicket(ticket)"
+        class="ticket-card"
+        button>
+        <ion-card-content>
+          <div class="ticket-header">
+            <div class="ticket-title">
+              <h2>{{ ticket.subject }}</h2>
+              <p class="ticket-id">{{ ticket.id }}</p>
+            </div>
+            <ion-badge [color]="getStatusColor(ticket.status)">
+              {{ ticket.status | uppercase }}
+            </ion-badge>
+          </div>
+
+          <p class="ticket-description">{{ ticket.description | slice:0:100 }}{{ ticket.description.length > 100 ? '...' : '' }}</p>
+
+          <div class="ticket-meta">
+            <div class="meta-item">
+              <ion-icon name="flag"></ion-icon>
+              <ion-text [color]="getPriorityColor(ticket.priority)">{{ ticket.priority | uppercase }}</ion-text>
+            </div>
+            <div class="meta-item">
+              <ion-icon name="folder-outline"></ion-icon>
+              <span>{{ ticket.category }}</span>
+            </div>
+            <div class="meta-item">
+              <ion-icon name="time-outline"></ion-icon>
+              <span>{{ getRelativeTime(ticket.lastUpdated) }}</span>
+            </div>
+          </div>
+
+          <ion-progress-bar 
+            [value]="ticket.responses.length > 0 ? 0.7 : 0.3">
+          </ion-progress-bar>
+        </ion-card-content>
+      </ion-card>
+    </ion-list>
+  </div>
+
+  <!-- FAQ Tab -->
+  <div *ngIf="activeTab === 'faq'" class="tab-content">
+    <!-- Search -->
+    <ion-card class="search-card">
+      <ion-card-content>
+        <ion-searchbar
+          [(ngModel)]="searchFAQ"
+          placeholder="Search FAQs..."
+          animated="true">
+        </ion-searchbar>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Empty State -->
+    <div *ngIf="getFilteredFAQs().length === 0" class="empty-state">
+      <ion-icon name="help-circle-outline" size="large"></ion-icon>
+      <h2>No Results Found</h2>
+      <p>Try searching with different keywords.</p>
+    </div>
+
+    <!-- FAQ List -->
+    <ion-list *ngIf="getFilteredFAQs().length > 0">
+      <ion-card 
+        *ngFor="let faq of getFilteredFAQs()" 
+        class="faq-card">
+        <ion-card-header 
+          (click)="toggleFAQ(faq.id)"
+          button>
+          <div class="faq-header">
+            <div class="faq-title">
+              <h3>{{ faq.question }}</h3>
+            </div>
+            <ion-icon 
+              [name]="isFAQExpanded(faq.id) ? 'chevron-up-outline' : 'chevron-down-outline'">
+            </ion-icon>
+          </div>
+        </ion-card-header>
+
+        <ion-card-content *ngIf="isFAQExpanded(faq.id)">
+          <p class="faq-answer">{{ faq.answer }}</p>
+          <ion-button 
+            size="small" 
+            color="primary" 
+            fill="outline"
+            (click)="markFAQHelpful(faq.id)">
+            <ion-icon name="thumbs-up-outline" slot="start"></ion-icon>
+            Helpful ({{ faq.helpful }})
+          </ion-button>
+        </ion-card-content>
+      </ion-card>
+    </ion-list>
+  </div>
+
+  <!-- Contact Tab -->
+  <div *ngIf="activeTab === 'contact'" class="tab-content">
+    <!-- Contact Info -->
+    <ion-card class="info-card">
+      <ion-card-header>
+        <ion-card-title>Get in Touch</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <p>Need immediate assistance? We're here to help!</p>
+
+        <ion-item>
+          <ion-icon name="call-outline" slot="start" color="primary"></ion-icon>
+          <ion-label>
+            <p>Phone</p>
+            <h2>+1 (555) 123-4567</h2>
+          </ion-label>
+        </ion-item>
+
+        <ion-item>
+          <ion-icon name="mail-outline" slot="start" color="primary"></ion-icon>
+          <ion-label>
+            <p>Email</p>
+            <h2>support@transittracksys.com</h2>
+          </ion-label>
+        </ion-item>
+
+        <ion-item>
+          <ion-icon name="time-outline" slot="start" color="primary"></ion-icon>
+          <ion-label>
+            <p>Available Hours</p>
+            <h2>Mon-Fri: 8AM - 6PM</h2>
+          </ion-label>
+        </ion-item>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Contact Form Button -->
+    <ion-card class="action-card">
+      <ion-button expand="block" color="primary" (click)="openContactForm()">
+        <ion-icon name="mail-outline" slot="start"></ion-icon>
+        Send Message
+      </ion-button>
+    </ion-card>
+
+    <!-- Quick Links -->
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Quick Links</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-button expand="block" fill="outline">
+          <ion-icon name="document-text-outline" slot="start"></ion-icon>
+          User Guide
+        </ion-button>
+        <ion-button expand="block" fill="outline">
+          <ion-icon name="bug-outline" slot="start"></ion-icon>
+          Report a Bug
+        </ion-button>
+        <ion-button expand="block" fill="outline">
+          <ion-icon name="bulb-outline" slot="start"></ion-icon>
+          Request Feature
+        </ion-button>
+      </ion-card-content>
+    </ion-card>
+  </div>
+</ion-content>
+
+<!-- New Ticket Form Modal -->
+<ion-modal [isOpen]="showNewTicketForm" (ionModalDidDismiss)="closeNewTicketForm()">
+  <ng-template>
+    <ion-header>
+      <ion-toolbar color="primary">
+        <ion-title>New Support Ticket</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeNewTicketForm()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+
+    <ion-content class="modal-body">
+      <ion-card class="surface-card">
+        <ion-card-content>
+          <h3>Ticket Details</h3>
+
+          <ion-item>
+            <ion-label position="stacked">Subject *</ion-label>
+            <ion-input 
+              [(ngModel)]="newTicket.subject"
+              placeholder="Brief subject of your issue"
+              type="text">
+            </ion-input>
+          </ion-item>
+
+          <ion-item>
+            <ion-label position="stacked">Category *</ion-label>
+            <ion-select [(ngModel)]="newTicket.category">
+              <ion-select-option *ngFor="let cat of categories" [value]="cat.value">
+                {{ cat.label }}
+              </ion-select-option>
+            </ion-select>
+          </ion-item>
+
+          <ion-item>
+            <ion-label position="stacked">Description *</ion-label>
+            <ion-textarea
+              [(ngModel)]="newTicket.description"
+              placeholder="Please describe your issue in detail"
+              rows="6">
+            </ion-textarea>
+          </ion-item>
+
+          <ion-button 
+            expand="block" 
+            color="primary" 
+            (click)="submitNewTicket()"
+            [disabled]="isSubmitting">
+            <ion-spinner *ngIf="isSubmitting" name="crescent" slot="start"></ion-spinner>
+            {{ isSubmitting ? 'Creating...' : 'Create Ticket' }}
+          </ion-button>
+        </ion-card-content>
+      </ion-card>
+    </ion-content>
+  </ng-template>
+</ion-modal>
+
+<!-- Contact Form Modal -->
+<ion-modal [isOpen]="showContactForm" (ionModalDidDismiss)="closeContactForm()">
+  <ng-template>
+    <ion-header>
+      <ion-toolbar color="primary">
+        <ion-title>Contact Us</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeContactForm()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+
+    <ion-content class="modal-body">
+      <ion-card class="surface-card">
+        <ion-card-content>
+          <ion-item>
+            <ion-label position="stacked">Name *</ion-label>
+            <ion-input 
+              [(ngModel)]="contactQuery.name"
+              placeholder="Your name"
+              type="text">
+            </ion-input>
+          </ion-item>
+
+          <ion-item>
+            <ion-label position="stacked">Email *</ion-label>
+            <ion-input 
+              [(ngModel)]="contactQuery.email"
+              placeholder="Your email"
+              type="email">
+            </ion-input>
+          </ion-item>
+
+          <ion-item>
+            <ion-label position="stacked">Subject *</ion-label>
+            <ion-input 
+              [(ngModel)]="contactQuery.subject"
+              placeholder="Message subject"
+              type="text">
+            </ion-input>
+          </ion-item>
+
+          <ion-item>
+            <ion-label position="stacked">Message *</ion-label>
+            <ion-textarea
+              [(ngModel)]="contactQuery.message"
+              placeholder="Your message"
+              rows="6">
+            </ion-textarea>
+          </ion-item>
+
+          <ion-button 
+            expand="block" 
+            color="primary" 
+            (click)="submitContactForm()"
+            [disabled]="isSubmitting">
+            <ion-spinner *ngIf="isSubmitting" name="crescent" slot="start"></ion-spinner>
+            {{ isSubmitting ? 'Sending...' : 'Send Message' }}
+          </ion-button>
+        </ion-card-content>
+      </ion-card>
+    </ion-content>
+  </ng-template>
+</ion-modal>
+
+<!-- Ticket Detail Modal -->
+<ion-modal [isOpen]="showTicketDetail" (ionModalDidDismiss)="closeTicketDetail()">
+  <ng-template>
+    <ion-header>
+      <ion-toolbar color="primary">
+        <ion-title>Ticket Details</ion-title>
+        <ion-buttons slot="end">
+          <ion-button fill="clear" color="light" (click)="closeTicketDetail()">
+            <ion-icon name="close" slot="start"></ion-icon>
+            Close
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+
+    <ion-content *ngIf="selectedTicket" class="modal-body">
+      <ion-card class="surface-card">
+        <ion-card-header>
+          <ion-card-title>{{ selectedTicket.subject }}</ion-card-title>
+          <ion-card-subtitle>{{ selectedTicket.id }}</ion-card-subtitle>
+        </ion-card-header>
+
+        <ion-card-content>
+          <div class="detail-badges">
+            <ion-badge [color]="getStatusColor(selectedTicket.status)">
+              {{ selectedTicket.status | uppercase }}
+            </ion-badge>
+            <ion-badge [color]="getPriorityColor(selectedTicket.priority)">
+              {{ selectedTicket.priority | uppercase }}
+            </ion-badge>
+            <ion-badge color="medium">{{ selectedTicket.category }}</ion-badge>
+          </div>
+
+          <h3>Description</h3>
+          <p>{{ selectedTicket.description }}</p>
+
+          <h3>Status Timeline</h3>
+          <ion-item>
+            <ion-label>Created</ion-label>
+            <ion-text slot="end">{{ selectedTicket.createdDate | date: 'MMM dd, yyyy HH:mm' }}</ion-text>
+          </ion-item>
+          <ion-item>
+            <ion-label>Last Updated</ion-label>
+            <ion-text slot="end">{{ selectedTicket.lastUpdated | date: 'MMM dd, yyyy HH:mm' }}</ion-text>
+          </ion-item>
+
+          <h3>Responses ({{ selectedTicket.responses.length }})</h3>
+          <div class="responses-list">
+            <div *ngFor="let response of selectedTicket.responses" class="response">
+              <div class="response-header">
+                <strong>{{ response.sender | uppercase }}</strong>
+                <span class="time">{{ getRelativeTime(response.timestamp) }}</span>
+              </div>
+              <p class="response-message">{{ response.message }}</p>
+            </div>
+          </div>
+        </ion-card-content>
+      </ion-card>
+    </ion-content>
+  </ng-template>
+</ion-modal>

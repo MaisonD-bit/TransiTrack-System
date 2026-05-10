@@ -1,0 +1,282 @@
+// Global content styling with blue gradient background
+ion-content {
+  --background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+}
+
+.login-container {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 1rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.login-header {
+  margin-bottom: 2rem;
+  text-align: center;
+  
+  .app-icon {
+    font-size: 4rem;
+    color: #ffffff;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+    animation: iconBounce 2s ease-in-out infinite;
+  }
+  
+  h1 {
+    font-size: 2.8rem;
+    font-weight: 700;
+    margin: 0;
+    color: #ffffff;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    letter-spacing: -0.5px;
+  }
+  
+  p {
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 400;
+  }
+}
+
+// Enhanced form styling with blue accents
+form {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 2.5rem;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  margin-bottom: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  animation: slideUpFade 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+// Enhanced form items with blue theme
+ion-item {
+  margin-bottom: 1.5rem;
+  --border-radius: 12px;
+  --background: #f8faff;
+  --border-color: #e3f2fd;
+  --color: #1a237e;
+  --border-width: 2px;
+  --inner-padding-end: 16px;
+  --inner-padding-start: 16px;
+  --padding-top: 4px;
+  --padding-bottom: 4px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  ion-label {
+    color: #1565c0 !important;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  
+  ion-input {
+    --color: #1a237e;
+    --placeholder-color: #90a4ae;
+    --padding-top: 16px;
+    --padding-bottom: 16px;
+    font-size: 1rem;
+  }
+  
+  &:hover {
+    --background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.15);
+  }
+}
+
+// Focus states with blue highlight
+ion-item.item-has-focus {
+  --border-color: #2196f3;
+  --background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+// Error notes styling
+ion-note {
+  margin-left: 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  display: block;
+  font-weight: 500;
+}
+
+// Forgot password button with blue styling
+.ion-text-end {
+  margin: 1rem 0 1.5rem 0;
+  
+  ion-button {
+    --color: #1976d2;
+    font-size: 0.9rem;
+    height: auto;
+    margin: 0;
+    font-weight: 600;
+    
+    &:hover {
+      --color: #0d47a1;
+    }
+  }
+}
+
+// Enhanced error message styling
+ion-text[color="danger"] {
+  margin: 1rem 0;
+  
+  p {
+    background: linear-gradient(135deg, #ffebee 0%, #fce4ec 100%);
+    color: #c62828;
+    padding: 1rem;
+    border-radius: 12px;
+    border: 1px solid #ffcdd2;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(198, 40, 40, 0.1);
+  }
+}
+
+// Enhanced submit button with blue gradient
+ion-button[type="submit"] {
+  margin-top: 1.5rem;
+  height: 52px;
+  font-weight: 700;
+  --border-radius: 12px;
+  --background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+  --background-hover: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  --color: white;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &[disabled] {
+    opacity: 0.6;
+    --background: #90a4ae;
+    box-shadow: none;
+  }
+  
+  &:not([disabled]):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(33, 150, 243, 0.5);
+  }
+}
+
+// Sign up section styling
+.ion-text-center {
+  text-align: center;
+  margin-top: 1rem;
+  
+  .signup-description {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1rem;
+    margin: 0;
+    line-height: 1.6;
+    
+    .signup-link {
+      --color: #ffffff;
+      font-weight: 700;
+      font-size: 1rem;
+      height: auto;
+      margin: 0;
+      padding: 0;
+      text-decoration: none;
+      
+      &:hover {
+        --color: #e3f2fd;
+        transform: scale(1.05);
+      }
+    }
+  }
+}
+
+.ion-text-center ion-button {
+  color: #fff !important;
+  --color: #fff;
+  font-weight: 700;
+}
+
+// Enhanced header styling
+ion-header {
+  ion-toolbar {
+    --background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    --color: white;
+    
+    ion-title {
+      font-weight: 600;
+      font-size: 1.2rem;
+    }
+  }
+}
+
+// Light theme overrides for better contrast
+:host {
+  --ion-background-color: #ffffff;
+  --ion-text-color: #1a237e;
+  --ion-color-primary: #2196f3;
+  --ion-color-primary-rgb: 33, 150, 243;
+  --ion-color-primary-contrast: #ffffff;
+  --ion-color-primary-contrast-rgb: 255, 255, 255;
+  --ion-color-primary-shade: #1976d2;
+  --ion-color-primary-tint: #42a5f5;
+}
+
+// Responsive adjustments
+@media (max-width: 576px) {
+  .login-container {
+    padding: 0.5rem;
+  }
+  
+  form {
+    padding: 2rem;
+    margin: 0 0.5rem 1rem 0.5rem;
+    border-radius: 16px;
+  }
+  
+  .login-header h1 {
+    font-size: 2.4rem;
+  }
+}
+
+// Enhanced animations
+.login-header {
+  animation: fadeInDown 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes iconBounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-8px);
+  }
+  60% {
+    transform: translateY(-4px);
+  }
+}

@@ -1,0 +1,6 @@
+@use "../../theme/home.shared" as home;
+
+:host {
+  display: block;
+  @include home.home-page;
+}

@@ -1,0 +1,293 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-buttons slot="start">
+      <ion-back-button defaultHref="/tabs/home"></ion-back-button>
+    </ion-buttons>
+    <ion-title>My Profile</ion-title>
+    <ion-buttons slot="end">
+      <ion-button *ngIf="!isEditing" (click)="isEditing = true">
+        <ion-icon name="create-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <div class="profile-container">
+    
+    <!-- Profile Section -->
+    <ion-card class="profile-card">
+      <ion-card-header>
+        <div class="profile-header">
+          <div class="avatar">
+            <ion-icon name="person"></ion-icon>
+          </div>
+          <div class="profile-info">
+            <h2>{{ userProfile.name }}</h2>
+            <p>{{ userProfile.passengerType }} Passenger</p>
+            <!-- Verification Badge -->
+            <ion-chip *ngIf="userProfile.idVerified" color="success">
+              <ion-icon name="checkmark-circle-outline"></ion-icon>
+              <ion-label>ID Verified</ion-label>
+            </ion-chip>
+          </div>
+        </div>
+      </ion-card-header>
+
+      <ion-card-content>
+        <form>
+          <ion-list [inset]="true">
+            <ion-item>
+              <ion-icon name="person-outline" slot="start"></ion-icon>
+              <ion-input
+                label="Full Name"
+                labelPlacement="floating"
+                [(ngModel)]="userProfile.name"
+                [readonly]="!isEditing"
+                name="name"
+                placeholder="Enter your full name">
+              </ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-icon name="mail-outline" slot="start"></ion-icon>
+              <ion-input
+                label="Email or Student email for discount"
+                labelPlacement="floating"
+                type="email"
+                [(ngModel)]="userProfile.email"
+                [readonly]="isEditing"
+                name="email"
+                placeholder="Enter your email">
+              </ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-icon name="call-outline" slot="start"></ion-icon>
+              <ion-input
+                label="Phone Number"
+                labelPlacement="floating"
+                type="tel"
+                [(ngModel)]="userProfile.phone"
+                [readonly]="isEditing"
+                name="phone"
+                placeholder="Enter your phone number">
+              </ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-icon name="people-outline" slot="start"></ion-icon>
+              <ion-select
+                label="Passenger Type"
+                labelPlacement="floating"
+                [(ngModel)]="userProfile.passengerType"
+                [disabled]="!isEditing"
+                name="passengerType"
+                interface="action-sheet">
+                <ion-select-option value="Regular">Regular</ion-select-option>
+                <ion-select-option value="Student">Student</ion-select-option>
+                <ion-select-option value="Senior">Senior Citizen</ion-select-option>
+                <ion-select-option value="PWD">PWD</ion-select-option>
+              </ion-select>
+            </ion-item>
+
+            <!-- ID Number (if verified) -->
+            <ion-item *ngIf="userProfile.idNumber">
+              <ion-icon name="card-outline" slot="start"></ion-icon>
+              <ion-input
+                label="ID Number"
+                labelPlacement="floating"
+                [(ngModel)]="userProfile.idNumber"
+                [readonly]="true"
+                name="idNumber">
+              </ion-input>
+            </ion-item>
+          </ion-list>
+
+          <!-- ID Verification Section -->
+          <div class="id-verification-section" *ngIf="userProfile.passengerType === 'Regular'">
+            <ion-item lines="none" *ngIf="!userProfile.idVerified">
+              <ion-icon name="alert-circle-outline" slot="start" color="warning"></ion-icon>
+              <ion-label class="ion-text-wrap">
+                <h3>Verify Your ID</h3>
+                <p>Scan your PWD, Senior Citizen, or Student ID to get discounts</p>
+              </ion-label>
+            </ion-item>
+
+            <ion-button
+              expand="block"
+              color="secondary"
+              (click)="showIdScanner = true"
+              *ngIf="!userProfile.idVerified">
+              <ion-icon name="scan" slot="start"></ion-icon>
+              Scan ID for Verification
+            </ion-button>
+
+            <!-- Re-verify button if already verified -->
+            <ion-button 
+              expand="block" 
+              fill="outline"
+              color="medium"
+              (click)="showIdScanner = true"
+              *ngIf="userProfile.idVerified">
+              <ion-icon name="refresh" slot="start"></ion-icon>
+              Update ID Verification
+            </ion-button>
+          </div>
+
+          <div *ngIf="isEditing" class="action-buttons">
+            <ion-button expand="block" (click)="saveProfile()">
+              <ion-icon name="checkmark" slot="start"></ion-icon>
+              Save Profile
+            </ion-button>
+            <ion-button expand="block" fill="outline" (click)="isEditing = false">
+              Cancel
+            </ion-button>
+          </div>
+        </form>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Payment Methods Section -->
+    <ion-card class="payment-card">
+      <ion-card-header>
+        <div class="section-header">
+          <div>
+            <ion-card-title>Payment Methods</ion-card-title>
+            <ion-card-subtitle>Manage your online payment accounts</ion-card-subtitle>
+          </div>
+          <div>
+            <ion-button fill="clear" (click)="loadBalances()" [disabled]="balancesLoading">
+              <ion-icon name="refresh-outline" slot="icon-only"></ion-icon>
+            </ion-button>
+            <ion-button fill="clear" (click)="showAddPaymentForm = true" *ngIf="!showAddPaymentForm">
+              <ion-icon name="add-circle" slot="icon-only"></ion-icon>
+            </ion-button>
+          </div>
+        </div>
+      </ion-card-header>
+
+      <ion-card-content>
+        <!-- Add Payment Method Form -->
+        <div *ngIf="showAddPaymentForm" class="add-payment-form">
+          <ion-list [inset]="true">
+            <ion-item>
+              <ion-select
+                label="Payment Type"
+                labelPlacement="floating"
+                [(ngModel)]="newPaymentMethod.type"
+                interface="action-sheet">
+                <ion-select-option value="gcash">
+                  📱 GCash
+                </ion-select-option>
+                <ion-select-option value="paymaya">
+                  💳 PayMaya
+                </ion-select-option>
+                <ion-select-option value="cash">
+                  Cash
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+
+            <ion-item>
+              <ion-input
+                label="Account Number / Phone"
+                labelPlacement="floating"
+                [(ngModel)]="newPaymentMethod.number"
+                type="tel"
+                placeholder="Enter account number">
+              </ion-input>
+            </ion-item>
+
+            <ion-item>
+              <ion-input
+                label="Account Name"
+                labelPlacement="floating"
+                [(ngModel)]="newPaymentMethod.name"
+                placeholder="Enter account holder name">
+              </ion-input>
+            </ion-item>
+          </ion-list>
+
+          <div class="form-buttons">
+            <ion-button expand="block" (click)="addPaymentMethod()">
+              <ion-icon name="add" slot="start"></ion-icon>
+              Add Payment Method
+            </ion-button>
+            <ion-button expand="block" fill="outline" (click)="showAddPaymentForm = false">
+              Cancel
+            </ion-button>
+          </div>
+        </div>
+
+        <!-- Payment Methods List -->
+        <div class="payment-methods-list" *ngIf="paymentMethods.length > 0">
+          <ion-list>
+            <ion-item *ngFor="let method of paymentMethods; let i = index" class="payment-item">
+              <ion-icon [name]="getPaymentIcon(method.type)" slot="start" color="primary"></ion-icon>
+              <ion-label>
+                <h3>{{ getPaymentLabel(method.type) }}</h3>
+                <p>{{ maskNumber(method.number) }}</p>
+                <p class="account-name">{{ method.name }}</p>
+                <p *ngIf="method.type === 'gcash' || method.type === 'paymaya'" class="balance-line">
+                  <ng-container *ngIf="balances[method.number] !== undefined; else loadingBal">
+                    <ng-container *ngIf="balances[method.number] !== null; else unavailBal">
+                      <ion-text color="success"><strong>Balance: ₱{{ balances[method.number] | number:'1.2-2' }}</strong></ion-text>
+                    </ng-container>
+                    <ng-template #unavailBal><ion-text color="medium">Balance unavailable</ion-text></ng-template>
+                  </ng-container>
+                  <ng-template #loadingBal><ion-text color="medium">Loading balance...</ion-text></ng-template>
+                </p>
+              </ion-label>
+              <ion-chip *ngIf="method.isDefault" color="success" slot="end">
+                <ion-label>Default</ion-label>
+              </ion-chip>
+              <ion-button *ngIf="!method.isDefault" fill="clear" slot="end" (click)="setDefaultPayment(i)">
+                <ion-icon name="star-outline"></ion-icon>
+              </ion-button>
+              <ion-button fill="clear" slot="end" (click)="removePaymentMethod(i)" color="danger">
+                <ion-icon name="trash-outline"></ion-icon>
+              </ion-button>
+            </ion-item>
+          </ion-list>
+        </div>
+
+        <div *ngIf="paymentMethods.length === 0 && !showAddPaymentForm" class="empty-state">
+          <ion-icon name="wallet-outline"></ion-icon>
+          <p>No payment methods added yet</p>
+          <ion-button (click)="showAddPaymentForm = true">
+            <ion-icon name="add" slot="start"></ion-icon>
+            Add Payment Method
+          </ion-button>
+        </div>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Save / Logout -->
+    <div class="bottom-actions">
+      <ion-button expand="block" (click)="saveProfile()">
+        <ion-icon name="save-outline" slot="start"></ion-icon>
+        Save Profile
+      </ion-button>
+      <ion-button expand="block" fill="outline" color="danger" (click)="logout()">
+        <ion-icon name="log-out-outline" slot="start"></ion-icon>
+        Logout
+      </ion-button>
+    </div>
+
+  </div>
+
+  <!-- ID Scanner Overlay -->
+  <div class="scanner-overlay" *ngIf="showIdScanner">
+    <div class="scanner-backdrop" (click)="showIdScanner = false"></div>
+    <div class="scanner-sheet">
+      <app-id-scanner
+        [userId]="userProfile.id"
+        [visible]="showIdScanner"
+        (scanComplete)="onIdScanComplete($event)"
+        (close)="showIdScanner = false"
+      ></app-id-scanner>
+    </div>
+  </div>
+</ion-content>
+

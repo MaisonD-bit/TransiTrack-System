@@ -1,0 +1,114 @@
+<div *ngIf="visible && selectedRoute" class="e-ticket-inline">
+  <ion-card class="ticket-card">
+
+    <ion-card-header class="ticket-header">
+      <div class="ticket-header-content">
+        <div class="ticket-icon">
+          <ion-icon name="bus"></ion-icon>
+        </div>
+        <div class="ticket-title-section">
+          <ion-card-title>Transit e-Ticket</ion-card-title>
+          <ion-card-subtitle>{{ selectedRoute.name }}</ion-card-subtitle>
+        </div>
+      </div>
+    </ion-card-header>
+
+    <ion-card-content class="ticket-content">
+
+      <div class="ticket-section">
+        <div class="section-label">Route Details</div>
+        <div class="route-info-grid">
+          <div class="info-item">
+            <ion-icon name="location" color="success"></ion-icon>
+            <div>
+              <div class="info-label">From</div>
+              <div class="info-value">{{ getOrigin() }}</div>
+            </div>
+          </div>
+          <div class="info-item">
+            <ion-icon name="flag" color="danger"></ion-icon>
+            <div>
+              <div class="info-label">To</div>
+              <div class="info-value">{{ getDestination() }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-section">
+        <div class="fare-display">
+          <div class="fare-label">TOTAL FARE</div>
+          <div class="fare-amount">₱{{ ticketFare || selectedRoute?.basefare }}</div>
+          <ion-badge color="light" *ngIf="hasDiscount" class="discount-badge">
+            {{ discountPercent }}% {{ passengerType }} OFF
+          </ion-badge>
+        </div>
+      </div>
+
+      <div class="ticket-section qr-section" *ngIf="paymentMethod !== 'cash'">
+        <div class="qr-code-placeholder">
+          <img [src]="qrDataUrl" alt="Ticket QR Code" class="qr-image" />
+          <div class="qr-label">Scan to validate ticket</div>
+        </div>
+      </div>
+
+      <div class="ticket-section cash-notice" *ngIf="paymentMethod === 'cash'">
+        <ion-icon name="cash-outline"></ion-icon>
+        <span>Please pay the conductor directly</span>
+      </div>
+
+      <div class="ticket-section ticket-details">
+        <div class="detail-row">
+          <span class="detail-label">Ticket ID:</span>
+          <span class="detail-value">#{{ ticketID }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Issue Date:</span>
+          <span class="detail-value">{{ currentTime }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Route Distance:</span>
+          <span class="detail-value">{{ getRouteDistance() }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Operator:</span>
+          <span class="detail-value">{{ operatorCompany || '—' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Bus:</span>
+          <span class="detail-value">{{ busLabel || '—' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Valid For:</span>
+          <span class="detail-value">Single Journey</span>
+        </div>
+        <div class="detail-row payment-row">
+          <span class="detail-label">Payment Method:</span>
+          <ion-select [(ngModel)]="paymentMethod" interface="action-sheet" class="payment-method-select">
+            <ion-select-option value="cash">💵 Cash</ion-select-option>
+            <ion-select-option value="paymaya">💳 PayMaya</ion-select-option>
+            <ion-select-option value="gcash">📱 GCash</ion-select-option>
+          </ion-select>
+        </div>
+      </div>
+
+      <div class="ticket-notice">
+        <ion-icon name="information-circle-outline"></ion-icon>
+        <span>Present this ticket to the conductor upon boarding</span>
+      </div>
+
+    </ion-card-content>
+
+    <div class="ticket-footer">
+      <ion-button expand="block" color="success" (click)="openScanToPay()" *ngIf="paymentMethod !== 'cash'">
+        <ion-icon name="qr-code-outline" slot="start"></ion-icon>
+        Scan e-Ticket
+      </ion-button>
+      <ion-button expand="block" fill="outline" color="danger" (click)="closeTicket()">
+        <ion-icon name="close-circle-outline" slot="start"></ion-icon>
+        Cancel Booking
+      </ion-button>
+    </div>
+
+  </ion-card>
+</div>

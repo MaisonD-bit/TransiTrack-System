@@ -1,0 +1,11 @@
+/**
+ * Home tab styles in the main CSS bundle (Capacitor/WebView).
+ * Edit src/theme/_home.shared.scss.
+ */
+@use "./home.shared" as home;
+
+app-home {
+  display: block;
+  min-height: 100%;
+  @include home.home-page;
+}

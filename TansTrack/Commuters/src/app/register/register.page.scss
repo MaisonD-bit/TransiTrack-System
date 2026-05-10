@@ -1,0 +1,76 @@
+@use "../../theme/register.shared" as register;
+
+:host {
+  display: block;
+  min-height: 100%;
+  @include register.register-page;
+}
+
+.gender-field {
+  padding: 4px 16px;
+
+  .gender-label {
+    font-size: 13px;
+    color: var(--ion-color-medium);
+    margin: 0 0 8px 0;
+  }
+
+  .gender-options {
+    display: flex;
+    gap: 12px;
+  }
+
+  .gender-btn {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid var(--ion-color-primary);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ion-color-primary);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+
+    &.selected {
+      background: var(--ion-color-primary);
+      color: white;
+    }
+  }
+}
+
+.terms-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  cursor: pointer;
+
+  .terms-check {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--ion-color-primary);
+    border-radius: 4px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+
+    &.checked {
+      background: var(--ion-color-primary);
+    }
+  }
+
+  .terms-label {
+    font-size: 14px;
+    color: var(--ion-text-color);
+    line-height: 1.4;
+
+    a {
+      color: var(--ion-color-primary);
+    }
+  }
+}

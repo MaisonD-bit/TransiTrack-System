@@ -1,0 +1,29 @@
+.capture-buttons {
+  margin-top: 16px;
+  
+  ion-button {
+    margin-bottom: 8px;
+  }
+}
+
+.image-preview {
+  margin-top: 16px;
+  
+  img {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+}
+
+.action-buttons {
+  margin-top: 16px;
+  
+  ion-button {
+    margin-bottom: 8px;
+  }
+}
+
+ion-segment {
+  margin-bottom: 16px;
+}

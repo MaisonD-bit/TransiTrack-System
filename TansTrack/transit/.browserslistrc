@@ -1,0 +1,9 @@
+# Capacitor WebView is always up-to-date; target modern versions to avoid
+# esbuild destructuring transform limitations.
+
+Chrome >=90
+ChromeAndroid >=90
+Firefox >=90
+Edge >=90
+Safari >=15.4
+iOS >=15.4

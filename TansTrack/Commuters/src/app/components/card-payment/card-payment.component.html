@@ -1,0 +1,90 @@
+<div class="cp-wrapper">
+
+  <div class="cp-header">
+    <span class="cp-title">Card Payment</span>
+  </div>
+
+  <!-- Fare summary -->
+  <div class="cp-summary">
+    <div class="cp-route">{{ routeName }}</div>
+    <div class="cp-fare">{{ fareDisplay }}</div>
+    <div class="cp-sub">Credit / Debit Card via Stripe</div>
+  </div>
+
+  <!-- Card form -->
+  <div class="cp-form">
+
+    <div class="cp-field">
+      <label>Card Number</label>
+      <input
+        type="text"
+        inputmode="numeric"
+        placeholder="1234 5678 9012 3456"
+        [value]="cardNumber"
+        (input)="onCardNumberInput($event)"
+        maxlength="19"
+        autocomplete="cc-number"
+      />
+    </div>
+
+    <div class="cp-row">
+      <div class="cp-field">
+        <label>Expiry</label>
+        <input
+          type="text"
+          inputmode="numeric"
+          placeholder="MM/YY"
+          [value]="expiry"
+          (input)="onExpiryInput($event)"
+          maxlength="5"
+          autocomplete="cc-exp"
+        />
+      </div>
+      <div class="cp-field">
+        <label>CVC</label>
+        <input
+          type="text"
+          inputmode="numeric"
+          placeholder="123"
+          [(ngModel)]="cvc"
+          maxlength="4"
+          autocomplete="cc-csc"
+        />
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>Cardholder Name</label>
+      <input
+        type="text"
+        placeholder="Juan Dela Cruz"
+        [(ngModel)]="cardName"
+        autocomplete="cc-name"
+      />
+    </div>
+
+    <div class="cp-error" *ngIf="error">
+      <ion-icon name="warning-outline"></ion-icon>
+      <span>{{ error }}</span>
+    </div>
+
+  </div>
+
+  <!-- Actions -->
+  <div class="cp-actions">
+    <ion-button expand="block" color="success" (click)="pay()" [disabled]="isProcessing">
+      <ion-spinner *ngIf="isProcessing" name="crescent" slot="start"></ion-spinner>
+      <ion-icon *ngIf="!isProcessing" name="card-outline" slot="start"></ion-icon>
+      {{ isProcessing ? 'Processing...' : 'Pay ' + fareDisplay }}
+    </ion-button>
+    <ion-button expand="block" fill="outline" color="medium" (click)="cancel.emit()" [disabled]="isProcessing">
+      Cancel
+    </ion-button>
+  </div>
+
+  <p class="cp-secured">
+    <ion-icon name="lock-closed-outline"></ion-icon>
+    Secured by Stripe
+  </p>
+
+</div>

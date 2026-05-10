@@ -1,0 +1,36 @@
+# Dependencies
+**/node_modules/
+**/vendor/
+
+# Environment & secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build outputs
+**/dist/
+**/www/
+**/public/build/
+**/public/hot/
+
+# Laravel / storage (keep structure via .gitignore inside apps)
+**/storage/*.key
+**/bootstrap/cache/*
+
+# Logs & caches
+*.log
+.npm/
+.angular/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Optional: omit heavy local backup folders (remove this line if you want them in git)
+TansTrack/Commuters_BACKUP_*/
+
+# Disabled nested git folder backups (should never be committed)
+**/.git_disabled/
