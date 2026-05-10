@@ -13,9 +13,10 @@
 **/public/build/
 **/public/hot/
 
-# Laravel / storage (keep structure via .gitignore inside apps)
+# Laravel / storage
 **/storage/*.key
 **/bootstrap/cache/*
+/storage/pail
 
 # Logs & caches
 *.log
@@ -25,12 +26,27 @@
 # IDE / OS
 .idea/
 .vscode/
+.nova/
+.zed/
+.phpactor.json
 *.swp
 .DS_Store
 Thumbs.db
 
-# Optional: omit heavy local backup folders (remove this line if you want them in git)
+# Laravel specific
+.env.backup
+.env.production
+.phpunit.result.cache
+/.fleet
+/auth.json
+/public/storage
+
+# Project backups
 TansTrack/Commuters_BACKUP_*/
 
-# Disabled nested git folder backups (should never be committed)
+# Disabled nested git folder backups
 **/.git_disabled/
+
+# Laravel cache
+Homestead.json
+Homestead.yaml
