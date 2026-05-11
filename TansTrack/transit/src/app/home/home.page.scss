@@ -143,11 +143,13 @@
     --border-color: var(--ion-color-primary);
     --color: var(--ion-color-primary);
     --border-width: 2px;
+    --box-shadow-focused: none;
     border-radius: 12px;
     font-size: 0.9rem;
     height: 48px;
     font-weight: 600;
     text-transform: none;
+    outline: none !important;
 
     &.start-route {
       --background: var(--ion-color-success);
@@ -191,6 +193,15 @@
     .manifest-summary {
       display: flex;
       align-items: center;
+
+      ion-badge + ion-badge {
+        margin-left: 6px;
+      }
+    }
+
+    .manifest-title-icon {
+      vertical-align: middle;
+      margin-right: 6px;
     }
   }
 
@@ -253,6 +264,21 @@
       font-size: 0.75rem;
     }
   }
+}
+
+.actions-second-row {
+  margin-top: 0.5em;
+}
+
+.notifications-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notification-title-icon {
+  vertical-align: middle;
+  margin-right: 8px;
 }
 
 // Notifications Card

@@ -197,12 +197,12 @@
     <ion-card-header>
       <div class="manifest-header">
         <ion-card-title>
-          <ion-icon name="people-outline" style="vertical-align:middle;margin-right:6px;"></ion-icon>
+          <ion-icon name="people-outline" class="manifest-title-icon"></ion-icon>
           Passengers
         </ion-card-title>
         <div class="manifest-summary">
           <ion-badge color="success">{{ manifestPaidCount }} Paid</ion-badge>
-          <ion-badge color="primary" style="margin-left:6px;">{{ manifestOnBoardCount }} On Board</ion-badge>
+          <ion-badge color="primary">{{ manifestOnBoardCount }} On Board</ion-badge>
         </div>
         <ion-button fill="clear" size="small" (click)="showManifest = !showManifest">
           <ion-icon [name]="showManifest ? 'chevron-up-outline' : 'chevron-down-outline'" slot="icon-only"></ion-icon>
@@ -266,7 +266,6 @@
               color="success"
               class="action-btn start-route"
               (click)="handleQuickAction('start-route')"
-              style="outline: none !important; --box-shadow-focused: none;"
             >
               <ion-icon name="play-circle" slot="start"></ion-icon>
               Start Route
@@ -279,22 +278,20 @@
               color="warning"
               class="action-btn report-issue"
               (click)="handleQuickAction('report-issue')"
-              style="outline: none !important; --box-shadow-focused: none;"
             >
               <ion-icon name="warning-outline" slot="start"></ion-icon>
               Report Issue
             </ion-button>
           </ion-col>
         </ion-row>
-        <ion-row style="margin-top: 0.5em;">
+        <ion-row class="actions-second-row">
           <ion-col size="12">
-            <ion-button 
+            <ion-button
               expand="block"
               fill="outline"
-              color="danger" 
-              class="action-btn emergency-alert" 
+              color="danger"
+              class="action-btn emergency-alert"
               (click)="presentEmergencyAlert()"
-              style="outline: none !important; --box-shadow-focused: none;"
             >
               <ion-icon name="alert-circle" slot="start"></ion-icon>
               Emergency Alert
@@ -308,9 +305,9 @@
   <!-- Recent Notifications Card -->
   <ion-card>
     <ion-card-header>
-      <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div class="notifications-card-header">
         <ion-card-title>
-          <ion-icon name="notifications" style="vertical-align: middle; margin-right: 8px;"></ion-icon>
+          <ion-icon name="notifications" class="notification-title-icon"></ion-icon>
           Recent Notifications
         </ion-card-title>
         <ion-button fill="clear" size="small" [routerLink]="['/tabs/notifications']">

@@ -469,6 +469,113 @@ $radius: 14px;
     }
   }
 
+  .boarding-status-wrapper {
+    text-align: center;
+  }
+
+  .trip-complete-card {
+    text-align: center;
+    padding: 32px 16px;
+  }
+
+  .trip-complete-icon {
+    font-size: 72px;
+    display: block;
+    margin: 0 auto 12px;
+  }
+
+  .trip-complete-title {
+    margin: 0 0 4px;
+    font-size: 1.4rem;
+  }
+
+  .trip-complete-route {
+    color: $text-muted;
+    margin: 0 0 24px;
+  }
+
+  .trip-complete-details {
+    background: #f9fafb;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+    text-align: left;
+  }
+
+  .trip-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .trip-detail-icon {
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+
+  .trip-detail-meta {
+    color: $text-muted;
+    display: block;
+  }
+
+  .rating-modal-body {
+    text-align: center;
+    padding: 24px 8px;
+  }
+
+  .rating-modal-icon {
+    font-size: 64px;
+    display: block;
+    margin: 0 auto 12px;
+  }
+
+  .rating-modal-title {
+    margin: 0 0 4px;
+  }
+
+  .rating-modal-subtitle {
+    color: $text-muted;
+    margin: 0 0 6px;
+  }
+
+  .rating-modal-driver {
+    font-weight: 600;
+    font-size: 1.05rem;
+    margin: 0 0 20px;
+  }
+
+  .star-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .star-icon {
+    font-size: 44px;
+    cursor: pointer;
+  }
+
+  .rating-label {
+    color: #9ca3af;
+    min-height: 1.2em;
+    margin-bottom: 20px;
+  }
+
+  .rating-textarea {
+    margin-bottom: 16px;
+    text-align: left;
+  }
+
+  .rating-skip-btn {
+    margin-top: 4px;
+  }
+
   @keyframes home-pulse {
     0%,
     100% {

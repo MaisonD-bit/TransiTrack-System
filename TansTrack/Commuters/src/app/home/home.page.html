@@ -147,7 +147,7 @@
       </div>
 
       <!-- Boarding request status (auto-created when board-at stop is selected) -->
-      <div class="ion-margin-top" *ngIf="boardingRequested" style="text-align:center;">
+      <div class="ion-margin-top boarding-status-wrapper" *ngIf="boardingRequested">
         <ion-chip color="warning">
           <ion-icon name="time-outline"></ion-icon>
           <ion-label>Waiting at {{ boardingRequestStopName }}…</ion-label>
@@ -250,30 +250,30 @@
 
   <!-- Trip Complete Card -->
   <div class="section-wrapper" *ngIf="showTripComplete">
-    <div class="route-card" style="text-align: center; padding: 32px 16px;">
-      <ion-icon name="checkmark-circle" color="success" style="font-size: 72px; display: block; margin: 0 auto 12px;"></ion-icon>
-      <h2 style="margin: 0 0 4px; font-size: 1.4rem;">Trip Completed!</h2>
-      <p style="color: #6b7280; margin: 0 0 24px;">{{ completedTripInfo?.routeName }}</p>
+    <div class="route-card trip-complete-card">
+      <ion-icon name="checkmark-circle" color="success" class="trip-complete-icon"></ion-icon>
+      <h2 class="trip-complete-title">Trip Completed!</h2>
+      <p class="trip-complete-route">{{ completedTripInfo?.routeName }}</p>
 
-      <div style="background: #f9fafb; border-radius: 12px; padding: 16px; margin-bottom: 24px; text-align: left;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;" *ngIf="completedTripInfo?.boardStopName || completedTripInfo?.alightStopName">
-          <ion-icon name="navigate-outline" color="primary" style="font-size: 22px; flex-shrink: 0;"></ion-icon>
+      <div class="trip-complete-details">
+        <div class="trip-detail-row" *ngIf="completedTripInfo?.boardStopName || completedTripInfo?.alightStopName">
+          <ion-icon name="navigate-outline" color="primary" class="trip-detail-icon"></ion-icon>
           <div>
-            <small style="color: #6b7280; display: block;">Journey</small>
+            <small class="trip-detail-meta">Journey</small>
             <strong>{{ completedTripInfo?.boardStopName || '—' }} → {{ completedTripInfo?.alightStopName || '—' }}</strong>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-          <ion-icon name="cash-outline" color="success" style="font-size: 22px; flex-shrink: 0;"></ion-icon>
+        <div class="trip-detail-row">
+          <ion-icon name="cash-outline" color="success" class="trip-detail-icon"></ion-icon>
           <div>
-            <small style="color: #6b7280; display: block;">Fare Paid</small>
+            <small class="trip-detail-meta">Fare Paid</small>
             <strong>₱{{ (completedTripInfo?.fare ?? 0) | number:'1.2-2' }}</strong>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px;" *ngIf="completedTripInfo?.driverName">
-          <ion-icon name="person-outline" color="primary" style="font-size: 22px; flex-shrink: 0;"></ion-icon>
+        <div class="trip-detail-row" *ngIf="completedTripInfo?.driverName">
+          <ion-icon name="person-outline" color="primary" class="trip-detail-icon"></ion-icon>
           <div>
-            <small style="color: #6b7280; display: block;">Driver</small>
+            <small class="trip-detail-meta">Driver</small>
             <strong>{{ completedTripInfo!.driverName }}</strong>
           </div>
         </div>
@@ -292,38 +292,38 @@
 <ion-modal [isOpen]="showRatingModal" [backdropDismiss]="false">
   <ng-template>
     <ion-content class="ion-padding">
-      <div style="text-align: center; padding: 24px 8px;">
-        <ion-icon name="checkmark-circle" color="success" style="font-size: 64px; display: block; margin: 0 auto 12px;"></ion-icon>
-        <h2 style="margin: 0 0 4px;">You've arrived!</h2>
-        <p style="color: #6b7280; margin: 0 0 6px;">How was your ride?</p>
-        <p style="font-weight: 600; font-size: 1.05rem; margin: 0 0 20px;" *ngIf="completedTripInfo?.driverName">
+      <div class="rating-modal-body">
+        <ion-icon name="checkmark-circle" color="success" class="rating-modal-icon"></ion-icon>
+        <h2 class="rating-modal-title">You've arrived!</h2>
+        <p class="rating-modal-subtitle">How was your ride?</p>
+        <p class="rating-modal-driver" *ngIf="completedTripInfo?.driverName">
           with {{ completedTripInfo!.driverName }}
         </p>
 
         <!-- Star row -->
-        <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 8px;">
+        <div class="star-row">
           <ion-icon
             *ngFor="let s of [1,2,3,4,5]"
             [name]="s <= selectedRating ? 'star' : 'star-outline'"
             [style.color]="s <= selectedRating ? '#f59e0b' : '#d1d5db'"
-            style="font-size: 44px; cursor: pointer;"
+            class="star-icon"
             (click)="setRating(s)">
           </ion-icon>
         </div>
-        <p style="color: #9ca3af; min-height: 1.2em; margin-bottom: 20px;">{{ getRatingLabel() }}</p>
+        <p class="rating-label">{{ getRatingLabel() }}</p>
 
         <ion-textarea
           [(ngModel)]="ratingComment"
           placeholder="Share your experience (optional)..."
           fill="outline"
           rows="3"
-          style="margin-bottom: 16px; text-align: left;">
+          class="rating-textarea">
         </ion-textarea>
 
         <ion-button expand="block" color="primary" (click)="submitRating()" [disabled]="selectedRating === 0">
           Submit Rating
         </ion-button>
-        <ion-button expand="block" fill="clear" color="medium" (click)="skipRating()" style="margin-top: 4px;">
+        <ion-button expand="block" fill="clear" color="medium" (click)="skipRating()" class="rating-skip-btn">
           Skip for now
         </ion-button>
       </div>
