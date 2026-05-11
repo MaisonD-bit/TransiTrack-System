@@ -112,14 +112,46 @@ class User extends Authenticatable
     /**
      * Generate a Stream Chat token for the user
      */
+    /**
+     * Stream user id (must not collide with bus_operator ids from `users` table).
+     */
+    public function streamUserId(): string
+    {
+        return 'tm_'.$this->getKey();
+    }
+
     public function getStreamToken(): string
     {
-        $client = new StreamChat(
-            env('STREAM_API_KEY'),
-            env('STREAM_API_SECRET')
-        );
+        $key = (string) config('services.stream_chat.api_key', '');
+        $secret = (string) config('services.stream_chat.api_secret', '');
 
-        return $client->createToken((string)$this->id);
+        if ($key === '' || $secret === '') {
+            throw new \RuntimeException('Stream Chat is not configured (STREAM_API_KEY / STREAM_API_SECRET).');
+        }
+
+        $client = new StreamChat($key, $secret);
+
+        return $client->createToken($this->streamUserId());
+    }
+
+    /**
+     * Public URL for Stream avatar (Stream rejects relative storage paths).
+     */
+    public function streamAvatarUrl(): ?string
+    {
+        $path = $this->photo_url;
+        if (! $path) {
+            return null;
+        }
+        $path = trim((string) $path);
+        if ($path === '') {
+            return null;
+        }
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        return rtrim((string) config('app.url'), '/').'/storage/'.ltrim($path, '/');
     }
 
     /**
@@ -129,17 +161,17 @@ class User extends Authenticatable
     {
         // Map your app roles to Stream Chat roles
         $streamRole = match ($this->role) {
-            'admin', 'northBusManager', 'southBusManager' => 'admin',
+            'admin', 'northBusManager', 'southBusManager', 'terminalManager' => 'admin',
             'bus_operator' => 'user',
             'driver' => 'driver',
             default => 'user',
         };
 
         return [
-            'id' => (string) $this->id,
+            'id' => $this->streamUserId(),
             'name' => $this->name,
             'role' => $streamRole,
-            'image' => $this->photo_url ?? null,
+            'image' => $this->streamAvatarUrl(),
         ];
     }
 }

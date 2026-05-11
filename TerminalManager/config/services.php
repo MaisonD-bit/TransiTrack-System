@@ -28,6 +28,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'stream_chat' => [
+        'api_key' => env('STREAM_API_KEY'),
+        'api_secret' => env('STREAM_API_SECRET'),
+    ],
+
     'mapbox' => [
         'token' => env('MAPBOX_TOKEN'),
     ],

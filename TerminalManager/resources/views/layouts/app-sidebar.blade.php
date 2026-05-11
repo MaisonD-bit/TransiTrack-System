@@ -297,7 +297,7 @@
 
             <a href="{{ route('messages') }}" class="sidebar-link {{ request()->routeIs('message') ? 'active' : '' }}">
                 <i class="bi bi-chat-dots-fill"></i>
-                <span>Messages & Announcements</span>
+                <span>Announcements</span>
             </a>
 
             <a href="{{ route('chat') }}" class="sidebar-link {{ request()->routeIs('chat.*') ? 'active' : '' }}">

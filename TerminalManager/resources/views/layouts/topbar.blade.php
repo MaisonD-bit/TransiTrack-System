@@ -134,10 +134,11 @@ function displayNotifications(notifications) {
         const isUnread = !notification.read_at;
         const timeAgo = formatTimeAgo(notification.created_at);
         
+        const safeUrl = (data.url || '').replace(/'/g, '%27');
         return `
             <div class="notification-item d-flex align-items-start gap-3 ${isUnread ? 'unread' : ''}" 
                  data-id="${notification.id}"
-                 onclick="handleNotificationClick('${notification.id}', '${data.message_id || ''}')">
+                 onclick="handleNotificationClick('${notification.id}', '${data.message_id || ''}', '${safeUrl}')">
                 <div class="notification-icon bg-primary bg-opacity-10 text-primary">
                     <i class="fas fa-envelope"></i>
                 </div>
@@ -157,7 +158,7 @@ function displayNotifications(notifications) {
 }
 
 // Handle notification click
-async function handleNotificationClick(notificationId, messageId) {
+async function handleNotificationClick(notificationId, messageId, url) {
     try {
         // Mark as read
         await fetch(`/notifications/${notificationId}/read`, {
@@ -171,9 +172,11 @@ async function handleNotificationClick(notificationId, messageId) {
         // Refresh notifications
         await fetchNotifications();
         
-        // Navigate to message if available
+        // Navigate to message or in-app link (e.g. operator approvals)
         if (messageId) {
             window.location.href = `/messages/${messageId}`;
+        } else if (url) {
+            window.location.href = decodeURIComponent(url);
         }
     } catch (error) {
         console.error('Error marking notification as read:', error);

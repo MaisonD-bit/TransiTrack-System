@@ -170,8 +170,9 @@
     }
 
     .message-item:not(.own) .message-bubble {
-        background: #f1f3f5;
-        color: #333;
+        /* Match BusOperator receiver styling */
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
         border-bottom-left-radius: 0.25rem;
     }
 
@@ -246,6 +247,10 @@
 
     .message-item.own .message-attachment {
         background: rgba(255, 255, 255, 0.2);
+    }
+
+    .message-item:not(.own) .message-attachment {
+        background: rgba(255, 255, 255, 0.18);
     }
 
     .message-attachment a {
@@ -372,7 +377,7 @@
                 throw new Error('Upload did not return a URL');
             }
             await currentChannel.sendMessage({
-                text: file.name ? '📷 ' + file.name : '📷 Image',
+                text: '',
                 attachments: [{
                     type: 'image',
                     image_url: imageUrl,
@@ -396,7 +401,7 @@
                 throw new Error('Upload did not return a URL');
             }
             await currentChannel.sendMessage({
-                text: '📎 ' + file.name,
+                text: '',
                 attachments: [{
                     type: 'file',
                     asset_url: assetUrl,
@@ -605,8 +610,16 @@
             });
         }
 
-        const text = (message.text || '').trim();
-        const textBlock = text ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
+        // Hide "filename" text that Stream may echo above file attachments
+        const rawText = (message.text || '').trim();
+        const attachmentTitles = (message.attachments || [])
+            .map(a => (a && (a.title || a.fallback || a.name)) ? String(a.title || a.fallback || a.name).trim() : '')
+            .filter(Boolean);
+
+        const shouldHideText = rawText !== '' && attachmentTitles.some(t => t === rawText || rawText.endsWith(t));
+        const textBlock = (!shouldHideText && rawText)
+            ? `<div class="message-text">${escapeHtml(message.text)}</div>`
+            : '';
 
         div.innerHTML = `
             <div class="message-bubble">

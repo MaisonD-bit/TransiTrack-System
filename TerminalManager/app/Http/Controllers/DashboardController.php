@@ -1,15 +1,17 @@
-<?php
+﻿<?php
 
 namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Bus;
-use App\Models\Message;
 use App\Models\Space;
 use App\Models\TerminalSpace;
+use App\Models\NorthTerminalSpace;
 use App\Models\Schedule;
-use Illuminate\Http\Request;
+use App\Models\TerminalOccupancyHistory;
+use App\Models\NorthTerminalOccupancyHistory;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use GetStream\StreamChat\Client as StreamChat;
 
 class DashboardController extends Controller
@@ -55,16 +57,10 @@ class DashboardController extends Controller
             });
         }
 
-        // Get terminal spaces (updated occupancy tracking)
-        $spaceQuery = TerminalSpace::query();
-        $available = $spaceQuery->where('is_occupied', false)->count();
-        $total = $spaceQuery->count();
-
-        // If terminal spaces don't exist, fallback to regular spaces
-        if ($total === 0) {
-            $available = Space::where('is_occupied', false)->count();
-            $total = Space::count();
-        }
+        // Get terminal spaces ΓÇö guard missing tables (migrations not run on shared DB)
+        $spaceStats = $this->resolveSpaceStats($user);
+        $available = $spaceStats['available'];
+        $total = $spaceStats['total'];
 
         // Get unread messages count from Stream
         $unreadCount = 0;
@@ -122,8 +118,8 @@ class DashboardController extends Controller
             : 0;
 
         // Get space utilization
-        $spaceUtilizationPercent = $total > 0 
-            ? round((($total - $available) / $total) * 100, 1) 
+        $spaceUtilizationPercent = $total > 0
+            ? round((($total - $available) / $total) * 100, 1)
             : 0;
 
         $stats = [
@@ -143,9 +139,97 @@ class DashboardController extends Controller
             'total_spaces' => $total,
             'occupied_spaces' => $total - $available,
             'available_spaces' => $available,
+            'occupancy_by_hour' => $this->getOccupancyByHour($user),
         ];
 
         return view('operations.dashboard', compact('stats', 'busSchedules', 'drivers', 'statuses', 'analytics'));
+    }
+
+    /**
+     * Space counts for dashboard / polling ΓÇö avoids 500 when Terminal Manager migrations
+     * were not applied to the shared MySQL database (e.g. missing north_terminal_spaces).
+     *
+     * @return array{available: int, total: int}
+     */
+    private function resolveSpaceStats($user): array
+    {
+        $defaults = ['available' => 0, 'total' => 0];
+        if (! $user) {
+            return $defaults;
+        }
+
+        $isNorth = $user->role === 'northBusManager' || $user->terminal === 'north';
+        $isSouth = $user->role === 'southBusManager' || $user->terminal === 'south';
+
+        try {
+            if ($isNorth && Schema::hasTable('north_terminal_spaces')) {
+                return [
+                    'available' => NorthTerminalSpace::where('is_occupied', false)->count(),
+                    'total' => NorthTerminalSpace::count(),
+                ];
+            }
+            if ($isSouth && Schema::hasTable('terminal_spaces')) {
+                return [
+                    'available' => TerminalSpace::where('is_occupied', false)->count(),
+                    'total' => TerminalSpace::count(),
+                ];
+            }
+            if (Schema::hasTable('spaces')) {
+                return [
+                    'available' => Space::where('is_occupied', false)->count(),
+                    'total' => Space::count(),
+                ];
+            }
+        } catch (\Throwable $e) {
+            return $defaults;
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * Get occupancy data grouped by hour of day
+     * Returns the count of occupied spaces for each hour
+     */
+    private function getOccupancyByHour($user)
+    {
+        $useNorth = $user && ($user->role === 'northBusManager' || $user->terminal === 'north');
+        $northTable = 'north_terminal_occupancy_history';
+        $southTable = 'terminal_occupancy_history';
+
+        if ($useNorth && ! Schema::hasTable($northTable)) {
+            return array_fill(0, 24, 0);
+        }
+        if (! $useNorth && ! Schema::hasTable($southTable)) {
+            return array_fill(0, 24, 0);
+        }
+
+        // Use appropriate history table based on terminal (MySQL HOUR)
+        if ($useNorth) {
+            $query = NorthTerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
+                ->groupBy('hour')
+                ->whereNotNull('time_occupied')
+                ->orderBy('hour');
+        } else {
+            $query = TerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
+                ->groupBy('hour')
+                ->whereNotNull('time_occupied')
+                ->orderBy('hour');
+        }
+
+        try {
+            $occupancyData = $query->get();
+        } catch (\Throwable $e) {
+            return array_fill(0, 24, 0);
+        }
+
+        // Create array for all 24 hours
+        $hoursData = array_fill(0, 24, 0);
+        foreach ($occupancyData as $data) {
+            $hoursData[$data->hour] = $data->occupancy_count;
+        }
+
+        return $hoursData;
     }
 
     /**
@@ -154,15 +238,10 @@ class DashboardController extends Controller
      */
     public function getAvailableSpaces()
     {
-        $spaceQuery = TerminalSpace::query();
-        $available = $spaceQuery->where('is_occupied', false)->count();
-        $total = $spaceQuery->count();
-
-        // If terminal spaces don't exist, fallback to regular spaces
-        if ($total === 0) {
-            $available = Space::where('is_occupied', false)->count();
-            $total = Space::count();
-        }
+        $user = Auth::user();
+        $spaceStats = $this->resolveSpaceStats($user);
+        $available = $spaceStats['available'];
+        $total = $spaceStats['total'];
 
         return response()->json([
             'available' => $available,
