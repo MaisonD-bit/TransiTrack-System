@@ -28,7 +28,7 @@ return new class extends Migration
             $table->string('contact_number')->nullable();
             $table->enum('gender', ['male', 'female'])->nullable();
             $table->string('photo_url')->nullable();
-            $table->enum('status', ['active', 'inactive', 'suspended'])->default('active');
+            $table->enum('status', ['active', 'inactive', 'suspended'])->default('inactive');
             $table->rememberToken();
             $table->timestamps();
         });

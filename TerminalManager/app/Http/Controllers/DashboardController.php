@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 namespace App\Http\Controllers;
 
@@ -57,7 +57,7 @@ class DashboardController extends Controller
             });
         }
 
-        // Get terminal spaces ΓÇö guard missing tables (migrations not run on shared DB)
+        // Get terminal spaces — guard missing tables (migrations not run on shared DB)
         $spaceStats = $this->resolveSpaceStats($user);
         $available = $spaceStats['available'];
         $total = $spaceStats['total'];
@@ -146,7 +146,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * Space counts for dashboard / polling ΓÇö avoids 500 when Terminal Manager migrations
+     * Space counts for dashboard / polling — avoids 500 when Terminal Manager migrations
      * were not applied to the shared MySQL database (e.g. missing north_terminal_spaces).
      *
      * @return array{available: int, total: int}

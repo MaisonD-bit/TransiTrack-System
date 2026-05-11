@@ -9,13 +9,27 @@ use App\Models\Route;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class TerminalSpaceController extends Controller
 {
+    private function checkTerminalAuthorization(): void
+    {
+        $manager = Auth::user();
+        if (!$manager || $manager->terminal !== 'south') {
+            abort(403, 'Unauthorized access to South Terminal');
+        }
+    }
+
     // Get all spaces with current driver info
     public function index()
     {
+        $manager = Auth::user();
+        if ($manager && $manager->terminal !== 'south') {
+            return redirect()->route('north-spaces.index')->with('message', 'You do not have access to South Terminal. Redirecting to North Terminal.');
+        }
+
         $spaces = TerminalSpace::with('currentDriver.user', 'currentCompany')->get();
 
         // Get actual drivers for the DRIVER dropdown
@@ -31,11 +45,15 @@ class TerminalSpaceController extends Controller
         return view('operations.space', compact('spaces', 'drivers', 'operators'));
     }
 
-    // Get all drivers for dropdown (from BusOperator drivers table)
+    // Get all drivers for dropdown (from BusOperator drivers table) — South terminal routes only
     public function getDrivers()
     {
-        // Get drivers with their operators
+        $this->checkTerminalAuthorization();
+
         $drivers = Driver::with('user')
+            ->whereHas('routes', function ($query) {
+                $query->where('terminal', 'south');
+            })
             ->where('status', 'active')
             ->get()
             ->map(function ($driver) {
@@ -53,10 +71,10 @@ class TerminalSpaceController extends Controller
                 ];
             });
 
-        // Get bus operators
         $operators = DB::table('users')
             ->where('role', 'bus_operator')
             ->where('status', 'active')
+            ->where('terminal', 'south')
             ->get()
             ->map(function ($user) {
                 return [
@@ -78,6 +96,8 @@ class TerminalSpaceController extends Controller
     // Update space details
     public function updateSpace(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         try {
             $request->validate([
                 'space_id' => 'required|exists:terminal_spaces,space_id',
@@ -127,6 +147,8 @@ class TerminalSpaceController extends Controller
     // Occupy a space
     public function occupy(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         try {
             Log::info('Occupy request received:', $request->all());
 
@@ -199,6 +221,8 @@ class TerminalSpaceController extends Controller
     // Release a space
     public function release(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         $request->validate([
             'space_id' => 'required|exists:terminal_spaces,space_id',
             'notes' => 'nullable|string'
@@ -242,6 +266,8 @@ class TerminalSpaceController extends Controller
     // Cancel occupancy
     public function cancel(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         try {
             $request->validate([
                 'space_id' => 'required|exists:terminal_spaces,space_id',
@@ -295,6 +321,8 @@ class TerminalSpaceController extends Controller
     // Add time to an occupied space
     public function addTime(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         try {
             Log::info('addTime called with:', $request->all());
 
@@ -366,6 +394,8 @@ class TerminalSpaceController extends Controller
 
     public function getSpaces()
     {
+        $this->checkTerminalAuthorization();
+
         $spaces = TerminalSpace::all();
         return response()->json($spaces);
     }
@@ -405,6 +435,8 @@ class TerminalSpaceController extends Controller
     // Get history for a specific space
     public function getHistory($spaceId)
     {
+        $this->checkTerminalAuthorization();
+
         $history = TerminalOccupancyHistory::where('space_id', $spaceId)
             ->orderBy('created_at', 'desc')
             ->limit(50)
@@ -416,6 +448,8 @@ class TerminalSpaceController extends Controller
     // Get all history with filters
     public function getAllHistory(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         $query = TerminalOccupancyHistory::query();
 
         // Handle date range filtering
@@ -570,6 +604,13 @@ class TerminalSpaceController extends Controller
                     'additional_notes' => 'Auto-released: duration expired'
                 ]);
 
+                // Notify driver that the bay timer ended and the bay is now released.
+                $this->insertDriverParkingNotification(
+                    $space,
+                    "Bay {$space->space_id}: your time is up. The bay is now released/available.",
+                    'terminal_parking_expired'
+                );
+
                 // Reset space
                 $space->update([
                     'is_occupied' => false,
@@ -599,6 +640,8 @@ class TerminalSpaceController extends Controller
 
     public function approveDriverExtension(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         $request->validate([
             'space_id' => 'required|exists:terminal_spaces,space_id',
         ]);
@@ -652,6 +695,8 @@ class TerminalSpaceController extends Controller
 
     public function denyDriverExtension(Request $request)
     {
+        $this->checkTerminalAuthorization();
+
         $request->validate([
             'space_id' => 'required|exists:terminal_spaces,space_id',
         ]);

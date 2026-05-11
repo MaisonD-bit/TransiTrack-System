@@ -23,17 +23,24 @@
                                     <div>
                                         <h6 class="fw-bold mb-1">{{ $message->subject }}</h6>
                                         <small class="text-muted">
-                                            From: 
+                                            From:
                                             {{ $message->sender->name ?? 'Unknown' }}
                                             @if($message->sender && $message->sender->role)
-                                                <span class="badge bg-primary ms-1">[{{ ucfirst($message->sender->role) }}]</span>
+                                                <span class="badge bg-primary ms-1">[{{ ucfirst(str_replace('_', ' ', $message->sender->role)) }}]</span>
                                             @endif
 
                                             →
-                                            
-                                            @if($message->recipient)
+
+                                            @if($message->recipient_type === 'operators')
+                                                <span class="badge bg-success">All Operators</span>
+                                            @elseif($message->recipient_type === 'managers')
+                                                <span class="badge bg-info text-dark">All Managers</span>
+                                            @elseif($message->recipient_type === 'all')
+                                                <span class="badge bg-success">All Operators</span>
+                                                <span class="badge bg-info text-dark ms-1">All Managers</span>
+                                            @elseif($message->recipient)
                                                 {{ $message->recipient->name }}
-                                                <span class="badge bg-primary ms-1">[{{ ucfirst($message->recipient->role) }}]</span>
+                                                <span class="badge bg-primary ms-1">[{{ ucfirst(str_replace('_', ' ', $message->recipient->role)) }}]</span>
                                             @else
                                                 <span class="badge bg-dark ms-1">All Operators</span>
                                             @endif
@@ -68,20 +75,34 @@
                         @csrf
 
                         <div class="mb-3">
-                            <label class="form-label fw-bold">Recipient</label>
+                            <label class="form-label fw-bold">Recipient (specific manager)</label>
                             <select name="recipient_id" class="form-select">
-                                <option value="">Send to All Operators</option>
+                                <option value="">— Optional: leave empty for an announcement —</option>
                                 @foreach($users as $user)
                                     <option value="{{ $user->id }}">
                                         {{ $user->name }}
-                                        @if($user->role === 'operator')
+                                        @if($user->role === 'bus_operator')
                                             [Operator]
-                                        @elseif($user->role === 'manager')
-                                            [Manager]
+                                        @elseif($user->role === 'terminalManager')
+                                            [Terminal Manager]
+                                        @else
+                                            [{{ ucfirst(str_replace('_', ' ', $user->role)) }}]
                                         @endif
                                     </option>
                                 @endforeach
                             </select>
+                            <small class="text-muted">If you pick a person here, only they are notified.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Announcement audience</label>
+                            <select name="recipient_type" class="form-select">
+                                <option value="">— Use when no specific recipient is selected —</option>
+                                <option value="operators">All bus operators</option>
+                                <option value="managers">All terminal managers</option>
+                                <option value="all">All operators and terminal managers</option>
+                            </select>
+                            <small class="text-muted">Ignored when a specific recipient is selected above.</small>
                         </div>
 
                         <div class="mb-3">

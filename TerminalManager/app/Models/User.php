@@ -27,6 +27,7 @@ class User extends Authenticatable
         'gender',
         'role',
         'terminal',
+        'status',
         'photo_url',
     ];
 

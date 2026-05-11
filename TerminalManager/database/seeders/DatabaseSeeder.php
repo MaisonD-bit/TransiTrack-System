@@ -2,8 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
-// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -13,6 +11,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // TerminalManager auth uses the managers table (seeded via BusOperator or admin panel).
+        $this->call([
+            TerminalSpaceSeeder::class,
+            NorthTerminalSpaceSeeder::class,
+        ]);
     }
 }

@@ -36,6 +36,14 @@ class UserController extends Controller
             $user = Auth::user();
 
             if ($user->role === 'terminalManager') {
+                if ($user->status !== 'active') {
+                    Auth::logout();
+                    $statusMessage = $user->status === 'inactive' 
+                    ? 'Your account is pending for approval. Please wait for confirmation from the System Administrator.'
+                    : 'Please contact support.';     
+                    return back()->withErrors(['status_message' => $statusMessage])->withInput();
+                }
+
                 $request->session()->regenerate();
                 return redirect()->intended(route('dashboard'));
             }
@@ -57,6 +65,7 @@ class UserController extends Controller
             'contact_number' => 'required|string|max:50',
             'gender' => 'required|in:male,female',
             'terminal' => 'required|in:north,south',
+            'status' => 'nullable|in:active,inactive,suspended',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
         ]);
 
@@ -78,6 +87,7 @@ class UserController extends Controller
             'gender' => $request->gender,
             'role' => 'terminalManager',
             'terminal' => $request->terminal,
+            'status' => 'inactive',
             'photo_url' => $photoPath,
         ]);
 

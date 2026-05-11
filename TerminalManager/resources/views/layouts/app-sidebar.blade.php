@@ -256,10 +256,6 @@
                 overflow: visible;
             }
 
-            .sidebar-footer {
-                flex: none;
-            }
-
             .sidebar-link {
                 flex: none;
                 padding: 12px 20px;
@@ -305,18 +301,30 @@
                 <span>Chat</span>
             </a>
 
+            @if(Auth::check() && Auth::user()->terminal === 'south')
             <a href="{{ route('spaces.index') }}" class="sidebar-link {{ request()->routeIs('spaces.*') ? 'active' : '' }}">
                 <i class="fas fa-map-marker-alt"></i>
-                <span>Spaces</span>
+                <span>South terminal spaces</span>
             </a>
+            @endif
+
+            @if(Auth::check() && Auth::user()->terminal === 'north')
+            <a href="{{ route('north-spaces.index') }}" class="sidebar-link {{ request()->routeIs('north-spaces.*') ? 'active' : '' }}">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>North terminal spaces</span>
+            </a>
+            @endif
 
             <a href="{{ route('terminal.route-stops') }}" class="sidebar-link {{ request()->routeIs('terminal.route-stops*') ? 'active' : '' }}">
                 <i class="fas fa-route"></i>
                 <span>Route stops</span>
             </a>
-        </div>
 
-        <div class="sidebar-footer">
+            <a href="{{ route('approval') }}" class="sidebar-link {{ request()->routeIs('approval') ? 'active' : '' }}">
+                <i class="fas fa-check-circle"></i>
+                <span>Operator approvals</span>
+            </a>
+            
             <form action="{{ route('logout') }}" method="POST">
                 @csrf
                 <button type="submit" class="sidebar-link logoutBtn">
