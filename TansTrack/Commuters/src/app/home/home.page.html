@@ -146,7 +146,6 @@
         </ion-list>
       </div>
 
-
       <!-- Boarding request status (auto-created when board-at stop is selected) -->
       <div class="ion-margin-top" *ngIf="boardingRequested" style="text-align:center;">
         <ion-chip color="warning">
@@ -212,7 +211,7 @@
   </div>
 
   <!-- Fare & E-Ticket -->
-  <div class="section-wrapper" *ngIf="selectedRoute && !paymentCompleted">
+  <div class="section-wrapper" *ngIf="selectedRoute && !paymentCompleted && selectedScheduleId != null">
     <div class="routes-card">
       <div class="checkout-fare" *ngIf="selectedRoute && !showTicket">
         <p class="checkout-fare-label">Total Fare</p>

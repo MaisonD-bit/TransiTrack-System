@@ -288,29 +288,59 @@ export class HomePage implements OnInit, ViewWillEnter {
   }
 
   async respondToSchedule(scheduleId: number, action: 'accept' | 'decline') {
-    try {
-      const response: any = await (action === 'accept'
-        ? this.apiService.acceptSchedule(scheduleId)
-        : this.apiService.declineSchedule(scheduleId)
-      ).toPromise();
+    if (action === 'decline') {
+      const alert = await this.alertController.create({
+        header: 'Decline Schedule',
+        message: 'Please provide a reason. The operator will review your request.',
+        inputs: [{ name: 'reason', type: 'textarea', placeholder: 'Enter your reason here…', attributes: { maxlength: 500 } }],
+        buttons: [
+          { text: 'Cancel', role: 'cancel' },
+          {
+            text: 'Submit Decline',
+            handler: async (data) => {
+              const reason = (data.reason || '').trim();
+              if (reason.length < 5) {
+                const t = await this.toastController.create({ message: 'Please provide a valid reason (at least 5 characters).', duration: 2000, color: 'warning' });
+                await t.present();
+                return false;
+              }
+              await this.submitDecline(scheduleId, reason);
+              return true;
+            }
+          }
+        ]
+      });
+      await alert.present();
+      return;
+    }
 
+    try {
+      const response: any = await this.apiService.acceptSchedule(scheduleId).toPromise();
       if (response?.success) {
-        const toast = await this.toastController.create({
-          message: action === 'accept' ? 'Schedule accepted.' : 'Schedule declined.',
-          duration: 2000,
-          color: action === 'accept' ? 'success' : 'medium',
-        });
+        const toast = await this.toastController.create({ message: 'Schedule accepted.', duration: 2000, color: 'success' });
         await toast.present();
         await this.loadDriverSchedules();
       } else {
         throw new Error(response?.message || 'Failed');
       }
     } catch (error: any) {
-      const toast = await this.toastController.create({
-        message: error.message || 'Could not update schedule.',
-        duration: 2500,
-        color: 'danger',
-      });
+      const toast = await this.toastController.create({ message: error.message || 'Could not accept schedule.', duration: 2500, color: 'danger' });
+      await toast.present();
+    }
+  }
+
+  private async submitDecline(scheduleId: number, reason: string) {
+    try {
+      const response: any = await this.apiService.declineSchedule(scheduleId, reason).toPromise();
+      if (response?.success) {
+        const toast = await this.toastController.create({ message: 'Decline request submitted. Awaiting operator approval.', duration: 2500, color: 'warning' });
+        await toast.present();
+        await this.loadDriverSchedules();
+      } else {
+        throw new Error(response?.message || 'Failed');
+      }
+    } catch (error: any) {
+      const toast = await this.toastController.create({ message: error.message || 'Could not submit decline request.', duration: 2500, color: 'danger' });
       await toast.present();
     }
   }
@@ -397,7 +427,7 @@ export class HomePage implements OnInit, ViewWillEnter {
 
       if (!current) {
         current =
-          merged.find((s) => this.scheduleStartDate(s)! > now) ?? null;
+          merged.find((s) => { const d = this.scheduleStartDate(s); return d !== null && d > now; }) ?? null;
       }
 
       if (!current) {

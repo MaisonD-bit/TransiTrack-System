@@ -261,12 +261,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private addStopMarkers() {
-    (this.routeStops || []).forEach((stop, i) => {
+    const stops = this.routeStops || [];
+    const total = stops.length;
+    stops.forEach((stop, i) => {
+      // First stop = terminal (already has green start marker), last = endpoint (red end marker) — skip both.
+      if (i === 0 || i === total - 1) return;
       const ll = this.stopLngLat(stop);
-      if (!ll) {
-        return;
-      }
-      const title = stop.name?.trim() || `Bus stop ${i + 1}`;
+      if (!ll) return;
+      const title = stop.name?.trim() || `Bus stop ${i}`;
       const dist =
         stop.distance_km_from_start != null
           ? `<br><span style="color:#666">${Number(stop.distance_km_from_start).toFixed(2)} km from start</span>`

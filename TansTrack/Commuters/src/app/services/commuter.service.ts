@@ -72,7 +72,7 @@ export interface LiveRoute {
   busPlateNumber?: string;
   startedAt?: string; // When driver started the trip
   /** Terminal-manager stops (approved route package) */
-  stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number }>;
+  stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number }>;
   approval_request_id?: number;
   bus_type?: string;
 }

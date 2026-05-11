@@ -26,9 +26,7 @@ class ChatController extends Controller
 
         if ($apiKey !== '' && $apiSecret !== '') {
             try {
-                // Create Guzzle client with SSL verification disabled for development
                 if (config('app.debug')) {
-                    // For development, disable SSL verification
                     $handler = new CurlHandler();
                     $stack = HandlerStack::create($handler);
                     $guzzleClient = new GuzzleClient([
@@ -37,15 +35,12 @@ class ChatController extends Controller
                         'http_errors' => false,
                     ]);
                     
-                    // Try to instantiate StreamChat with custom client
-                    // Note: This may vary by SDK version
+                   
                     try {
                         $this->streamClient = new StreamChat($apiKey, $apiSecret);
-                        // Attempt to set the client via reflection if possible
                         $this->configureStreamClientSSL($this->streamClient, $guzzleClient);
                     } catch (\Throwable $e) {
                         Log::warning('Could not configure custom Guzzle client', ['error' => $e->getMessage()]);
-                        // Fall back to default client
                         $this->streamClient = new StreamChat($apiKey, $apiSecret);
                     }
                 } else {

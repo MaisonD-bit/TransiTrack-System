@@ -20,7 +20,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() startCoord: [number, number] | null | undefined = null;
   @Input() endCoord: [number, number] | null | undefined = null;
   /** Terminal-manager stop pins (numbered) along the route */
-  @Input() stopPins: { lng: number; lat: number; label?: string }[] = [];
+  @Input() stopPins: { lng: number; lat: number; label?: string; etaMin?: number }[] = [];
   /** Live / estimated bus positions from operator schedules (commuter app). */
   @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean; status?: string }[] = [];
   /** When true, skip the demo bus animation (use live markers instead). */
@@ -397,6 +397,13 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
   }
 
+  private formatEta(minutes: number): string {
+    if (minutes < 60) return `~${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m === 0 ? `~${h} hr` : `~${h} hr ${m} min`;
+  }
+
   drawStopPins() {
     if (!this.mapLoaded || !this.map || !this.stopPins?.length) {
       return;
@@ -412,12 +419,26 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       if (i === 0 || i === total - 1) return;
       stopNumber++;
       const el = document.createElement('div');
-      el.style.cssText =
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
+
+      const circle = document.createElement('div');
+      circle.style.cssText =
         'background:#f97316;color:#fff;border-radius:50%;min-width:24px;height:24px;padding:0 6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)';
-      el.textContent = String(stopNumber);
-      const mk = new mapboxgl.Marker({ element: el })
+      circle.textContent = String(stopNumber);
+      el.appendChild(circle);
+
+      if (p.etaMin != null) {
+        const etaTag = document.createElement('div');
+        etaTag.style.cssText =
+          'background:#fff;color:#f97316;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;border:1px solid #f97316;box-shadow:0 1px 3px rgba(0,0,0,.2);white-space:nowrap;line-height:1.4';
+        etaTag.textContent = this.formatEta(p.etaMin);
+        el.appendChild(etaTag);
+      }
+
+      const popupHtml = `<div style="padding:4px"><strong>${p.label || 'Stop ' + stopNumber}</strong>${p.etaMin != null ? `<br><span style="color:#f97316">ETA: ${this.formatEta(p.etaMin)}</span>` : ''}</div>`;
+      const mk = new mapboxgl.Marker({ element: el, anchor: 'top' })
         .setLngLat([p.lng, p.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${p.label || 'Stop ' + stopNumber}</strong>`))
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(popupHtml))
         .addTo(this.map);
       this.stopPinMarkers.push(mk);
     });

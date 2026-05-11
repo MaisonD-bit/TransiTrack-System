@@ -51,6 +51,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   ticketFare: number | null = null;
   ticketId: string = '';
   paymentMethod: string = 'cash';
+  /** True once bookTicket() has been sent for this ticketId — prevents duplicate calls in completeBooking(). */
+  private ticketPersistedToBackend: boolean = false;
   discountPercent: number = 0;
   discountAmount: number = 0;
   /** Operator / bus labels for e-ticket QR (from selected live bus). */
@@ -141,13 +143,25 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       discountAmount: this.discountAmount,
       ticketOperatorCompany: this.ticketOperatorCompany,
       ticketBusLabel: this.ticketBusLabel,
+      boardingRequestId: this.boardingRequestId,
+      boardingRequested: this.boardingRequested,
+      boardingRequestStopName: this.boardingRequestStopName,
+      ticketPersistedToBackend: this.ticketPersistedToBackend,
     }));
   }
 
   private restoreActiveTrip(): void {
     const raw = localStorage.getItem(this.getTripStateKey());
-    if (!raw || !this.routes.length) {
-      this.cancelStaleMyBoardingRequests();
+    if (!raw) {
+      // No saved state — cancel any orphaned boarding requests only once routes are loaded.
+      // If routes haven't arrived yet (empty BehaviorSubject emission), skip and wait.
+      if (this.routes.length > 0) {
+        this.cancelStaleMyBoardingRequests();
+      }
+      return;
+    }
+    if (!this.routes.length) {
+      // Saved state exists but routes haven't loaded yet — wait for next emission.
       return;
     }
     try {
@@ -168,10 +182,15 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.discountAmount = s.discountAmount ?? 0;
       this.ticketOperatorCompany = s.ticketOperatorCompany || '';
       this.ticketBusLabel = s.ticketBusLabel || '';
+      this.boardingRequestId = s.boardingRequestId ?? null;
+      this.boardingRequested = s.boardingRequested ?? false;
+      this.boardingRequestStopName = s.boardingRequestStopName || '';
+      this.ticketPersistedToBackend = s.ticketPersistedToBackend ?? false;
       this.syncStopPinsForMap();
       this.startLiveBusPoll();
     } catch {
       localStorage.removeItem(this.getTripStateKey());
+      this.cancelStaleMyBoardingRequests();
     }
   }
 
@@ -179,7 +198,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
    * Must be a stable array reference — a template getter that returned a new [] every CD
    * caused route-map ngOnChanges to fire endlessly and restart bus interpolation.
    */
-  stopPinsForMap: { lng: number; lat: number; label?: string }[] = [];
+  stopPinsForMap: { lng: number; lat: number; label?: string; etaMin?: number }[] = [];
+  stopEtas: { name: string; distKm: number; etaMin: number; isPassed: boolean }[] = [];
+  etaToMyStop: number | null = null;
 
   private syncStopPinsForMap(): void {
     const stops = this.selectedRoute?.stops;
@@ -188,12 +209,89 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
     this.stopPinsForMap = stops
-      .map((s: any, i: number) => ({
-        lng: Number(s.lng),
-        lat: Number(s.lat),
-        label: s.name || `Stop ${i + 1}`,
-      }))
+      .map((s: any, i: number) => {
+        const eta = this.stopEtas.find(e => e.name === (s.name || `Stop ${i + 1}`));
+        return {
+          lng: Number(s.lng),
+          lat: Number(s.lat),
+          label: s.name || `Stop ${i + 1}`,
+          etaMin: eta && !eta.isPassed ? eta.etaMin : undefined,
+        };
+      })
       .filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat));
+  }
+
+  formatEta(minutes: number): string {
+    if (minutes < 60) return `~${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m === 0 ? `~${h} hr` : `~${h} hr ${m} min`;
+  }
+
+  private haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private busDistAlongRoute(busLng: number, busLat: number, coords: number[][]): number {
+    let bestDist = Infinity;
+    let bestDistFromStart = 0;
+    let cumDist = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [ax, ay] = coords[i];
+      const [bx, by] = coords[i + 1];
+      const segKm = this.haversineKm(ay, ax, by, bx);
+      const dx = bx - ax, dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      const t = lenSq > 0 ? Math.max(0, Math.min(1, ((busLng - ax) * dx + (busLat - ay) * dy) / lenSq)) : 0;
+      const d = this.haversineKm(busLat, busLng, ay + t * dy, ax + t * dx);
+      if (d < bestDist) {
+        bestDist = d;
+        bestDistFromStart = cumDist + t * segKm;
+      }
+      cumDist += segKm;
+    }
+    return bestDistFromStart;
+  }
+
+  private computeStopEtas(): void {
+    const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
+    const coords: number[][] = this.selectedRoute?.geometry?.coordinates;
+    const stops = this.selectedRoute?.stops;
+
+    if (!bus?.position || !Array.isArray(coords) || coords.length < 2 || !stops?.length) {
+      this.stopEtas = [];
+      this.etaToMyStop = null;
+      this.syncStopPinsForMap();
+      return;
+    }
+
+    const busDistKm = this.busDistAlongRoute(bus.position.lng, bus.position.lat, coords);
+    const AVG_KMH = 25;
+
+    this.stopEtas = stops.map((s: any, i: number) => {
+      const stopDist = s.distance_km_from_start ?? 0;
+      const remaining = Math.max(0, stopDist - busDistKm);
+      return {
+        name: s.name || `Stop ${i + 1}`,
+        distKm: stopDist,
+        etaMin: Math.round(remaining / AVG_KMH * 60),
+        isPassed: stopDist < busDistKm - 0.15,
+      };
+    });
+
+    const myStop = stops[this.fromStopIndex] as any;
+    if (myStop) {
+      const remaining = Math.max(0, (myStop.distance_km_from_start ?? 0) - busDistKm);
+      this.etaToMyStop = Math.round(remaining / AVG_KMH * 60);
+    } else {
+      this.etaToMyStop = null;
+    }
+
+    this.syncStopPinsForMap();
   }
 
   /** GeoJSON from DB/API may be a Feature, string, or LineString — map expects LineString. */
@@ -312,10 +410,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         this.ticketFare = null;
         this.discountPercent = 0;
         this.discountAmount = 0;
-        this.applySegmentFare();
+        this.ticketPersistedToBackend = false;
         this.ticketId = this.generateTicketId();
-        this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute.basefare ?? 0);
-        this.showTicket = true;
+        this.applySegmentFare();
         return;
       }
 
@@ -323,10 +420,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         this.ticketFare = null;
         this.discountPercent = 0;
         this.discountAmount = 0;
-        this.applyFareForStopChoice();
+        this.ticketPersistedToBackend = false;
         this.ticketId = this.generateTicketId();
-        this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute.basefare ?? 0);
-        this.showTicket = true;
+        this.applyFareForStopChoice();
         return;
       }
 
@@ -337,22 +433,14 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
             this.ticketFare = response.data.final_fare;
             this.discountPercent = response.data.discount_percent || 0;
             this.discountAmount = response.data.discount_amount || 0;
-            if (response.data.discount_amount > 0) {
-              this.showToast(
-                `${passengerType} Discount Applied: -₱${response.data.discount_amount} (${response.data.discount_percent}%)`,
-                'success'
-              );
-            }
           }
+          this.ticketPersistedToBackend = false;
           this.ticketId = this.generateTicketId();
-          this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute?.basefare ?? 0);
-          this.showTicket = true;
         },
         error: () => {
           this.ticketFare = this.selectedRoute?.basefare || 0;
+          this.ticketPersistedToBackend = false;
           this.ticketId = this.generateTicketId();
-          this.saveInProgressTripSnapshot(this.ticketFare ?? 0);
-          this.showTicket = true;
         },
       });
     } catch (e) {
@@ -440,9 +528,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
         ) {
           this.selectedScheduleId = null;
+          this.showTicket = false;
           this.updateLiveBusMapPins();
+          this.saveActiveTrip();
         }
         this.autoSelectSingleLiveBus();
+        this.computeStopEtas();
         this.checkAlightFromLivePosition();
       },
       error: () => {
@@ -462,8 +553,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
     this.selectedScheduleId = open[0].schedule_id;
+    this.showTicket = true;
     this.updateLiveBusMapPins();
     this.syncTicketBusLabelsForETicket();
+    this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute?.basefare ?? 0);
+    this.saveActiveTrip();
   }
 
   private updateLiveBusMapPins(): void {
@@ -488,8 +582,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
     this.selectedScheduleId = b.schedule_id;
+    this.showTicket = true;
     this.updateLiveBusMapPins();
+    this.computeStopEtas();
     this.syncTicketBusLabelsForETicket();
+    this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute?.basefare ?? 0);
+    this.saveActiveTrip();
     const stops = this.selectedRoute?.stops;
     if (stops && stops.length >= 2 && this.fromStopIndex < this.toStopIndex) {
       this.autoFlagForBoarding();
@@ -579,6 +677,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           this.boardingRequested = true;
           this.boardingRequestStopName = res.boarding_stop_name ||
             this.selectedRoute?.stops?.[this.fromStopIndex]?.name || 'your stop';
+          this.saveActiveTrip();
         }
       },
       error: () => {
@@ -825,13 +924,6 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     });
   }
 
-  private bookingErrorMessage(err: unknown): string {
-    const anyErr = err as { error?: { message?: string }; message?: string };
-    const m = anyErr?.error?.message ?? anyErr?.message;
-    return typeof m === 'string' && m.length > 0
-      ? m
-      : 'Could not register e-ticket with the operator.';
-  }
 
   /**
    * Saves ticket to Laravel (trip logs + driver boarding list), then shows the e-ticket UI.
@@ -847,6 +939,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
     this.alightNotified = false;
     this.ticketId = this.generateTicketId();
+    this.ticketPersistedToBackend = false;
     this.commuterService
       .bookTicket({
         route_id: parseInt(route.id, 10),
@@ -866,9 +959,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           this.ticketFare = finalFare;
           this.discountPercent = discountPercent;
           this.discountAmount = discountAmount;
+          this.ticketPersistedToBackend = true;
           this.syncTicketBusLabelsForETicket();
           this.saveInProgressTripSnapshot(finalFare);
           this.showTicket = true;
+          this.saveActiveTrip();
           this.startBusSimulation();
           let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
           if (discountAmount > 0) {
@@ -1025,9 +1120,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         if (status === 'success' && pending) {
           await this.completeBooking(pending.payment, 'paymaya', pending.fare, ticketId ?? null);
         } else if (status === 'cancelled') {
-          void this.showToast('Maya payment cancelled.', 'medium');
+          void this.showPaymentFailedAlert('Payment cancelled', 'Your PayMaya payment was cancelled. You can try again or choose a different payment method.');
         } else {
-          void this.showToast('Maya payment failed. Please try again.', 'danger');
+          void this.showPaymentFailedAlert('Payment not completed', 'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.');
         }
       });
     };
@@ -1065,9 +1160,24 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         localStorage.removeItem('maya_paid_ticket');
         this.ngZone.run(() => this.completeBooking(pending.payment, 'paymaya', pending.fare, paidTicket));
       } else {
-        this.ngZone.run(() => this.showToast('Payment not completed. Try again.', 'medium'));
+        this.ngZone.run(() => this.showPaymentFailedAlert('Payment not completed', 'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.'));
       }
     }, 800);
+  }
+
+  private async showPaymentFailedAlert(header: string, message: string): Promise<void> {
+    const alert = await this.alertController.create({
+      header,
+      message,
+      buttons: [
+        { text: 'Try Again', role: 'cancel' },
+        {
+          text: 'Change Payment Method',
+          handler: () => { this.showQrScanner = true; },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   async onCardPaid(result: PaymentResult) {
@@ -1080,14 +1190,16 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private async completeBooking(payment: ScannedPayment, methodType: string, fare: number, transactionId: string | null) {
     const ticketId = payment.ticketIdOverride || this.ticketId;
-    this.commuterService.bookTicket({
-      route_id: payment.routeId || parseInt(this.selectedRoute?.id ?? '0', 10),
-      schedule_id: payment.scheduleId || undefined,
-      fare,
-      public_ticket_id: ticketId,
-      payment_method: methodType,
-      commuter_id: JSON.parse(sessionStorage.getItem('currentUser') || '{}').id ?? undefined,
-    }).subscribe();
+    if (!this.ticketPersistedToBackend) {
+      this.commuterService.bookTicket({
+        route_id: payment.routeId || parseInt(this.selectedRoute?.id ?? '0', 10),
+        schedule_id: payment.scheduleId || undefined,
+        fare,
+        public_ticket_id: ticketId,
+        payment_method: methodType,
+        commuter_id: JSON.parse(sessionStorage.getItem('currentUser') || '{}').id ?? undefined,
+      }).subscribe();
+    }
 
     // Mark the ticket as paid on the backend so the driver manifest reflects it
     if (ticketId && methodType !== 'cash') {
@@ -1109,6 +1221,23 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         transactionRef: transactionId || ('TT-' + ticketId.slice(-10).toUpperCase()),
       };
       localStorage.setItem(`receipt_${ticketId}`, JSON.stringify(receipt));
+    }
+
+    // Auto-save PayMaya as default payment method after first successful PayMaya payment
+    if (methodType === 'paymaya') {
+      const cu = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+      const uid = cu.id || '';
+      if (uid) {
+        const existing: any[] = JSON.parse(localStorage.getItem(`paymentMethods_${uid}`) || '[]');
+        existing.forEach((m: any) => m.isDefault = false);
+        const pm = existing.find((m: any) => m.type === 'paymaya');
+        if (pm) {
+          pm.isDefault = true;
+        } else {
+          existing.push({ type: 'paymaya', number: '', name: 'PayMaya', isDefault: true });
+        }
+        localStorage.setItem(`paymentMethods_${uid}`, JSON.stringify(existing));
+      }
     }
 
     // Hide fare/ticket UI but keep route so the map stays visible

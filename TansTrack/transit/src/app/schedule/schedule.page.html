@@ -153,6 +153,15 @@
                 Decline
               </ion-button>
 
+              <ion-item *ngIf="isDeclinePending(schedule)" lines="none" class="ion-no-padding">
+                <ion-icon name="hourglass-outline" slot="start" color="warning"></ion-icon>
+                <ion-label class="ion-text-wrap">
+                  <p style="color:var(--ion-color-warning);font-size:0.85rem;">
+                    Decline request pending operator approval.
+                  </p>
+                </ion-label>
+              </ion-item>
+
               <ion-button *ngIf="canStart(schedule)" expand="block" color="primary" (click)="startSchedule(schedule)">
                 <ion-icon slot="start" name="play-circle"></ion-icon>
                 Start Trip

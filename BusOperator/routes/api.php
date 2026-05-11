@@ -50,25 +50,19 @@ Route::prefix('v1')->group(function () {
         Route::put('/{id}/status', [DriverController::class, 'updateStatus']);
     });
     
-    // Schedule management routes for mobile app
     Route::prefix('schedules')->group(function () {
-        // Public route - no auth required for commuters to see active buses
         Route::get('/active', [ScheduleController::class, 'getActiveSchedules'])->withoutMiddleware(['auth:sanctum']);
         
-        // Get all schedules (admin view)
         Route::get('/', [ScheduleController::class, 'index']);
         
-        // Get specific schedule
         Route::get('/{id}', [ScheduleController::class, 'show']);
         
-        // Schedule actions for drivers
         Route::put('/{id}/accept', [ScheduleController::class, 'acceptSchedule']);
         Route::put('/{id}/decline', [ScheduleController::class, 'declineSchedule']);
         Route::put('/{id}/start', [ScheduleController::class, 'startSchedule']);
         Route::put('/{id}/complete', [ScheduleController::class, 'completeSchedule']);
         Route::put('/{id}/update-position', [ScheduleController::class, 'updatePosition']);
 
-        // Create new schedule (admin)
         Route::post('/', [ScheduleController::class, 'assignToDriver']);
     });
     
@@ -101,7 +95,6 @@ Route::prefix('v1')->group(function () {
 
     Route::get('drivers', [DriverController::class, 'index']);
 
-    // Commuter: approved routes with terminal bus stops + fare preview (no auth)
     Route::get('commuter/approved-routes', [CommuterRoutesController::class, 'approvedRoutes']);
     Route::get('commuter/live-buses', [CommuterRoutesController::class, 'liveBuses']);
     Route::post('commuter/fare-preview', [CommuterRoutesController::class, 'farePreview']);
@@ -183,6 +176,8 @@ Route::group(['middleware' => 'api'], function () {
     Route::put('schedules/{id}/cancel', [ScheduleController::class, 'cancelSchedule']);
     Route::put('schedules/{id}/approve-cancel', [ScheduleController::class, 'approveCancellation']);
     Route::put('schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation']);
+    Route::put('schedules/{id}/approve-decline', [ScheduleController::class, 'approveDecline']);
+    Route::put('schedules/{id}/reject-decline', [ScheduleController::class, 'rejectDecline']);
     
     // Other API endpoints
     Route::get('schedules', [ScheduleController::class, 'index']);

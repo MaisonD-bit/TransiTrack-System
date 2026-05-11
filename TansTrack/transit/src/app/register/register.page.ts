@@ -6,7 +6,6 @@ import { AuthService } from '../services/auth.service';
 import { ApiService } from '../services/api.service';
 import { environment } from '../../environments/environment';
 
-// Custom validator for password confirmation
 function passwordMatchValidator(control: AbstractControl) {
   const password = control.get('password');
   const confirmPassword = control.get('confirmPassword');
@@ -45,7 +44,6 @@ export class RegisterPage implements OnInit {
     private alertController: AlertController
   ) {
     this.registerForm = this.formBuilder.group({
-      // Personal Information
       name: ['', [Validators.required, Validators.minLength(2)]],
       email: ['', [Validators.required, Validators.email]],
       contact_number: ['', [Validators.required, Validators.minLength(10)]],
@@ -54,20 +52,16 @@ export class RegisterPage implements OnInit {
       address: ['', [Validators.required, Validators.minLength(10)]],
       user_id: ['', Validators.required],
       
-      // License Information
       license_number: ['', [Validators.required, Validators.minLength(5)]],
       license_expiry: ['', Validators.required],
       
-      // Emergency Contact
       emergency_name: ['', [Validators.required, Validators.minLength(2)]],
       emergency_relation: ['', [Validators.required, Validators.minLength(2)]],
       emergency_contact: ['', [Validators.required, Validators.minLength(10)]],
       
-      // Password
       password: ['', [Validators.required, Validators.minLength(6)]],
       confirmPassword: ['', Validators.required],
       
-      // Terms
       agreeToTerms: [false, Validators.requiredTrue]
     }, { validators: passwordMatchValidator });
   }
@@ -127,21 +121,16 @@ export class RegisterPage implements OnInit {
   }
 
   async register() {
-    // Clear previous error message
     this.errorMessage = '';
 
-    // FIXED: Always allow button press, but validate on submit
     if (!this.registerForm.valid) {
-      // Mark all fields as touched to show validation errors
       this.markFormGroupTouched(this.registerForm);
       
-      // Show specific validation errors
       const errors = this.getFormValidationErrors();
       if (errors.length > 0) {
         this.errorMessage = 'Please fix the following errors:\n' + errors.join('\n');
         await this.showToast('Please check the form for errors', 'warning');
         
-        // Scroll to first error
         const firstErrorElement = document.querySelector('ion-note[color="danger"]');
         if (firstErrorElement) {
           firstErrorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -151,7 +140,7 @@ export class RegisterPage implements OnInit {
     }
 
     if (this.isSubmitting) {
-      return; // Prevent double submission
+      return; 
     }
 
     this.isSubmitting = true;
@@ -164,7 +153,6 @@ export class RegisterPage implements OnInit {
     try {
       let photoBase64 = '';
       
-      // Convert photo to base64 if selected
       if (this.selectedPhotoFile) {
         console.log('Converting photo to base64...');
         photoBase64 = await this.convertFileToBase64(this.selectedPhotoFile);

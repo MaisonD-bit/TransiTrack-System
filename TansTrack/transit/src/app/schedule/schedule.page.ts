@@ -25,6 +25,8 @@ interface Schedule {
   notes?: string;
   cancel_reason?: string;
   cancellation_status?: 'pending_approval' | 'approved' | 'rejected' | null;
+  decline_reason?: string;
+  decline_status?: 'pending_approval' | 'approved' | 'rejected' | null;
   route?: {
     id: number;
     name: string;
@@ -219,7 +221,11 @@ export class SchedulePage implements OnInit, OnDestroy {
   }
 
   canDecline(schedule: Schedule): boolean {
-    return schedule.status === 'scheduled';
+    return schedule.status === 'scheduled' && schedule.decline_status !== 'pending_approval';
+  }
+
+  isDeclinePending(schedule: Schedule): boolean {
+    return schedule.status === 'pending_decline' || schedule.decline_status === 'pending_approval';
   }
 
   canStart(schedule: Schedule): boolean {
@@ -231,7 +237,7 @@ export class SchedulePage implements OnInit, OnDestroy {
   }
 
   canCancel(schedule: Schedule): boolean {
-    return ['scheduled', 'accepted', 'active'].includes(schedule.status) &&
+    return ['accepted', 'active'].includes(schedule.status) &&
       schedule.cancellation_status !== 'pending_approval';
   }
 
@@ -248,7 +254,7 @@ export class SchedulePage implements OnInit, OnDestroy {
           text: 'Accept',
           handler: async () => {
             try {
-              const response = await this.apiService.post(`schedules/${schedule.id}/accept`, {}).toPromise();
+              const response = await this.apiService.acceptSchedule(schedule.id).toPromise();
               if (response && response.success) {
                 await this.loadSchedules();
                 await this.presentToast('Schedule accepted successfully!', 'success');
@@ -267,25 +273,36 @@ export class SchedulePage implements OnInit, OnDestroy {
   async declineSchedule(schedule: Schedule) {
     const alert = await this.alertController.create({
       header: 'Decline Schedule',
-      message: `Decline the schedule for ${schedule.route?.name}?`,
+      message: `Please provide a reason for declining the schedule for ${schedule.route?.name}. The operator will review your request.`,
+      inputs: [
+        {
+          name: 'reason',
+          type: 'textarea',
+          placeholder: 'Enter your reason here (e.g. personal emergency, vehicle issue…)',
+          attributes: { maxlength: 500 }
+        }
+      ],
       buttons: [
+        { text: 'Cancel', role: 'cancel' },
         {
-          text: 'Cancel',
-          role: 'cancel'
-        },
-        {
-          text: 'Decline',
-          handler: async () => {
+          text: 'Submit Decline',
+          handler: async (data) => {
+            const reason = (data.reason || '').trim();
+            if (reason.length < 5) {
+              await this.presentToast('Please provide a valid reason (at least 5 characters).', 'warning');
+              return false;
+            }
             try {
-              const response = await this.apiService.declineSchedule(schedule.id).toPromise();
+              const response = await this.apiService.declineSchedule(schedule.id, reason).toPromise();
               if (response.success) {
                 await this.loadSchedules();
-                await this.presentToast('Schedule declined', 'warning');
+                await this.presentToast('Decline request submitted. Awaiting operator approval.', 'warning');
               }
             } catch (error) {
               console.error('Error declining schedule:', error);
-              await this.presentToast('Failed to decline schedule', 'danger');
+              await this.presentToast('Failed to submit decline request', 'danger');
             }
+            return true;
           }
         }
       ]

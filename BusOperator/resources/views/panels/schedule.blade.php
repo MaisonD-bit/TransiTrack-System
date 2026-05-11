@@ -682,6 +682,58 @@
         </div>
     </div>
     @endif
+
+    <!-- Pending Decline Requests -->
+    @php
+        $pendingDeclines = $schedules->getCollection()->filter(fn($s) => $s->decline_status === 'pending_approval');
+    @endphp
+    @if($pendingDeclines->isNotEmpty())
+    <div class="card border-0 shadow-sm mt-4 border-start border-danger border-4">
+        <div class="card-header bg-danger bg-opacity-10 d-flex align-items-center gap-2">
+            <i class="fas fa-times-circle text-danger"></i>
+            <h5 class="mb-0 text-danger">Pending Decline Requests ({{ $pendingDeclines->count() }})</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Schedule</th>
+                        <th>Driver</th>
+                        <th>Route</th>
+                        <th>Date</th>
+                        <th>Reason</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($pendingDeclines as $s)
+                    <tr>
+                        <td class="text-muted small">#{{ $s->id }}</td>
+                        <td>{{ $s->driver?->first_name }} {{ $s->driver?->last_name }}</td>
+                        <td>{{ $s->route?->name ?? 'N/A' }}</td>
+                        <td class="small">{{ \Carbon\Carbon::parse($s->date)->format('M d, Y') }}</td>
+                        <td class="small text-danger">{{ $s->decline_reason }}</td>
+                        <td>
+                            <form method="POST" action="{{ route('schedules.approve-decline', $s->id) }}" class="d-inline">
+                                @csrf @method('PATCH')
+                                <button class="btn btn-sm btn-success me-1">
+                                    <i class="fas fa-check me-1"></i>Approve
+                                </button>
+                            </form>
+                            <form method="POST" action="{{ route('schedules.reject-decline', $s->id) }}" class="d-inline">
+                                @csrf @method('PATCH')
+                                <button class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-times me-1"></i>Reject
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+    @endif
 </div>
 @endsection
 

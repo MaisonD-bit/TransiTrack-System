@@ -47,7 +47,7 @@
         <ion-card-content>
           <div class="kpi-value">{{ kpi.completion_rate }}%</div>
           <div class="kpi-label">Completion Rate</div>
-          <ion-progress-bar [value]="kpi.completion_rate / 100" color="success"></ion-progress-bar>
+          <ion-progress-bar [value]="(kpi.completion_rate ?? 0) / 100" color="success"></ion-progress-bar>
         </ion-card-content>
       </ion-card>
 
@@ -55,7 +55,7 @@
         <ion-card-content>
           <div class="kpi-value">{{ kpi.acceptance_rate }}%</div>
           <div class="kpi-label">Acceptance Rate</div>
-          <ion-progress-bar [value]="kpi.acceptance_rate / 100" color="primary"></ion-progress-bar>
+          <ion-progress-bar [value]="(kpi.acceptance_rate ?? 0) / 100" color="primary"></ion-progress-bar>
         </ion-card-content>
       </ion-card>
 

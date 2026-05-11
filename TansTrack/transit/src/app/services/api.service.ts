@@ -92,14 +92,10 @@ export class ApiService {
       );
   }
 
-  declineSchedule(scheduleId: number): Observable<any> {
-    console.log(`API: Declining schedule ${scheduleId}`);
-    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/decline`, {}, {
+  declineSchedule(scheduleId: number, reason: string): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/decline`, { reason }, {
       headers: this.getHeaders()
-    }).pipe(
-      tap(response => console.log('Decline schedule response:', response)),
-      catchError(this.handleError)
-    );
+    }).pipe(catchError(this.handleError));
   }
 
   startSchedule(scheduleId: number): Observable<any> {

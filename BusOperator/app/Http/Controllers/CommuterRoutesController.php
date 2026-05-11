@@ -522,18 +522,20 @@ class CommuterRoutesController extends Controller
         }
 
         $today = $this->commuterLocalToday();
+        $yesterday = Carbon::now('Asia/Manila')->subDay()->toDateString();
         $now = Carbon::now('Asia/Manila');
 
         $schedules = Schedule::query()
             ->with(['bus', 'driver', 'user', 'tickets', 'route'])
             ->where('route_id', $route->id)
-            ->whereDate('date', $today)
+            ->whereIn('date', [$today, $yesterday])
             ->whereIn('status', ['accepted', 'active'])
             ->orderBy('start_time')
             ->get()
             ->filter(function (Schedule $s) use ($now) {
                 // Drop schedules that ran past their scheduled end window (+ 1 h grace period).
                 // Cleans up drivers who closed the app without pressing "Complete Route".
+                // This also handles post-midnight routes whose date is yesterday.
                 [, $windowEnd] = $s->windowBounds();
                 return $windowEnd->addHour()->gt($now);
             })
@@ -868,13 +870,19 @@ class CommuterRoutesController extends Controller
     private function findTodaysBookableScheduleForRoute(int $routeId): ?Schedule
     {
         $today = $this->commuterLocalToday();
+        $yesterday = Carbon::now('Asia/Manila')->subDay()->toDateString();
+        $now = Carbon::now('Asia/Manila');
 
         return Schedule::query()
             ->where('route_id', $routeId)
-            ->whereDate('date', $today)
+            ->whereIn('date', [$today, $yesterday])
             ->whereIn('status', ['active', 'accepted'])
             ->orderBy('start_time')
-            ->first();
+            ->get()
+            ->first(function (Schedule $s) use ($now) {
+                [, $windowEnd] = $s->windowBounds();
+                return $windowEnd->addHour()->gt($now);
+            });
     }
 
     private function scheduleDateYmd(Schedule $schedule): string

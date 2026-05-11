@@ -810,24 +810,75 @@ class ScheduleController extends Controller
         }
     }
 
-    public function declineSchedule($id)
+    public function declineSchedule(Request $request, $id)
     {
-        try {
-            $schedule = Schedule::findOrFail($id);
-            $schedule->status = 'declined';
-            $schedule->save();
+        $request->validate(['reason' => 'required|string|min:5|max:500']);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Schedule declined successfully',
-                'schedule' => $schedule
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to decline schedule: ' . $e->getMessage()
-            ], 500);
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        if ($schedule->status !== 'scheduled') {
+            return response()->json(['success' => false, 'message' => 'Only unaccepted schedules can be declined.'], 400);
         }
+
+        $schedule->status = 'pending_decline';
+        $schedule->decline_reason = $request->reason;
+        $schedule->decline_status = 'pending_approval';
+        $schedule->save();
+
+        $driverName = $schedule->driver
+            ? trim(($schedule->driver->first_name ?? '') . ' ' . ($schedule->driver->last_name ?? ''))
+            : 'Driver';
+
+        Notification::create([
+            'type'         => 'schedule_update',
+            'message'      => "Driver {$driverName} declined schedule #{$id}: \"{$request->reason}\"",
+            'driver_id'    => $schedule->driver_id,
+            'schedule_id'  => $id,
+            'recipient_id' => $schedule->user_id,
+            'sender_id'    => null,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline request submitted. Awaiting operator approval.']);
+    }
+
+    public function approveDecline($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'declined';
+        $schedule->decline_status = 'approved';
+        $schedule->declined_at = now();
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your decline request for schedule #{$id} has been approved.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline approved.']);
+    }
+
+    public function rejectDecline($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'scheduled';
+        $schedule->decline_status = 'rejected';
+        $schedule->decline_reason = null;
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your decline request for schedule #{$id} was rejected. Please proceed with your schedule.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline rejected. Schedule restored.']);
     }
 
     /**

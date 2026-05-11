@@ -50,6 +50,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/route-requests', [RouteApprovalWebController::class, 'index'])->name('route-requests.panel');
     Route::patch('/panel/schedules/{id}/approve-cancel', [ScheduleController::class, 'approveCancellation'])->name('schedules.approve-cancel');
     Route::patch('/panel/schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation'])->name('schedules.reject-cancel');
+    Route::patch('/panel/schedules/{id}/approve-decline', [ScheduleController::class, 'approveDecline'])->name('schedules.approve-decline');
+    Route::patch('/panel/schedules/{id}/reject-decline', [ScheduleController::class, 'rejectDecline'])->name('schedules.reject-decline');
     Route::get('/panel/support-tickets', [SupportTicketWebController::class, 'index'])->name('support-tickets.panel');
     Route::patch('/panel/support-tickets/{id}', [SupportTicketWebController::class, 'updateStatus'])->name('support-tickets.update');
     Route::post('/panel/route-requests', [RouteApprovalWebController::class, 'store'])->name('route-requests.store');

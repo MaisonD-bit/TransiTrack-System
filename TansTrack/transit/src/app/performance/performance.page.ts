@@ -1,5 +1,13 @@
 import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { ToastController, ViewWillEnter } from '@ionic/angular';
+import {
+  IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon,
+  IonContent, IonSpinner, IonCard, IonCardContent, IonCardHeader,
+  IonCardTitle, IonItem, IonLabel, IonNote, IonProgressBar,
+} from '@ionic/angular/standalone';
+import { addIcons } from 'ionicons';
+import { refreshOutline, personCircleOutline, star, starOutline, barChartOutline } from 'ionicons/icons';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 
@@ -7,7 +15,13 @@ import { AuthService } from '../services/auth.service';
   selector: 'app-performance',
   templateUrl: './performance.page.html',
   styleUrls: ['./performance.page.scss'],
-  standalone: false,
+  standalone: true,
+  imports: [
+    CommonModule,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon,
+    IonContent, IonSpinner, IonCard, IonCardContent, IonCardHeader,
+    IonCardTitle, IonItem, IonLabel, IonNote, IonProgressBar,
+  ],
 })
 export class PerformancePage implements ViewWillEnter {
   isLoading = false;
@@ -17,7 +31,9 @@ export class PerformancePage implements ViewWillEnter {
     private apiService: ApiService,
     private authService: AuthService,
     private toastController: ToastController
-  ) {}
+  ) {
+    addIcons({ refreshOutline, personCircleOutline, star, starOutline, barChartOutline });
+  }
 
   ionViewWillEnter() {
     this.loadPerformance();

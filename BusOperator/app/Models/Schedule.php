@@ -35,6 +35,8 @@ class Schedule extends Model
         'current_lng',
         'cancel_reason',
         'cancellation_status',
+        'decline_reason',
+        'decline_status',
     ];
 
     protected $casts = [
