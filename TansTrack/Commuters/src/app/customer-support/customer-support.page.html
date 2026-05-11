@@ -97,8 +97,8 @@
             </div>
           </div>
 
-          <ion-progress-bar 
-            [value]="ticket.responses.length > 0 ? 0.7 : 0.3">
+          <ion-progress-bar
+            [value]="(ticket.responses?.length ?? 0) > 0 ? 0.7 : 0.3">
           </ion-progress-bar>
         </ion-card-content>
       </ion-card>
@@ -400,9 +400,9 @@
             <ion-text slot="end">{{ selectedTicket.lastUpdated | date: 'MMM dd, yyyy HH:mm' }}</ion-text>
           </ion-item>
 
-          <h3>Responses ({{ selectedTicket.responses.length }})</h3>
+          <h3>Responses ({{ selectedTicket.responses?.length ?? 0 }})</h3>
           <div class="responses-list">
-            <div *ngFor="let response of selectedTicket.responses" class="response">
+            <div *ngFor="let response of (selectedTicket.responses ?? [])" class="response">
               <div class="response-header">
                 <strong>{{ response.sender | uppercase }}</strong>
                 <span class="time">{{ getRelativeTime(response.timestamp) }}</span>

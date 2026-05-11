@@ -135,7 +135,7 @@
 
 @push('scripts')
 <script>
-    window.TM_MAPBOX_TOKEN = @json(config('services.mapbox.token', env('MAPBOX_TOKEN', '')));
+    window.TM_MAPBOX_TOKEN = @json(config('services.mapbox.token', env('MAPBOX_TOKEN', 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA')));
 </script>
 @vite(['resources/js/terminal-route-stops.js'])
 @endpush

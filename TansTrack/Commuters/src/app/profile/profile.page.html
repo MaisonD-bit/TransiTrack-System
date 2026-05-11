@@ -181,7 +181,7 @@
                   📱 GCash
                 </ion-select-option>
                 <ion-select-option value="paymaya">
-                  💳 PayMaya
+                  💳 PayMaya / Maya
                 </ion-select-option>
                 <ion-select-option value="cash">
                   Cash
@@ -189,34 +189,74 @@
               </ion-select>
             </ion-item>
 
-            <ion-item>
-              <ion-input
-                label="Account Number / Phone"
-                labelPlacement="floating"
-                [(ngModel)]="newPaymentMethod.number"
-                type="tel"
-                placeholder="Enter account number">
-              </ion-input>
-            </ion-item>
+            <!-- PayMaya: only phone number, link via Maya popup -->
+            <ng-container *ngIf="newPaymentMethod.type === 'paymaya'">
+              <ion-item>
+                <ion-input
+                  label="Maya Phone Number"
+                  labelPlacement="floating"
+                  [(ngModel)]="newPaymentMethod.number"
+                  type="tel"
+                  placeholder="+63 9XX XXX XXXX">
+                </ion-input>
+              </ion-item>
+              <ion-item lines="none">
+                <ion-label class="ion-text-wrap">
+                  <p style="font-size:0.8rem;color:var(--ion-color-medium)">
+                    A ₱1.00 verification charge will be made via Maya to confirm your account. This will open a Maya login window.
+                  </p>
+                </ion-label>
+              </ion-item>
+            </ng-container>
 
-            <ion-item>
-              <ion-input
-                label="Account Name"
-                labelPlacement="floating"
-                [(ngModel)]="newPaymentMethod.name"
-                placeholder="Enter account holder name">
-              </ion-input>
-            </ion-item>
+            <!-- GCash: full manual entry -->
+            <ng-container *ngIf="newPaymentMethod.type !== 'paymaya' && newPaymentMethod.type !== 'cash'">
+              <ion-item>
+                <ion-input
+                  label="Account Number / Phone"
+                  labelPlacement="floating"
+                  [(ngModel)]="newPaymentMethod.number"
+                  type="tel"
+                  placeholder="Enter account number">
+                </ion-input>
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  label="Account Name"
+                  labelPlacement="floating"
+                  [(ngModel)]="newPaymentMethod.name"
+                  placeholder="Enter account holder name">
+                </ion-input>
+              </ion-item>
+            </ng-container>
           </ion-list>
 
           <div class="form-buttons">
-            <ion-button expand="block" (click)="addPaymentMethod()">
-              <ion-icon name="add" slot="start"></ion-icon>
-              Add Payment Method
-            </ion-button>
-            <ion-button expand="block" fill="outline" (click)="showAddPaymentForm = false">
-              Cancel
-            </ion-button>
+            <!-- Waiting for Maya popup to complete -->
+            <ng-container *ngIf="mayaPopupOpen; else normalBtn">
+              <ion-item lines="none">
+                <ion-icon name="time-outline" slot="start" color="warning"></ion-icon>
+                <ion-label class="ion-text-wrap">
+                  <p style="font-size:0.85rem">Complete the payment in the Maya window, then tap below.</p>
+                </ion-label>
+              </ion-item>
+              <ion-button expand="block" color="success" (click)="confirmMayaManually()">
+                <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+                I've Paid — Link Account
+              </ion-button>
+              <ion-button expand="block" fill="outline" color="medium" (click)="mayaPopupOpen = false; showAddPaymentForm = false">
+                Cancel
+              </ion-button>
+            </ng-container>
+            <ng-template #normalBtn>
+              <ion-button expand="block" (click)="addPaymentMethod()">
+                <ion-icon [name]="newPaymentMethod.type === 'paymaya' ? 'log-in-outline' : 'add'" slot="start"></ion-icon>
+                {{ newPaymentMethod.type === 'paymaya' ? 'Connect Maya Account' : 'Add Payment Method' }}
+              </ion-button>
+              <ion-button expand="block" fill="outline" (click)="showAddPaymentForm = false">
+                Cancel
+              </ion-button>
+            </ng-template>
           </div>
         </div>
 
@@ -229,7 +269,7 @@
                 <h3>{{ getPaymentLabel(method.type) }}</h3>
                 <p>{{ maskNumber(method.number) }}</p>
                 <p class="account-name">{{ method.name }}</p>
-                <p *ngIf="method.type === 'gcash' || method.type === 'paymaya'" class="balance-line">
+                <p *ngIf="method.type === 'gcash'" class="balance-line">
                   <ng-container *ngIf="balances[method.number] !== undefined; else loadingBal">
                     <ng-container *ngIf="balances[method.number] !== null; else unavailBal">
                       <ion-text color="success"><strong>Balance: ₱{{ balances[method.number] | number:'1.2-2' }}</strong></ion-text>
@@ -237,6 +277,9 @@
                     <ng-template #unavailBal><ion-text color="medium">Balance unavailable</ion-text></ng-template>
                   </ng-container>
                   <ng-template #loadingBal><ion-text color="medium">Loading balance...</ion-text></ng-template>
+                </p>
+                <p *ngIf="method.type === 'paymaya'" class="balance-line">
+                  <ion-text color="medium">Balance managed by Maya</ion-text>
                 </p>
               </ion-label>
               <ion-chip *ngIf="method.isDefault" color="success" slot="end">

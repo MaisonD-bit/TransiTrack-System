@@ -33,6 +33,8 @@ class Schedule extends Model
         'completed_at',
         'current_lat',
         'current_lng',
+        'cancel_reason',
+        'cancellation_status',
     ];
 
     protected $casts = [

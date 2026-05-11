@@ -44,6 +44,27 @@ export class PaymentService {
     }
   }
 
+  /**
+   * Create a real Maya Checkout session.
+   * Returns the checkout URL to open in a popup.
+   */
+  async createMayaCheckout(payload: {
+    public_ticket_id?: string;
+    amount: number;
+    route_name?: string;
+    commuter_name?: string;
+  }): Promise<{ success: boolean; checkout_url?: string; message?: string }> {
+    try {
+      const res: any = await firstValueFrom(
+        this.http.post(`${environment.apiUrl}/payments/maya/checkout`, payload)
+      );
+      return { success: true, checkout_url: res.checkout_url };
+    } catch (err: any) {
+      const msg = err?.error?.message ?? 'Could not start Maya payment.';
+      return { success: false, message: msg };
+    }
+  }
+
   async topUpEWallet(accountNumber: string, amount = 1000): Promise<number> {
     const res: any = await firstValueFrom(
       this.http.post(`${environment.apiUrl}/payments/ewallet/topup`, { accountNumber, amount })

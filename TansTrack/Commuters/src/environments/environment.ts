@@ -12,14 +12,8 @@ export const environment = {
   apiUrl: 'http://localhost:8000/api/v1',
   ocrApiKey: 'K87693276688957',
 
-  messaging: {  
-     streamApiKey: 'em2gqhhmgvng',
-  streamApiSecret: '9qnnvs84t9anmvet63envwj46qc6yrp7kkg99adawv3sdrkhsshhnjc43ve6k9hu',
-
-  },
- 
   mapbox: {
-    accessToken: ''
+    accessToken: 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA'
   },
 
   /** Matches terminal manager / approved route packages (north | south) */

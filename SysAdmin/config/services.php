@@ -37,7 +37,7 @@ return [
 
     'mapbox' => [
         // Default matches Terminal Manager dev fallback; override with MAPBOX_TOKEN in .env for production.
-        'token' => env('MAPBOX_TOKEN', ''),
+        'token' => env('MAPBOX_TOKEN', 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA'),
     ],
 
 ];

@@ -22,6 +22,12 @@ export interface RouteMapBoardingPassenger {
   fare?: number;
   commuter_name?: string;
   commuter_email?: string;
+  alighted?: boolean;
+  boarding_lng?: number | null;
+  boarding_lat?: number | null;
+  boarding_stop_name?: string | null;
+  /** True only for boarding requests — commuter waiting at a stop, not yet aboard */
+  is_boarding_request?: boolean;
 }
 
 @Component({
@@ -52,12 +58,13 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   mapLoaded = false;
   private pathMarkers: any[] = [];
   private stopMarkers: any[] = [];
-  private boardingMarkers: any[] = [];
+  /** key = "lng,lat" stop position → marker for that waiting group */
+  private boardingStopMarkers = new Map<string, { marker: any; lng: number; lat: number }>();
   private busMarker: any = null;
   private simulationSub: Subscription | null = null;
 
   ngAfterViewInit() {
-    mapboxgl.accessToken = '';
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
     // Note: mapbox-gl v3 exposes EVENTS_URL as read-only; do not assign it (throws TypeError).
 
     this.map = new mapboxgl.Map({
@@ -82,8 +89,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       (changes['routeGeoJson'] || changes['routeStops'] || changes['boardingPassengers'])
     ) {
       this.drawRoute();
-      // Restart simulation if already active and route data changed
-      if (this.simulate) {
+      // Only restart simulation when route geometry changes, NOT when boarding passengers update
+      if (this.simulate && (changes['routeGeoJson'] || changes['routeStops'])) {
         this.startSimulation();
       }
     }
@@ -114,10 +121,9 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
     this.clearMarkerList(this.pathMarkers);
     this.clearMarkerList(this.stopMarkers);
-    this.clearMarkerList(this.boardingMarkers);
+    this.clearBoardingMarkers();
     this.pathMarkers = [];
     this.stopMarkers = [];
-    this.boardingMarkers = [];
 
     const hasLine =
       this.routeGeoJson &&
@@ -160,12 +166,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
 
     this.addStopMarkers();
-    this.addBoardingMarker();
+    this.addBoardingMarkers();
 
     if (!hasLine && this.routeStops?.length) {
       this.fitToStopsOnly();
     }
   }
+
+  private readonly SIM_STEP_KEY = 'driver_sim_step';
 
   private startSimulation() {
     this.stopSimulation();
@@ -173,17 +181,24 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     const coords: number[][] = this.routeGeoJson?.coordinates;
     if (!Array.isArray(coords) || coords.length < 2) return;
 
+    const saved = sessionStorage.getItem(this.SIM_STEP_KEY);
+    const savedStep = saved !== null ? parseInt(saved, 10) : -1;
+    const startIdx = savedStep >= 0 && savedStep < coords.length ? savedStep : 0;
+
     this.busMarker = new mapboxgl.Marker({ color: '#0074D9', scale: 1.2 })
-      .setLngLat([coords[0][0], coords[0][1]])
+      .setLngLat([coords[startIdx][0], coords[startIdx][1]])
       .addTo(this.map);
 
-    this.simulationSub = this.busSimulator.simulateAlongLine(coords, 400).subscribe({
-      next: ({ lng, lat }) => {
+    this.simulationSub = this.busSimulator.simulateAlongLine(coords, 400, startIdx).subscribe({
+      next: ({ lng, lat, index }) => {
         this.busMarker.setLngLat([lng, lat]);
         this.positionUpdate.emit({ lng, lat });
+        sessionStorage.setItem(this.SIM_STEP_KEY, String(index));
+        this.checkBusPastBoardingStops(lng, lat);
       },
       complete: () => {
         this.arrivedAtDestination.emit();
+        sessionStorage.removeItem(this.SIM_STEP_KEY);
         if (this.busMarker) {
           this.busMarker.remove();
           this.busMarker = null;
@@ -268,42 +283,73 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
   }
 
-  private addBoardingMarker() {
-    const passengers = this.boardingPassengers || [];
-    if (!passengers.length) {
-      return;
-    }
+  private addBoardingMarkers() {
+    this.clearBoardingMarkers();
 
-    let anchor: [number, number] | null = null;
-    if (this.routeGeoJson?.coordinates?.length) {
-      anchor = this.routeGeoJson.coordinates[0];
-    }
-    if (!anchor && this.routeStops?.length) {
+    // Only show passengers who are actively waiting at a stop (not yet aboard)
+    const waiting = (this.boardingPassengers || []).filter(p => p.is_boarding_request && !p.alighted);
+    if (!waiting.length) return;
+
+    // Fallback anchor: route start or first stop
+    let fallbackAnchor: [number, number] | null =
+      this.routeGeoJson?.coordinates?.[0] ?? null;
+    if (!fallbackAnchor && this.routeStops?.length) {
       for (const s of this.routeStops) {
-        anchor = this.stopLngLat(s);
-        if (anchor) {
-          break;
-        }
+        const ll = this.stopLngLat(s);
+        if (ll) { fallbackAnchor = ll; break; }
       }
     }
 
-    if (!anchor) {
-      return;
+    // Group passengers by boarding stop position
+    const groups = new Map<string, { passengers: RouteMapBoardingPassenger[]; lng: number; lat: number; name: string }>();
+    for (const p of waiting) {
+      let lng: number, lat: number, stopName: string;
+      if (p.boarding_lng != null && p.boarding_lat != null) {
+        lng = p.boarding_lng;
+        lat = p.boarding_lat;
+        stopName = p.boarding_stop_name || 'Bus Stop';
+      } else if (fallbackAnchor) {
+        [lng, lat] = fallbackAnchor;
+        stopName = 'Terminal';
+      } else {
+        continue;
+      }
+      const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+      if (!groups.has(key)) groups.set(key, { passengers: [], lng, lat, name: stopName });
+      groups.get(key)!.passengers.push(p);
     }
 
-    const names = passengers
-      .map((p) => p.commuter_name || p.public_ticket_id || 'Passenger')
-      .filter(Boolean);
-    const lines = names.slice(0, 12).map((n) => this.escapeHtml(String(n)));
-    const more =
-      names.length > 12 ? `<br><em>+${names.length - 12} more</em>` : '';
-    const html = `<div style="padding:8px;"><strong>Boarding (${passengers.length})</strong><br>${lines.join('<br>')}${more}</div>`;
+    groups.forEach(({ passengers: grp, lng, lat, name }) => {
+      const names = grp.map(p => p.commuter_name || p.public_ticket_id || 'Passenger');
+      const lines = names.slice(0, 10).map(n => this.escapeHtml(String(n))).join('<br>');
+      const more = names.length > 10 ? `<br><em>+${names.length - 10} more</em>` : '';
+      const html = `<div style="padding:8px;"><strong>Waiting at ${this.escapeHtml(name)} (${grp.length})</strong><br>${lines}${more}</div>`;
+      const marker = new mapboxgl.Marker({ color: '#a855f7', scale: 1.05 })
+        .setLngLat([lng, lat])
+        .setPopup(new mapboxgl.Popup({ maxWidth: '280px' }).setHTML(html))
+        .addTo(this.map);
+      const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+      this.boardingStopMarkers.set(key, { marker, lng, lat });
+    });
+  }
 
-    const m = new mapboxgl.Marker({ color: '#a855f7', scale: 1.05 })
-      .setLngLat(anchor)
-      .setPopup(new mapboxgl.Popup({ maxWidth: '280px' }).setHTML(html))
-      .addTo(this.map);
-    this.boardingMarkers.push(m);
+  private clearBoardingMarkers() {
+    this.boardingStopMarkers.forEach(({ marker }) => { try { marker.remove(); } catch {} });
+    this.boardingStopMarkers.clear();
+  }
+
+  /** Called on each simulation step — removes markers for stops the bus has passed (~200 m). */
+  private checkBusPastBoardingStops(busLng: number, busLat: number) {
+    const toRemove: string[] = [];
+    this.boardingStopMarkers.forEach(({ marker, lng, lat }, key) => {
+      const dx = busLng - lng;
+      const dy = busLat - lat;
+      if (Math.sqrt(dx * dx + dy * dy) < 0.002) { // ~200 m
+        try { marker.remove(); } catch {}
+        toRemove.push(key);
+      }
+    });
+    toRemove.forEach(k => this.boardingStopMarkers.delete(k));
   }
 
   private fitToStopsOnly() {

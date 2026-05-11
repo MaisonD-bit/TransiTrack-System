@@ -192,6 +192,65 @@
     </ion-row>
   </ion-grid>
 
+  <!-- Passenger Manifest (only shown when a trip is active) -->
+  <ion-card *ngIf="currentSchedule?.status === 'active'" class="manifest-card">
+    <ion-card-header>
+      <div class="manifest-header">
+        <ion-card-title>
+          <ion-icon name="people-outline" style="vertical-align:middle;margin-right:6px;"></ion-icon>
+          Passengers
+        </ion-card-title>
+        <div class="manifest-summary">
+          <ion-badge color="success">{{ manifestPaidCount }} Paid</ion-badge>
+          <ion-badge color="primary" style="margin-left:6px;">{{ manifestOnBoardCount }} On Board</ion-badge>
+        </div>
+        <ion-button fill="clear" size="small" (click)="showManifest = !showManifest">
+          <ion-icon [name]="showManifest ? 'chevron-up-outline' : 'chevron-down-outline'" slot="icon-only"></ion-icon>
+        </ion-button>
+      </div>
+      <!-- Capacity bar -->
+      <div class="capacity-bar-wrap" *ngIf="expectedCapacity > 0">
+        <div class="capacity-bar">
+          <div class="capacity-fill"
+               [style.width.%]="(manifestOnBoardCount / expectedCapacity) * 100"
+               [class.capacity-warn]="(manifestOnBoardCount / expectedCapacity) >= 0.8"
+               [class.capacity-full]="manifestOnBoardCount >= expectedCapacity">
+          </div>
+        </div>
+        <span class="capacity-label">{{ manifestOnBoardCount }} / {{ expectedCapacity }} seats</span>
+      </div>
+    </ion-card-header>
+
+    <ion-card-content *ngIf="showManifest">
+      <div *ngIf="passengers.length === 0" class="no-passengers">
+        <ion-icon name="person-outline"></ion-icon>
+        <p>No bookings yet</p>
+      </div>
+      <ion-list *ngIf="passengers.length > 0" lines="full" class="passenger-list">
+        <ion-item *ngFor="let p of passengers" [class.alighted]="p.alighted">
+          <ion-icon
+            [name]="p.payment_status === 'paid' ? 'checkmark-circle' : 'ellipse-outline'"
+            [color]="p.payment_status === 'paid' ? 'success' : 'medium'"
+            slot="start">
+          </ion-icon>
+          <ion-label>
+            <h3>{{ p.commuter_name }}</h3>
+            <p>₱{{ p.fare.toFixed(2) }} · {{ getPaymentMethodLabel(p.payment_method) }}</p>
+          </ion-label>
+          <ion-note slot="end">
+            <span *ngIf="p.alighted" class="alighted-tag">Alighted</span>
+            <ion-badge
+              *ngIf="!p.alighted"
+              [color]="p.payment_status === 'paid' ? 'success' : 'warning'"
+              class="status-chip">
+              {{ p.payment_status === 'paid' ? 'Paid' : 'Pending' }}
+            </ion-badge>
+          </ion-note>
+        </ion-item>
+      </ion-list>
+    </ion-card-content>
+  </ion-card>
+
   <!-- Quick Actions -->
   <ion-card class="quick-actions-card">
     <ion-card-header>

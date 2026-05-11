@@ -3,6 +3,7 @@ import { FeedbackService } from '../services/feedback.service';
 import { Subscription } from 'rxjs';
 import { ToastController, LoadingController, AlertController } from '@ionic/angular';
 
+
 export interface Feedback {
   id: string;
   tripId: string;
@@ -74,7 +75,8 @@ export class FeedbackPage implements OnInit, OnDestroy {
     });
     await loading.present();
 
-    const sub = this.feedbackService.getUserFeedbacks().subscribe({
+    const commuterId = this.getCommuterId();
+    const sub = this.feedbackService.getUserFeedbacks(commuterId).subscribe({
       next: (response: any) => {
         if (response.success && response.data) {
           this.feedbacks = response.data;
@@ -95,7 +97,7 @@ export class FeedbackPage implements OnInit, OnDestroy {
   }
 
   loadPendingTrips() {
-    const sub = this.feedbackService.getPendingTripsForFeedback().subscribe({
+    const sub = this.feedbackService.getPendingTripsForFeedback(this.getCommuterId()).subscribe({
       next: (response: any) => {
         if (response.success && response.data) {
           this.pendingTrips = response.data;
@@ -163,7 +165,8 @@ export class FeedbackPage implements OnInit, OnDestroy {
     await loading.present();
 
     const feedbackData = {
-      trip_id: this.newFeedback.tripId,
+      commuter_id: this.getCommuterId() || undefined,
+      public_ticket_id: this.newFeedback.tripId,
       driver_rating: this.newFeedback.driverRating,
       service_rating: this.newFeedback.serviceRating,
       cleanliness_rating: this.newFeedback.cleanlinessRating,
@@ -204,13 +207,53 @@ export class FeedbackPage implements OnInit, OnDestroy {
   }
 
   getAverageRating(feedback: Feedback): number {
-    return (feedback.driverRating + feedback.serviceRating + feedback.cleanlinessRating + feedback.safetyRating) / 4;
+    const ratings = [feedback.driverRating, feedback.serviceRating, feedback.cleanlinessRating, feedback.safetyRating]
+      .filter(r => r > 0);
+    if (ratings.length === 0) return 0;
+    return ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
   }
 
   getRatingColor(rating: number): string {
     if (rating >= 4) return 'success';
     if (rating >= 3) return 'warning';
     return 'danger';
+  }
+
+  async clearAllFeedbacks() {
+    const alert = await this.alertController.create({
+      header: 'Clear All Feedback?',
+      message: 'This will permanently delete all your submitted feedback.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Clear All',
+          role: 'destructive',
+          handler: () => {
+            this.feedbackService.clearAllFeedbacks(this.getCommuterId()).subscribe({
+              next: () => {
+                this.feedbacks = [];
+                this.displayedFeedbacks = [];
+                this.showToast('All feedback cleared.', 'success');
+              },
+              error: () => this.showToast('Failed to clear feedback.', 'danger'),
+            });
+          },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  deleteFeedback(feedback: Feedback, event: Event) {
+    event.stopPropagation();
+    this.feedbackService.deleteFeedback(feedback.id).subscribe({
+      next: () => {
+        this.feedbacks = this.feedbacks.filter(f => f.id !== feedback.id);
+        this.applyFilters();
+        this.showToast('Feedback deleted.', 'success');
+      },
+      error: () => this.showToast('Failed to delete feedback.', 'danger'),
+    });
   }
 
   async showToast(message: string, color: string) {
@@ -221,5 +264,16 @@ export class FeedbackPage implements OnInit, OnDestroy {
       position: 'bottom'
     });
     await toast.present();
+  }
+
+  private getCommuterId(): number {
+    try {
+      const raw = sessionStorage.getItem('currentUser');
+      if (!raw) return 0;
+      const u = JSON.parse(raw);
+      return Number(u.id ?? u.commuter_id ?? 0);
+    } catch {
+      return 0;
+    }
   }
 }

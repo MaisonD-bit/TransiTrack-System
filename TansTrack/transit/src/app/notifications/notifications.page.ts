@@ -1,7 +1,7 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
-import { ToastController } from '@ionic/angular';
+import { ToastController, AlertController } from '@ionic/angular';
 
 interface Notification {
   id: number;
@@ -29,20 +29,28 @@ interface Notification {
   styleUrls: ['./notifications.page.scss'],
   standalone: false 
 })
-export class NotificationsPage implements OnInit {
+export class NotificationsPage implements OnInit, OnDestroy {
 
   notifications: Notification[] = [];
   loading: boolean = false;
   unreadCount: number = 0;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private apiService: ApiService,
     private authService: AuthService,
-    private toastController: ToastController
+    private toastController: ToastController,
+    private alertController: AlertController
   ) {}
 
   ngOnInit() {
     this.loadNotifications();
+    // Poll every 15 seconds so the driver sees schedule changes promptly
+    this.pollTimer = setInterval(() => this.loadNotifications(), 15000);
+  }
+
+  ngOnDestroy() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
   }
 
   ionViewWillEnter() {
@@ -93,7 +101,6 @@ export class NotificationsPage implements OnInit {
       if (response.success) {
         notification.is_read = true;
         this.unreadCount = this.notifications.filter(n => !n.is_read).length;
-        this.presentToast('Notification marked as read', 'success');
       } else {
         this.presentToast('Failed to mark notification as read', 'danger');
       }
@@ -117,7 +124,7 @@ export class NotificationsPage implements OnInit {
     try {
       // Assuming you have an API method for marking all as read
       // const response: any = await this.apiService.markAllNotificationsAsRead(driverIdNum).toPromise();
-      // For now, simulate the action on the frontend
+    
       this.notifications.forEach(n => n.is_read = true);
       this.unreadCount = 0;
       this.presentToast('All notifications marked as read', 'success');
@@ -134,7 +141,8 @@ export class NotificationsPage implements OnInit {
 
   getNotificationIcon(type: string): string {
     switch (type) {
-      case 'schedule_update': return 'calendar-outline';
+      case 'schedule_update':
+      case 'schedule_cancellation': return 'calendar-outline';
       case 'emergency': return 'alert-circle-outline';
       case 'issue_report': return 'warning-outline';
       case 'inspection_required': return 'wrench-outline';
@@ -153,6 +161,7 @@ export class NotificationsPage implements OnInit {
   getNotificationColor(type: string): string {
     switch (type) {
       case 'schedule_update': return 'success';
+      case 'schedule_cancellation': return 'warning';
       case 'emergency': return 'danger';
       case 'issue_report': return 'warning';
       case 'inspection_required': return 'primary';
@@ -171,6 +180,7 @@ export class NotificationsPage implements OnInit {
   getNotificationTitle(type: string): string {
     switch (type) {
       case 'schedule_update': return 'Schedule Updated';
+      case 'schedule_cancellation': return 'Cancellation Request';
       case 'emergency': return 'Emergency Alert';
       case 'issue_report': return 'Issue Reported';
       case 'inspection_required': return 'Inspection Required';
@@ -181,6 +191,44 @@ export class NotificationsPage implements OnInit {
       case 'terminal_parking_extension_denied': return 'Extension not granted';
       default: return 'Notification';
     }
+  }
+
+  async clearAllNotifications() {
+    const alert = await this.alertController.create({
+      header: 'Clear All?',
+      message: 'This will permanently delete all your notifications.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Clear All',
+          role: 'destructive',
+          handler: () => {
+            const driverId = Number(this.authService.getDriverId());
+            this.apiService.clearDriverNotifications(driverId).subscribe({
+              next: () => {
+                this.notifications = [];
+                this.unreadCount = 0;
+                this.presentToast('All notifications cleared.', 'success');
+              },
+              error: () => this.presentToast('Failed to clear notifications.', 'danger'),
+            });
+          },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  deleteNotification(notification: Notification, event: Event) {
+    event.stopPropagation();
+    this.apiService.deleteDriverNotification(notification.id).subscribe({
+      next: () => {
+        this.notifications = this.notifications.filter(n => n.id !== notification.id);
+        this.unreadCount = this.notifications.filter(n => !n.is_read).length;
+        this.presentToast('Notification deleted.', 'success');
+      },
+      error: () => this.presentToast('Failed to delete notification.', 'danger'),
+    });
   }
 
   async presentToast(message: string, color: string = 'primary') {

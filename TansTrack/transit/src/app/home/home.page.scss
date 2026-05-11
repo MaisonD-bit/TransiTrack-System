@@ -170,6 +170,91 @@
   }
 }
 
+// Passenger Manifest Card
+.manifest-card {
+  margin: 16px;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+
+  .manifest-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+
+    ion-card-title {
+      flex: 1;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .manifest-summary {
+      display: flex;
+      align-items: center;
+    }
+  }
+
+  .capacity-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+
+    .capacity-bar {
+      flex: 1;
+      height: 8px;
+      background: var(--ion-color-light-shade);
+      border-radius: 4px;
+      overflow: hidden;
+
+      .capacity-fill {
+        height: 100%;
+        background: var(--ion-color-primary);
+        border-radius: 4px;
+        transition: width 0.4s ease;
+
+        &.capacity-warn { background: var(--ion-color-warning); }
+        &.capacity-full { background: var(--ion-color-danger); }
+      }
+    }
+
+    .capacity-label {
+      font-size: 0.8rem;
+      color: var(--ion-color-medium);
+      white-space: nowrap;
+    }
+  }
+
+  .no-passengers {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    color: var(--ion-color-medium);
+    gap: 8px;
+    ion-icon { font-size: 2rem; }
+    p { margin: 0; font-size: 0.9rem; }
+  }
+
+  .passenger-list {
+    ion-item.alighted {
+      opacity: 0.5;
+    }
+
+    ion-label h3 { font-size: 0.95rem; font-weight: 600; }
+    ion-label p { font-size: 0.82rem; }
+
+    .alighted-tag {
+      font-size: 0.75rem;
+      color: var(--ion-color-medium);
+    }
+
+    .status-chip {
+      font-size: 0.75rem;
+    }
+  }
+}
+
 // Notifications Card
 .notifications-card {
   margin: 16px 16px 32px 16px; // Extra bottom margin

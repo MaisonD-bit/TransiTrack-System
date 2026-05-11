@@ -72,27 +72,18 @@ export class CustomerSupportService {
     );
   }
 
-  // FAQ
+  // FAQ — served from static data, no backend endpoint needed
   getFAQs(): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/support/faq`,
-      { headers: this.getHeaders() }
-    );
+    return of({ success: true, data: this.getDefaultFAQs() });
   }
 
   getFAQByCategory(category: string): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/support/faq/category/${category}`,
-      { headers: this.getHeaders() }
-    );
+    const filtered = this.getDefaultFAQs().filter(f => f.category === category);
+    return of({ success: true, data: filtered });
   }
 
   markFAQHelpful(faqId: string): Observable<any> {
-    return this.http.post<any>(
-      `${this.apiUrl}/support/faq/${faqId}/helpful`,
-      {},
-      { headers: this.getHeaders() }
-    );
+    return of({ success: true });
   }
 
   // Contact Form

@@ -4,4 +4,8 @@ export interface Environment {
   mapbox: {
     accessToken: string;
   };
+  messaging: {
+    streamApiKey: string;
+    streamApiSecret: string;
+  };
 }

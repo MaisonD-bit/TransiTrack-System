@@ -71,4 +71,12 @@ export class ETicketComponent implements OnChanges {
   closeTicket() { this.close.emit(); }
   shareTicket() { this.share.emit(); }
   openScanToPay() { this.scanToPay.emit(); }
+
+  downloadQr() {
+    if (!this.qrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = this.qrDataUrl;
+    a.download = `eticket-${this.ticketID}.png`;
+    a.click();
+  }
 }

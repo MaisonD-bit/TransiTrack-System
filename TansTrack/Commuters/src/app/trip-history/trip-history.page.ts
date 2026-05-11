@@ -66,36 +66,10 @@ export class TripHistoryPage implements OnInit, OnDestroy, ViewWillEnter {
     });
     await loading.present();
 
-    const sub = this.tripHistoryService.getUserTrips().subscribe({
-      next: (response: any) => {
-        if (response.success && response.data) {
-          this.trips = response.data;
-        }
-        // Merge any locally saved trips not already in the list
-        const localTrips = this.tripHistoryService.getLocalTripsSync();
-        const existingIds = new Set(this.trips.map((t: Trip) => t.id));
-        localTrips.forEach((t: any) => { if (!existingIds.has(t.id)) this.trips.push(t); });
-        this.applyFiltersAndSort();
-        this.isLoading = false;
-        loading.dismiss();
-      },
-      error: () => {
-        // API unavailable — show locally saved trips
-        const localSub = this.tripHistoryService.getLocalTrips().subscribe({
-          next: (response: any) => {
-            if (response.success && response.data) {
-              this.trips = response.data;
-              this.applyFiltersAndSort();
-            }
-          }
-        });
-        this.subscriptions.push(localSub);
-        this.isLoading = false;
-        loading.dismiss();
-      }
-    });
-
-    this.subscriptions.push(sub);
+    this.trips = this.tripHistoryService.getLocalTripsSync();
+    this.applyFiltersAndSort();
+    this.isLoading = false;
+    loading.dismiss();
   }
 
   /** Safe for ISO strings or pre-formatted times (avoids DatePipe on "11:01 PM"). */
@@ -210,38 +184,59 @@ Status: ${this.selectedTrip.status}
     }
   }
 
+  getReceipt(tripId: string): any {
+    try {
+      const raw = localStorage.getItem(`receipt_${tripId}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async downloadReceipt() {
     if (!this.selectedTrip) return;
-    
-    try {
-      const response = await this.tripHistoryService.downloadReceipt(this.selectedTrip.id).toPromise();
-      if (response) {
-        // Handle PDF download
-        const blob = new Blob([response], { type: 'application/pdf' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Receipt-${this.selectedTrip.id}.pdf`;
-        link.click();
-        window.URL.revokeObjectURL(url);
-        this.showToast('Receipt downloaded', 'success');
-      }
-    } catch (error) {
-      console.error('Error downloading receipt:', error);
-      this.showToast('Failed to download receipt', 'danger');
-    }
+    const receipt = this.getReceipt(this.selectedTrip.id);
+
+    const paidAt = receipt?.paidAt
+      ? new Date(receipt.paidAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+      : this.formatTripDate(this.selectedTrip.tripDate);
+
+    const method = receipt?.paymentMethod || this.selectedTrip.paymentMethod || 'Cash';
+    const ref = receipt?.transactionRef || '—';
+
+    const alert = await this.alertController.create({
+      header: 'Payment Receipt',
+      message: `
+        <div style="text-align:left;line-height:1.8">
+          <b>Route:</b> ${this.selectedTrip.routeName}<br>
+          <b>From:</b> ${this.selectedTrip.departure}<br>
+          <b>To:</b> ${this.selectedTrip.arrival}<br>
+          <b>Date Paid:</b> ${paidAt}<br>
+          <b>Method:</b> ${method}<br>
+          <b>Reference:</b> ${ref}<br>
+          <b>Amount:</b> ₱${this.selectedTrip.fare}
+        </div>
+      `,
+      buttons: ['Close']
+    });
+    await alert.present();
   }
 
   getStatusColor(status: string): string {
     switch (status) {
-      case 'completed':
-        return 'success';
-      case 'cancelled':
-        return 'danger';
-      case 'in-progress':
-        return 'warning';
-      default:
-        return 'medium';
+      case 'completed': return 'success';
+      case 'paid': return 'success';
+      case 'cancelled': return 'danger';
+      case 'in-progress': return 'warning';
+      default: return 'medium';
+    }
+  }
+
+  getStatusLabel(status: string): string {
+    switch (status) {
+      case 'paid': return 'PAID';
+      case 'in-progress': return 'ACTIVE';
+      default: return status.toUpperCase();
     }
   }
 
@@ -278,6 +273,35 @@ Status: ${this.selectedTrip.status}
       ],
     });
     await confirm.present();
+  }
+
+  async clearAllTrips() {
+    const alert = await this.alertController.create({
+      header: 'Clear All Trips?',
+      message: 'This will remove all locally saved trip history.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Clear All',
+          role: 'destructive',
+          handler: () => {
+            this.tripHistoryService.clearLocalTrips();
+            this.trips = [];
+            this.displayedTrips = [];
+            void this.showToast('Trip history cleared.', 'success');
+          },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  deleteTrip(trip: Trip, event: Event) {
+    event.stopPropagation();
+    this.tripHistoryService.deleteLocalTrip(trip.id);
+    this.trips = this.trips.filter(t => t.id !== trip.id);
+    this.applyFiltersAndSort();
+    void this.showToast('Trip removed.', 'success');
   }
 
   async showToast(message: string, color: string) {

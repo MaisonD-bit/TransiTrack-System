@@ -300,7 +300,7 @@ export class CommuterService {
    * Get passenger type from user profile
    */
   getPassengerType(): string {
-    const userData = localStorage.getItem('currentUser');
+    const userData = sessionStorage.getItem('currentUser');
     if (userData) {
       try {
         const parsed = JSON.parse(userData);
@@ -327,6 +327,7 @@ export class CommuterService {
     fare: number;
     commuter_id?: number;
     payment_method?: string;
+    from_stop_index?: number;
   }): Observable<{ success: boolean; message?: string; data?: { id: number; public_ticket_id: string; schedule_id: number } }> {
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',
@@ -378,5 +379,63 @@ export class CommuterService {
     return this.http.post<any>(`${this.apiUrl}/commuter/alight`, { public_ticket_id: publicTicketId }, {
       headers,
     });
+  }
+
+  /** Register intent to board at a stop — creates a marker on the driver map before payment. */
+  requestBoarding(payload: {
+    schedule_id: number;
+    route_id?: number;
+    from_stop_index?: number;
+    commuter_id?: number;
+    commuter_name?: string | null;
+    commuter_email?: string | null;
+    terminal?: string;
+    approval_request_id?: number;
+  }): Observable<{ success: boolean; id?: number; boarding_stop_name?: string | null }> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/commuter/request-boarding`, payload, { headers });
+  }
+
+  /** Cancel a waiting boarding request. */
+  cancelBoardingRequest(id: number): Observable<{ success: boolean }> {
+    const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
+    return this.http.patch<any>(`${this.apiUrl}/commuter/boarding-requests/${id}/cancel`, {}, { headers });
+  }
+
+  /** Cancel ALL waiting boarding requests for this commuter (clears stale sessions on app init). */
+  cancelMyBoardingRequests(identity: { commuter_id?: number; commuter_email?: string; commuter_name?: string }): Observable<{ success: boolean }> {
+    const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
+    return this.http.post<any>(`${this.apiUrl}/commuter/cancel-my-boarding-requests`, identity, { headers });
+  }
+
+  /** Submit post-trip feedback for the driver (auto-resolves driver/schedule from ticket). */
+  submitFeedback(payload: {
+    commuter_id: number | null;
+    public_ticket_id: string | null;
+    schedule_id?: number | null;
+    driver_rating: number;
+    comment?: string | null;
+  }): Observable<any> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/feedbacks`, payload, { headers });
+  }
+
+  /** Mark a ticket as paid after a successful e-wallet or card payment. */
+  markTicketPaid(publicTicketId: string, paymentMethod: string): Observable<any> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.patch(
+      `${this.apiUrl}/commuter/tickets/${encodeURIComponent(publicTicketId)}/mark-paid`,
+      { payment_method: paymentMethod },
+      { headers }
+    );
   }
 }

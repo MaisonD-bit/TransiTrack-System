@@ -725,6 +725,17 @@ class ScheduleController extends Controller
 
             Log::info("Total schedules found: " . $allSchedules->count());
 
+            // Auto-expire: any 'active' schedule whose window ended more than 2 hours ago
+            $now = Carbon::now();
+            foreach ($allSchedules->where('status', 'active') as $stale) {
+                [, $windowEnd] = $stale->windowBounds();
+                if ($windowEnd->copy()->addHours(2)->lt($now)) {
+                    $stale->status = 'completed';
+                    $stale->completed_at = $stale->completed_at ?? $windowEnd;
+                    $stale->save();
+                }
+            }
+
             // Categorize by real trip window (handles ends_next_day / past-midnight trips)
             $startOfToday = Carbon::today()->startOfDay();
             $endOfToday = Carbon::today()->copy()->endOfDay();
@@ -937,6 +948,88 @@ class ScheduleController extends Controller
                 'message' => 'Error completing schedule: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Driver cancels an accepted/active schedule with a reason.
+     * Sets status to 'cancelled' and cancellation_status to 'pending_approval'.
+     * Notifies the operator.
+     */
+    public function cancelSchedule(Request $request, $id): JsonResponse
+    {
+        $request->validate(['reason' => 'required|string|min:5|max:500']);
+
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        if (!in_array($schedule->status, ['accepted', 'active', 'scheduled'])) {
+            return response()->json(['success' => false, 'message' => 'Schedule cannot be cancelled in its current status.'], 400);
+        }
+
+        $schedule->status = 'cancelled';
+        $schedule->cancel_reason = $request->reason;
+        $schedule->cancellation_status = 'pending_approval';
+        $schedule->save();
+
+        $driverName = $schedule->driver
+            ? trim(($schedule->driver->first_name ?? '') . ' ' . ($schedule->driver->last_name ?? ''))
+            : 'Driver';
+
+        Notification::create([
+            'type'         => 'schedule_cancellation',
+            'message'      => "Driver {$driverName} cancelled schedule #{$id}: \"{$request->reason}\"",
+            'driver_id'    => $schedule->driver_id,
+            'schedule_id'  => $id,
+            'recipient_id' => $schedule->user_id,
+            'sender_id'    => null,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation submitted. Awaiting operator approval.']);
+    }
+
+    /**
+     * Operator approves a driver's cancellation request.
+     * Sets cancellation_status to 'approved' and notifies the driver.
+     */
+    public function approveCancellation($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->cancellation_status = 'approved';
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your cancellation request for schedule #{$id} has been approved by the operator.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation approved.']);
+    }
+
+    /**
+     * Operator rejects a driver's cancellation request.
+     * Restores status to 'accepted' and notifies the driver.
+     */
+    public function rejectCancellation($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'accepted';
+        $schedule->cancellation_status = 'rejected';
+        $schedule->cancel_reason = null;
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your cancellation request for schedule #{$id} was rejected. Please proceed with your schedule.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation rejected. Schedule restored.']);
     }
 
     /**

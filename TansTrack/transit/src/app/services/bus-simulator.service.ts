@@ -10,7 +10,8 @@ export class BusSimulatorService {
    */
   simulateAlongLine(
     coords: number[][],
-    intervalMs: number = 5000
+    intervalMs: number = 55000,
+    startIndex: number = 0
   ): Observable<{ lng: number; lat: number; index: number }> {
     const out$ = new Subject<{ lng: number; lat: number; index: number }>();
 
@@ -60,7 +61,7 @@ export class BusSimulatorService {
       steps.push(points[points.length - 1]);
     }
 
-    let idx = 0;
+    let idx = Math.max(0, Math.min(startIndex, steps.length - 1));
     const t = timer(0, intervalMs).subscribe(() => {
       if (idx >= steps.length) {
         t.unsubscribe();

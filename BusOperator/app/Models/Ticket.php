@@ -13,7 +13,10 @@ class Ticket extends Model
         'fare',
         'commuter_id',
         'qr_payload',
+        'payment_method',
+        'payment_status',
         'alighted_at',
+        'from_stop_index',
     ];
 
     protected $casts = [

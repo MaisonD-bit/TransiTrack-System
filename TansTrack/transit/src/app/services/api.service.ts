@@ -122,6 +122,12 @@ export class ApiService {
     );
   }
 
+  cancelSchedule(scheduleId: number, reason: string): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/cancel`, { reason }, {
+      headers: this.getHeaders()
+    }).pipe(catchError(this.handleError));
+  }
+
   // Driver profile methods (these call your existing DriverController methods)
   getDriverProfile(driverId: number): Observable<any> {
     console.log(`API: Getting driver profile ${driverId}`);
@@ -231,10 +237,7 @@ export class ApiService {
   //   });
   // }
 
-  loginDriver(credentials: { email: string, password: string }): Observable<any> {
-    // Define the relative endpoint path correctly.
-    // Based on your Laravel routes/api.php, it should be 'v1/drivers/login'
-    // if your environment.apiUrl is '...ngrok-free.app/api' or 'http://ip:port/api'.
+  loginDriver(credentials: { email: string, password: string }): Observable<any> { 
     const endpoint = 'drivers/login';
     const url = `${this.apiUrl}/${endpoint}`;
     console.log(`API: Attempting driver login at ${url}`);
@@ -295,6 +298,18 @@ export class ApiService {
     }, { headers: this.getHeaders() });
   }
 
+  clearDriverNotifications(driverId: number): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/notifications/driver/${driverId}/clear`, {
+      headers: this.getHeaders()
+    }).pipe(catchError(this.handleError));
+  }
+
+  deleteDriverNotification(id: number): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/notifications/${id}`, {
+      headers: this.getHeaders()
+    }).pipe(catchError(this.handleError));
+  }
+
   getTerminalParkingStatus(driverId: number): Observable<any> {
     const url = `${this.apiUrl}/terminal/driver-space-status?driver_id=${encodeURIComponent(String(driverId))}`;
     return this.http.get(url, { headers: this.getHeaders() }).pipe(
@@ -319,5 +334,25 @@ export class ApiService {
       tap(response => console.log('Terminal extension request:', response)),
       catchError(this.handleError)
     );
+  }
+
+  getDriverPerformance(driverId: number): Observable<any> {
+    return this.http.get(
+      `${this.apiUrl}/drivers/${driverId}/performance`,
+      { headers: this.getHeaders() }
+    ).pipe(catchError(this.handleError));
+  }
+
+  getDriverStreamToken(driverId: number): Observable<any> {
+    return this.http.get(`${this.apiUrl}/driver/stream-token?driver_id=${driverId}`, {
+      headers: this.getHeaders()
+    }).pipe(catchError(this.handleError));
+  }
+
+  getPassengerManifest(scheduleId: number): Observable<any> {
+    return this.http.get(
+      `${this.apiUrl}/schedules/${scheduleId}/manifest`,
+      { headers: this.getHeaders() }
+    ).pipe(catchError(this.handleError));
   }
 }

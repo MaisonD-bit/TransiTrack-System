@@ -23,6 +23,8 @@ interface Schedule {
   fare_regular?: number;
   fare_aircon?: number;
   notes?: string;
+  cancel_reason?: string;
+  cancellation_status?: 'pending_approval' | 'approved' | 'rejected' | null;
   route?: {
     id: number;
     name: string;
@@ -228,6 +230,11 @@ export class SchedulePage implements OnInit, OnDestroy {
     return schedule.status === 'active';
   }
 
+  canCancel(schedule: Schedule): boolean {
+    return ['scheduled', 'accepted', 'active'].includes(schedule.status) &&
+      schedule.cancellation_status !== 'pending_approval';
+  }
+
   async acceptSchedule(schedule: Schedule) {
     const alert = await this.alertController.create({
       header: 'Accept Schedule',
@@ -308,6 +315,43 @@ export class SchedulePage implements OnInit, OnDestroy {
       console.error('Error starting schedule:', error);
       await this.presentToast('Failed to start trip', 'danger');
     }
+  }
+
+  async cancelSchedule(schedule: Schedule) {
+    const alert = await this.alertController.create({
+      header: 'Cancel Schedule',
+      message: 'Please provide a reason for cancelling this schedule. The operator will review your request.',
+      inputs: [
+        {
+          name: 'reason',
+          type: 'textarea',
+          placeholder: 'Enter cancellation reason (required)...',
+        }
+      ],
+      buttons: [
+        { text: 'Back', role: 'cancel' },
+        {
+          text: 'Submit Request',
+          handler: async (data) => {
+            if (!data.reason || data.reason.trim().length < 5) {
+              await this.presentToast('Please provide a reason (at least 5 characters).', 'warning');
+              return false;
+            }
+            try {
+              const response = await this.apiService.cancelSchedule(schedule.id, data.reason.trim()).toPromise();
+              if (response?.success) {
+                await this.loadSchedules();
+                await this.presentToast('Cancellation request submitted. Awaiting operator approval.', 'warning');
+              }
+            } catch (error) {
+              await this.presentToast('Failed to submit cancellation request.', 'danger');
+            }
+            return true;
+          }
+        }
+      ]
+    });
+    await alert.present();
   }
 
   async completeSchedule(schedule: Schedule) {

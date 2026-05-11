@@ -295,6 +295,12 @@
     flex-direction: column;
     gap: 12px;
 
+    .ticket-actions {
+      display: flex;
+      gap: 8px;
+      ion-button { flex: 1; }
+    }
+
     .make-stop-button {
       font-weight: 600;
       font-size: 16px;

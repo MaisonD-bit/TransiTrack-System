@@ -22,7 +22,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   /** Terminal-manager stop pins (numbered) along the route */
   @Input() stopPins: { lng: number; lat: number; label?: string }[] = [];
   /** Live / estimated bus positions from operator schedules (commuter app). */
-  @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean }[] = [];
+  @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean; status?: string }[] = [];
   /** When true, skip the demo bus animation (use live markers instead). */
   @Input() disableSimulator: boolean = false;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
@@ -30,7 +30,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   mapLoaded: boolean = false;
   routeMarkers: any[] = []; // Store markers for cleanup
   private stopPinMarkers: any[] = [];
-  private liveBusMapMarkers: any[] = [];
+  private liveBusMarkerIndex = new Map<string, any>();
+  private liveBusLerpSubs = new Map<string, Subscription>();
   private liveBusSimSubs: Subscription[] = [];
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
@@ -144,10 +145,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private clearLiveBusMarkers(): void {
     this.liveBusSimSubs.forEach(s => s.unsubscribe());
     this.liveBusSimSubs = [];
-    this.liveBusMapMarkers.forEach((m) => {
-      try { m.remove(); } catch (e) {}
-    });
-    this.liveBusMapMarkers = [];
+    this.liveBusLerpSubs.forEach(s => s.unsubscribe());
+    this.liveBusLerpSubs.clear();
+    this.liveBusMarkerIndex.forEach((m: any) => { try { m.remove(); } catch (e) {} });
+    this.liveBusMarkerIndex.clear();
   }
 
   private findNearestCoordIndex(coords: number[][], lng: number, lat: number): number {
@@ -161,38 +162,59 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private refreshLiveBusMarkers(): void {
-    if (!this.mapLoaded || !this.map) {
-      return;
-    }
-    this.clearLiveBusMarkers();
-    if (!this.liveBusMarkers?.length) {
-      return;
-    }
+    if (!this.mapLoaded || !this.map) return;
 
-    const routeCoords: number[][] | null =
-      this.routeGeoJson?.type === 'LineString' && Array.isArray(this.routeGeoJson?.coordinates)
-        ? this.routeGeoJson.coordinates : null;
+    // Build a map of incoming buses keyed by scheduleId (or label as fallback)
+    const incoming = new Map<string, typeof this.liveBusMarkers[number]>();
+    (this.liveBusMarkers || []).forEach(b => incoming.set(String(b.scheduleId ?? b.label), b));
 
-    this.liveBusMarkers.forEach((b) => {
-      const mk = new mapboxgl.Marker({ color: b.color || '#0074D9', scale: b.selected ? 1.5 : 1.0 })
-        .setLngLat([b.lng, b.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 30 }).setHTML(`<strong>${b.label}</strong>`))
-        .addTo(this.map);
-      this.liveBusMapMarkers.push(mk);
+    // Remove markers for buses no longer in the list
+    const gone: string[] = [];
+    this.liveBusMarkerIndex.forEach((_: any, key: string) => { if (!incoming.has(key)) gone.push(key); });
+    gone.forEach(key => {
+      try { this.liveBusMarkerIndex.get(key)?.remove(); } catch (e) {}
+      this.liveBusMarkerIndex.delete(key);
+    });
 
-      // Animate smoothly along the route from the polled position
-      if (routeCoords && routeCoords.length >= 2) {
-        const fromIdx = this.findNearestCoordIndex(routeCoords, b.lng, b.lat);
-        const slice = routeCoords.slice(fromIdx);
-        if (slice.length >= 2) {
-          const sub = this.busSimulatorService.simulateAlongLine(slice, 300).subscribe({
-            next: ({ lng, lat }) => { try { mk.setLngLat([lng, lat]); } catch (e) {} },
-            complete: () => { try { mk.remove(); } catch (e) {} }
-          });
-          this.liveBusSimSubs.push(sub);
-        }
+    // Route coords for local simulation (may be null if no geometry yet)
+    const routeCoords: number[][] | null = (
+      this.routeGeoJson?.type === 'LineString' &&
+      Array.isArray(this.routeGeoJson?.coordinates) &&
+      this.routeGeoJson.coordinates.length >= 2
+    ) ? this.routeGeoJson.coordinates : null;
+
+    // Update existing markers or create new ones, then run a local simulation
+    // at the same speed as the driver (400ms/step) so both markers move identically
+    incoming.forEach((b, key) => {
+      // Cancel any existing simulation for this bus
+      const prevSub = this.liveBusLerpSubs.get(key);
+      if (prevSub) { prevSub.unsubscribe(); this.liveBusLerpSubs.delete(key); }
+
+      let marker = this.liveBusMarkerIndex.get(key);
+      if (!marker) {
+        marker = new mapboxgl.Marker({ color: b.color || '#0074D9', scale: b.selected ? 1.5 : 1.0 })
+          .setLngLat([b.lng, b.lat])
+          .setPopup(new mapboxgl.Popup({ offset: 30 }).setHTML(`<strong>${b.label}</strong>`))
+          .addTo(this.map);
+        this.liveBusMarkerIndex.set(key, marker);
+      } else {
+        // Snap to the freshly polled position
+        marker.setLngLat([b.lng, b.lat]);
+      }
+
+      // Only animate active buses — accepted buses stay fixed at route start
+      if (routeCoords && b.status === 'active') {
+        const startIdx = this.findNearestCoordIndex(routeCoords, b.lng, b.lat);
+        const mk = marker;
+        const simSub = this.busSimulatorService.simulateAlongLine(routeCoords, 400, startIdx, this.stopPins).subscribe({
+          next: (pos: { lng: number; lat: number; index: number }) => {
+            try { mk.setLngLat([pos.lng, pos.lat]); } catch (e) {}
+          },
+        });
+        this.liveBusLerpSubs.set(key, simSub);
       }
     });
+
   }
 
   async drawRoute() {
@@ -356,7 +378,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
             color: '#1E90FF',
           }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
 
-          this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800).subscribe((pos: { lng: number; lat: number; index: number }) => {
+          this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800, 0, this.stopPins).subscribe((pos: { lng: number; lat: number; index: number }) => {
             try {
               if (this.simulatedVehicleMarker) {
                 this.simulatedVehicleMarker.setLngLat([pos.lng, pos.lat] as [number, number]);
@@ -383,14 +405,19 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       try { m.remove(); } catch (e) {}
     });
     this.stopPinMarkers = [];
+    const total = this.stopPins.length;
+    let stopNumber = 0;
     this.stopPins.forEach((p, i) => {
+      // First stop = terminal (green route marker), last = endpoint (red route marker) — skip both.
+      if (i === 0 || i === total - 1) return;
+      stopNumber++;
       const el = document.createElement('div');
       el.style.cssText =
         'background:#f97316;color:#fff;border-radius:50%;min-width:24px;height:24px;padding:0 6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)';
-      el.textContent = String(i + 1);
+      el.textContent = String(stopNumber);
       const mk = new mapboxgl.Marker({ element: el })
         .setLngLat([p.lng, p.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${p.label || 'Stop ' + (i + 1)}</strong>`))
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${p.label || 'Stop ' + stopNumber}</strong>`))
         .addTo(this.map);
       this.stopPinMarkers.push(mk);
     });

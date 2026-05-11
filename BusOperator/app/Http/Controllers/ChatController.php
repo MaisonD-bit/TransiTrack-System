@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\Driver;
 use GetStream\StreamChat\Client as StreamChat;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -312,6 +313,57 @@ class ChatController extends Controller
                 'line' => $e->getLine(),
             ]);
             return response()->json(['error' => 'Failed to load users'], 500);
+        }
+    }
+
+    public function driverStreamToken(Request $request)
+    {
+        $driverId = $request->query('driver_id');
+        if (!$driverId) {
+            return response()->json(['success' => false, 'message' => 'driver_id required'], 400);
+        }
+
+        if (!$this->streamClient) {
+            return response()->json(['success' => false, 'message' => 'Chat service unavailable'], 503);
+        }
+
+        $driver = Driver::with('user')->find($driverId);
+        if (!$driver) {
+            return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
+        }
+
+        $streamUserId = 'driver_' . $driver->id;
+
+        try {
+            $this->streamClient->upsertUser([
+                'id'   => $streamUserId,
+                'name' => $driver->name,
+                'role' => 'user',
+            ]);
+
+            // Also ensure the operator is in Stream
+            if ($driver->user) {
+                $this->streamClient->upsertUser([
+                    'id'   => (string) $driver->user_id,
+                    'name' => $driver->user->name,
+                    'role' => 'user',
+                ]);
+            }
+
+            $token = $this->streamClient->createToken($streamUserId);
+
+            return response()->json([
+                'success'       => true,
+                'stream_api_key' => env('STREAM_API_KEY'),
+                'token'         => $token,
+                'user_id'       => $streamUserId,
+                'user_name'     => $driver->name,
+                'operator_id'   => (string) $driver->user_id,
+                'operator_name' => $driver->user->name ?? 'Operator',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('driverStreamToken error', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 

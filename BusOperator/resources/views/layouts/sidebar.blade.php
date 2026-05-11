@@ -36,6 +36,10 @@
             <i class="fas fa-bus-alt"></i>
             <span>Buses</span>
         </a>
+        <a href="{{ route('support-tickets.panel') }}" class="nav-item {{ request()->routeIs('support-tickets.*') ? 'active' : '' }}">
+            <i class="fas fa-headset"></i>
+            <span>Support Tickets</span>
+        </a>
         <a href="{{ route('chat.panel') }}" class="nav-item {{ request()->routeIs('chat.*') ? 'active' : '' }}">
             <i class="fas fa-comments"></i>
             <span>Chat</span>

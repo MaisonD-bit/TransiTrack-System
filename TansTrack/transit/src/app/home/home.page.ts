@@ -35,6 +35,16 @@ interface Schedule {
   };
 }
 
+interface Passenger {
+  ticket_id: string;
+  commuter_name: string;
+  fare: number;
+  payment_method: string | null;
+  payment_status: 'pending' | 'paid';
+  boarded_at: string | null;
+  alighted: boolean;
+}
+
 // ✅ UPDATE THIS INTERFACE TO MATCH API RESPONSE
 interface Notification {
   id: number;
@@ -75,6 +85,15 @@ export class HomePage implements OnInit, ViewWillEnter {
   recentNotifications: Notification[] = []; 
   unreadNotificationsCount: number = 0;
   private schedulePoll?: ReturnType<typeof setInterval>;
+  private lastScheduleId: number | null = null;
+  private lastScheduleRouteId: number | null = null;
+  private lastScheduleStatus: string | null = null;
+
+  /** Live passenger list for the current active schedule */
+  passengers: Passenger[] = [];
+  manifestPaidCount = 0;
+  manifestOnBoardCount = 0;
+  showManifest = false;
 
   /** Live terminal bay countdown when the driver is assigned a space from Terminal Manager */
   terminalParking: {
@@ -110,9 +129,14 @@ export class HomePage implements OnInit, ViewWillEnter {
 
     this.loadTerminalParking();
     setInterval(() => this.loadTerminalParking(), 15000);
+    setInterval(() => this.loadPassengerManifest(), 20000);
   }
 
   ionViewWillEnter() {
+    // Reset change-tracking so navigation back doesn't trigger false alerts
+    this.lastScheduleId = null;
+    this.lastScheduleRouteId = null;
+    this.lastScheduleStatus = null;
     this.loadDriverSchedules();
     this.loadTerminalParking();
   }
@@ -352,7 +376,13 @@ export class HomePage implements OnInit, ViewWillEnter {
       const usable = (s: Schedule) =>
         ['accepted', 'scheduled', 'active'].includes(s.status);
 
-      const merged = [...todayList, ...upcomingList].filter(usable);
+      // Also include recent active schedules from pastSchedules (trips that ran
+      // past midnight or whose window just expired — driver may still need to complete)
+      const recentActive = (response.schedules.past || []).filter(
+        (s: Schedule) => s.status === 'active'
+      );
+
+      const merged = [...todayList, ...upcomingList, ...recentActive].filter(usable);
       merged.sort((a, b) => this.scheduleSortKey(a) - this.scheduleSortKey(b));
 
       const now = new Date();
@@ -387,6 +417,8 @@ export class HomePage implements OnInit, ViewWillEnter {
       this.currentSchedule = current;
       this.nextSchedule = next;
       this.applyPassengerCounts(current);
+      this.detectScheduleChanges(current);
+      this.loadPassengerManifest();
     } catch (error) {
       console.error('Error loading driver schedules:', error);
       this.presentToast('Error loading schedules.', 'danger');
@@ -412,6 +444,68 @@ export class HomePage implements OnInit, ViewWillEnter {
     const cap = current.bus?.capacity;
     this.expectedCapacity =
       typeof cap === 'number' && !isNaN(cap) && cap > 0 ? cap : 0;
+  }
+
+  loadPassengerManifest() {
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId || this.currentSchedule?.status !== 'active') {
+      this.passengers = [];
+      this.manifestPaidCount = 0;
+      this.manifestOnBoardCount = 0;
+      return;
+    }
+    this.apiService.getPassengerManifest(scheduleId).subscribe({
+      next: (res: any) => {
+        if (res?.success) {
+          this.passengers = res.passengers || [];
+          this.manifestPaidCount = res.paid ?? 0;
+          this.manifestOnBoardCount = res.on_board ?? 0;
+        }
+      },
+      error: () => { /* silently ignore */ }
+    });
+  }
+
+  getPaymentMethodLabel(method: string | null): string {
+    const map: Record<string, string> = { cash: 'Cash', gcash: 'GCash', paymaya: 'PayMaya', card: 'Card' };
+    return method ? (map[method] ?? method) : '—';
+  }
+
+  private detectScheduleChanges(current: Schedule | null) {
+    const newId = current?.id ?? null;
+    const newRouteId = current?.route?.id ?? null;
+    const newStatus = current?.status ?? null;
+
+    // Skip on very first load (no previous state yet)
+    if (this.lastScheduleId === null && newId !== null) {
+      this.lastScheduleId = newId;
+      this.lastScheduleRouteId = newRouteId;
+      this.lastScheduleStatus = newStatus;
+      return;
+    }
+
+    if (newId !== null && newId !== this.lastScheduleId) {
+      void this.presentToast(
+        `Your schedule has been updated. New trip: ${current?.route?.name ?? 'see schedule'}.`,
+        'warning'
+      );
+    } else if (newId === this.lastScheduleId && newRouteId !== this.lastScheduleRouteId) {
+      void this.presentToast(
+        `Route changed to: ${current?.route?.name ?? 'check schedule'}.`,
+        'warning'
+      );
+    } else if (newId === this.lastScheduleId && newStatus !== this.lastScheduleStatus) {
+      if (newStatus === 'declined' || newStatus === 'cancelled') {
+        void this.presentToast(
+          `Schedule ${newStatus}. Please check with your operator.`,
+          'danger'
+        );
+      }
+    }
+
+    this.lastScheduleId = newId;
+    this.lastScheduleRouteId = newRouteId;
+    this.lastScheduleStatus = newStatus;
   }
 
   private scheduleDateKey(s: Schedule): string {

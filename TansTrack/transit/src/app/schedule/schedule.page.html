@@ -131,6 +131,16 @@
               </div>
             </div>
 
+            <!-- Cancellation status notice -->
+            <ion-note *ngIf="schedule.cancellation_status === 'pending_approval'" color="warning" class="ion-padding-vertical d-block">
+              <ion-icon name="hourglass-outline"></ion-icon>
+              Cancellation request pending operator approval.
+            </ion-note>
+            <ion-note *ngIf="schedule.cancellation_status === 'rejected'" color="danger" class="ion-padding-vertical d-block">
+              <ion-icon name="close-circle"></ion-icon>
+              Cancellation rejected. Please proceed with your schedule.
+            </ion-note>
+
             <!-- Action Buttons -->
             <div class="action-buttons">
               <ion-button *ngIf="canAccept(schedule)" expand="block" color="success" (click)="acceptSchedule(schedule)">
@@ -151,6 +161,11 @@
               <ion-button *ngIf="canComplete(schedule)" expand="block" color="tertiary" (click)="completeSchedule(schedule)">
                 <ion-icon slot="start" name="checkmark-done-circle"></ion-icon>
                 Complete Trip
+              </ion-button>
+
+              <ion-button *ngIf="canCancel(schedule)" expand="block" color="warning" fill="outline" (click)="cancelSchedule(schedule)">
+                <ion-icon slot="start" name="ban"></ion-icon>
+                Request Cancellation
               </ion-button>
             </div>
           </ion-card-content>
@@ -217,6 +232,14 @@
             </div>
           </div>
 
+          <!-- Cancellation status notice -->
+          <ion-note *ngIf="schedule.cancellation_status === 'pending_approval'" color="warning" class="ion-padding-vertical d-block">
+            <ion-icon name="hourglass-outline"></ion-icon> Cancellation request pending operator approval.
+          </ion-note>
+          <ion-note *ngIf="schedule.cancellation_status === 'rejected'" color="danger" class="ion-padding-vertical d-block">
+            <ion-icon name="close-circle"></ion-icon> Cancellation rejected. Please proceed with your schedule.
+          </ion-note>
+
           <!-- Action Buttons -->
           <div class="action-buttons">
             <ion-button *ngIf="canAccept(schedule)" expand="block" color="success" (click)="acceptSchedule(schedule)">
@@ -227,6 +250,11 @@
             <ion-button *ngIf="canDecline(schedule)" expand="block" color="danger" fill="outline" (click)="declineSchedule(schedule)">
               <ion-icon slot="start" name="close-circle"></ion-icon>
               Decline
+            </ion-button>
+
+            <ion-button *ngIf="canCancel(schedule)" expand="block" color="warning" fill="outline" (click)="cancelSchedule(schedule)">
+              <ion-icon slot="start" name="ban"></ion-icon>
+              Request Cancellation
             </ion-button>
           </div>
         </ion-card-content>

@@ -23,8 +23,19 @@
 
   <ion-tab-button tab="notifications">
     <ion-icon name="notifications-outline"></ion-icon>
-    <ion-label>Notifications</ion-label>
+    <ion-label>Alerts</ion-label>
     <ion-badge color="danger" *ngIf="unreadCount > 0">{{ unreadCount }}</ion-badge>
-    </ion-tab-button>
+  </ion-tab-button>
+
+  <ion-tab-button tab="performance">
+    <ion-icon name="bar-chart-outline"></ion-icon>
+    <ion-label>Performance</ion-label>
+  </ion-tab-button>
+
+  <ion-tab-button tab="chat">
+    <ion-icon name="chatbubbles-outline"></ion-icon>
+    <ion-label>Chat</ion-label>
+  </ion-tab-button>
+
   </ion-tab-bar>
 </ion-tabs>

@@ -366,7 +366,7 @@
 @push('scripts')
 <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <script>
-    mapboxgl.accessToken = '';
+    mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
 </script>
 @vite('resources/js/panels/routes.js')
 @endpush

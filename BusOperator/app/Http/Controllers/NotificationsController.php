@@ -506,6 +506,22 @@ class NotificationsController extends Controller
         }
     }
 
+    /** Delete all notifications for a specific driver (driver app). */
+    public function clearForDriver(int $driverId): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('driver_id', $driverId)
+            ->whereNotNull('sender_id')
+            ->delete();
+        return response()->json(['success' => true]);
+    }
+
+    /** Delete a single notification by ID (driver app). */
+    public function deleteOne(int $id): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('id', $id)->delete();
+        return response()->json(['success' => true]);
+    }
+
     /**
      * Label for bell dropdown / JSON — matches notifications panel “From:” rules.
      */

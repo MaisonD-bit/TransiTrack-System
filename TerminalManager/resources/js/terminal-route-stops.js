@@ -202,7 +202,7 @@ function initTerminalStopMaps() {
     if (!token) {
         console.warn('TM_MAPBOX_TOKEN missing — set MAPBOX_TOKEN in .env');
     }
-    mapboxgl.accessToken = token || '';
+    mapboxgl.accessToken = token || 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
 
     document.querySelectorAll('[data-tm-stop-editor]').forEach((card) => {
         const reqId = card.getAttribute('data-request-id');
@@ -310,6 +310,75 @@ function initTerminalStopMaps() {
             /* ignore */
         }
 
+        /** Ensures the terminal is always stop 0 for the given route. */
+        function ensureTerminalStop(routeId) {
+            const rid = String(routeId);
+            if (!stopsByRoute[rid]) stopsByRoute[rid] = [];
+            const first = stopsByRoute[rid][0];
+            if (!first || (first.distance_km_from_start ?? 1) > 0.01) {
+                stopsByRoute[rid].unshift({
+                    name: term.name,
+                    lng: term.coordinates[0],
+                    lat: term.coordinates[1],
+                    eta_minutes: 0,
+                    distance_km_from_start: 0,
+                    _isTerminal: true,
+                });
+            }
+        }
+
+        /** Ensures the route endpoint is always the last stop. */
+        function ensureEndpointStop(routeId) {
+            const rid = String(routeId);
+            if (!stopsByRoute[rid]) stopsByRoute[rid] = [];
+
+            const meta = fullRoutesMeta.find((r) => String(r.id) === rid);
+            if (!meta) return;
+
+            // Coordinates: prefer explicit end_coords, fall back to last geometry point
+            let endCoords = meta.end_coords;
+            if (!endCoords) {
+                const coords = normalizeLineString(meta.geometry);
+                if (!coords || !coords.length) return;
+                endCoords = coords[coords.length - 1];
+            }
+            if (!endCoords) return;
+
+            // Name: use end_location, or parse "Cebu to Tayud" → "Tayud"
+            let endName = meta.end_location;
+            if (!endName && meta.name) {
+                const parts = meta.name.split(/ to /i);
+                if (parts.length >= 2) endName = parts[parts.length - 1].trim();
+            }
+            endName = endName || 'Destination';
+
+            const distanceKm = meta.distance_km || 0;
+            const list = stopsByRoute[rid];
+            const last = list[list.length - 1];
+
+            // Skip if last stop is already at or near the endpoint
+            if (last && !last._isTerminal) {
+                const dx = last.lng - endCoords[0];
+                const dy = last.lat - endCoords[1];
+                if (Math.sqrt(dx * dx + dy * dy) < 0.001) return;
+            }
+
+            list.push({
+                name: endName,
+                lng: endCoords[0],
+                lat: endCoords[1],
+                eta_minutes: etaMinutesFromDistanceKm(distanceKm),
+                distance_km_from_start: distanceKm,
+                _isEndpoint: true,
+            });
+        }
+
+        // Auto-add terminal as stop 0 and endpoint as last stop for every route on first load
+        fullRoutesMeta.forEach((r) => {
+            ensureTerminalStop(r.id);
+            ensureEndpointStop(r.id);
+        });
+
         function syncHiddenJson() {
             const payload = fullRoutesMeta.map((r) => ({
                 route_id: r.id,
@@ -336,9 +405,19 @@ function initTerminalStopMaps() {
             list.forEach((s, idx) => {
                 const el = document.createElement('div');
                 el.className = 'tm-stop-marker';
-                el.style.cssText =
-                    'width:26px;height:26px;border-radius:50%;background:#3498db;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
-                el.textContent = String(idx + 1);
+                if (s._isTerminal) {
+                    el.style.cssText =
+                        'width:28px;height:28px;border-radius:50%;background:#2ecc71;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+                    el.textContent = 'T';
+                } else if (s._isEndpoint) {
+                    el.style.cssText =
+                        'width:28px;height:28px;border-radius:50%;background:#e74c3c;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+                    el.textContent = 'E';
+                } else {
+                    el.style.cssText =
+                        'width:26px;height:26px;border-radius:50%;background:#3498db;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+                    el.textContent = String(idx); // idx 0 = terminal, last = endpoint
+                }
                 const mk = new mapboxgl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map);
                 markersByReq.push(mk);
             });
@@ -350,12 +429,30 @@ function initTerminalStopMaps() {
             const list = activeRouteId ? stopsByRoute[activeRouteId] || [] : [];
             list.forEach((s, idx) => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-          <td>${idx + 1}</td>
+                const isTerminal = s._isTerminal === true;
+                const isEndpoint = s._isEndpoint === true;
+                if (isTerminal) {
+                    tr.innerHTML = `
+          <td><span class="badge bg-success">T</span></td>
+          <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(s.name)}" readonly style="background:#f8f9fa;color:#6c757d;" /></td>
+          <td><span class="text-muted small">0</span></td>
+          <td class="small">0.00</td>
+          <td><span title="Terminal stop — cannot be removed" style="color:#aaa;cursor:default;">🔒</span></td>`;
+                } else if (isEndpoint) {
+                    tr.innerHTML = `
+          <td><span class="badge bg-danger">E</span></td>
+          <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(s.name)}" readonly style="background:#f8f9fa;color:#6c757d;" /></td>
+          <td><span class="text-muted small">${s.eta_minutes ?? 0}</span></td>
+          <td class="small">${(s.distance_km_from_start ?? 0).toFixed(2)}</td>
+          <td><span title="Endpoint — cannot be removed" style="color:#aaa;cursor:default;">🔒</span></td>`;
+                } else {
+                    tr.innerHTML = `
+          <td>${idx}</td>
           <td><input type="text" class="form-control form-control-sm tm-stop-name" data-idx="${idx}" value="${escapeHtml(s.name)}" /></td>
           <td><input type="number" class="form-control form-control-sm tm-stop-eta" data-idx="${idx}" min="0" step="1" value="${s.eta_minutes ?? 0}" /></td>
           <td class="small">${(s.distance_km_from_start ?? 0).toFixed(2)}</td>
           <td><button type="button" class="btn btn-sm btn-outline-danger tm-remove-stop" data-idx="${idx}"><i class="fas fa-times"></i></button></td>`;
+                }
                 tbody.appendChild(tr);
             });
 
@@ -458,18 +555,28 @@ function initTerminalStopMaps() {
                 alert('Click closer to the highlighted route path.');
                 return;
             }
-            const defaultStopLabel = `Stop ${(stopsByRoute[activeRouteId]?.length || 0) + 1}`;
+            // Terminal is always stop 0; user-added stops start at 1
+            const nonTerminalCount = (stopsByRoute[activeRouteId] || []).filter(s => !s._isTerminal).length;
+            const defaultStopLabel = `Stop ${nonTerminalCount + 1}`;
             const etaAuto = etaMinutesFromDistanceKm(proj.distFromStart);
             showTmBusStopModal(defaultStopLabel).then((stopName) => {
                 if (stopName === null || stopName === undefined) return;
                 if (!stopsByRoute[activeRouteId]) stopsByRoute[activeRouteId] = [];
-                stopsByRoute[activeRouteId].push({
+                const list = stopsByRoute[activeRouteId];
+                const newStop = {
                     name: stopName || 'Stop',
                     lng: proj.lng,
                     lat: proj.lat,
                     eta_minutes: etaAuto,
                     distance_km_from_start: proj.distFromStart,
-                });
+                };
+                // Insert before endpoint if present, otherwise append
+                const endIdx = list.findIndex((s) => s._isEndpoint);
+                if (endIdx !== -1) {
+                    list.splice(endIdx, 0, newStop);
+                } else {
+                    list.push(newStop);
+                }
                 syncHiddenJson();
             });
         });
@@ -480,6 +587,8 @@ function initTerminalStopMaps() {
                 if (!activeRouteId) return;
                 if (!confirm('Remove all stops for this route?')) return;
                 stopsByRoute[activeRouteId] = [];
+                ensureTerminalStop(activeRouteId);
+                ensureEndpointStop(activeRouteId);
                 syncHiddenJson();
             });
         }

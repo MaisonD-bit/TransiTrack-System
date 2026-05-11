@@ -1,0 +1,68 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-title>
+      <ion-icon name="chatbubbles-outline" style="margin-right:6px;vertical-align:middle"></ion-icon>
+      Chat — {{ operatorName }}
+    </ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true" class="chat-content">
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="center-state">
+    <ion-spinner name="crescent"></ion-spinner>
+    <p>Connecting to chat…</p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="!isLoading && error" class="center-state">
+    <ion-icon name="alert-circle-outline" color="danger" size="large"></ion-icon>
+    <p>{{ error }}</p>
+    <ion-button (click)="initChat()">Retry</ion-button>
+  </div>
+
+  <!-- Messages -->
+  <div *ngIf="isConnected" class="messages-wrap">
+    <div *ngIf="messages.length === 0" class="empty-chat">
+      <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+      <p>No messages yet. Say hello to your operator!</p>
+    </div>
+
+    <div *ngFor="let msg of messages"
+         class="bubble-row"
+         [class.mine]="msg.isMine"
+         [class.theirs]="!msg.isMine">
+      <div class="bubble">
+        <p class="sender" *ngIf="!msg.isMine">{{ msg.userName }}</p>
+        <p class="text">{{ msg.text }}</p>
+        <p class="time">{{ formatTime(msg.createdAt) }}</p>
+      </div>
+    </div>
+
+    <div #messagesEnd></div>
+  </div>
+
+</ion-content>
+
+<!-- Message Input -->
+<ion-footer *ngIf="isConnected">
+  <ion-toolbar>
+    <ion-row class="input-row">
+      <ion-col>
+        <ion-textarea
+          [(ngModel)]="newMessage"
+          placeholder="Type a message…"
+          rows="1"
+          auto-grow="true"
+          (keydown.enter)="$event.preventDefault(); sendMessage()">
+        </ion-textarea>
+      </ion-col>
+      <ion-col size="auto">
+        <ion-button fill="clear" (click)="sendMessage()" [disabled]="!newMessage.trim()">
+          <ion-icon name="send" color="primary"></ion-icon>
+        </ion-button>
+      </ion-col>
+    </ion-row>
+  </ion-toolbar>
+</ion-footer>

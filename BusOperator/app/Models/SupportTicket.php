@@ -14,5 +14,11 @@ class SupportTicket extends Model
         'category',
         'priority',
         'status',
+        'operator_response',
     ];
+
+    public function commuter()
+    {
+        return $this->belongsTo(\App\Models\Commuter::class);
+    }
 }

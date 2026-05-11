@@ -12,7 +12,7 @@ export interface SupportTicket {
   status: string; // 'open', 'in-progress', 'resolved', 'closed'
   createdDate: string;
   lastUpdated: string;
-  responses: SupportResponse[];
+  responses?: SupportResponse[];
   attachments?: string[];
 }
 
@@ -114,7 +114,19 @@ export class CustomerSupportPage implements OnInit, OnDestroy, ViewWillEnter {
     const sub = this.supportService.getUserTickets().subscribe({
       next: (response: any) => {
         if (response.success && response.data) {
-          this.tickets = response.data;
+          this.tickets = response.data.map((t: any) => ({
+            id: t.public_ticket_id || String(t.id),
+            subject: t.subject ?? '',
+            description: t.description ?? '',
+            category: t.category ?? 'general',
+            priority: t.priority ?? 'medium',
+            status: t.status ?? 'open',
+            createdDate: t.created_at ?? t.createdDate,
+            lastUpdated: t.updated_at ?? t.created_at ?? t.lastUpdated,
+            responses: t.operator_response
+              ? [{ id: 'op-1', sender: 'support', message: t.operator_response, timestamp: t.updated_at }]
+              : [],
+          }));
         }
         const localTickets = this.supportService.getLocalTicketsSync();
         const existingIds = new Set(this.tickets.map((t: SupportTicket) => t.id));
@@ -198,8 +210,12 @@ export class CustomerSupportPage implements OnInit, OnDestroy, ViewWillEnter {
     // Save locally first so the commuter sees it immediately
     this.supportService.saveLocalTicket(ticket);
 
+    // Attach commuter_id so the operator can see who submitted
+    const stored = sessionStorage.getItem('currentUser');
+    const commuterId = stored ? JSON.parse(stored)?.id : null;
+
     // Send to backend (operator will see it in their dashboard)
-    this.supportService.createTicket(ticket).subscribe({
+    this.supportService.createTicket({ ...ticket, commuter_id: commuterId }).subscribe({
       next: () => {
         this.showToast('Support ticket sent to operator!', 'success');
       },

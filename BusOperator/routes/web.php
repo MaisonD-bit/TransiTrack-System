@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PanelController;
+use App\Http\Controllers\MayaController;
 use App\Http\Controllers\BusController;
 use App\Http\Controllers\RouteController;
 use App\Http\Controllers\DriverController;
@@ -11,6 +12,12 @@ use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\RouteApprovalWebController;
+use App\Http\Controllers\SupportTicketWebController;
+
+// Maya payment callbacks — public GET routes, no auth or CSRF needed
+Route::get('/payments/maya/success', [MayaController::class, 'paymentSuccess']);
+Route::get('/payments/maya/failure', [MayaController::class, 'paymentFailure']);
+Route::get('/payments/maya/cancel',  [MayaController::class, 'paymentCancel']);
 
 // Authentication routes (no auth middleware)
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login')->middleware('guest');
@@ -41,6 +48,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/trips', [TripController::class, 'index'])->name('trips.panel');
     Route::get('/panel/trips/poll', [TripController::class, 'poll'])->name('trips.panel.poll');
     Route::get('/panel/route-requests', [RouteApprovalWebController::class, 'index'])->name('route-requests.panel');
+    Route::patch('/panel/schedules/{id}/approve-cancel', [ScheduleController::class, 'approveCancellation'])->name('schedules.approve-cancel');
+    Route::patch('/panel/schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation'])->name('schedules.reject-cancel');
+    Route::get('/panel/support-tickets', [SupportTicketWebController::class, 'index'])->name('support-tickets.panel');
+    Route::patch('/panel/support-tickets/{id}', [SupportTicketWebController::class, 'updateStatus'])->name('support-tickets.update');
     Route::post('/panel/route-requests', [RouteApprovalWebController::class, 'store'])->name('route-requests.store');
     Route::delete('/panel/route-requests/{routeApprovalRequest}', [RouteApprovalWebController::class, 'destroy'])->name('route-requests.destroy');
 

@@ -150,16 +150,16 @@ export class IdVerificationService {
   async updateUserType(userId: string, verificationType: string, idNumber?: string): Promise<any> {
     try {
       // Update locally for now
-      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-      
+      const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+
       const updatedUser = {
         ...currentUser,
         passengerType: verificationType === 'pwd' ? 'PWD' : verificationType === 'student' ? 'Student' : 'Senior',
         idVerified: true,
         idNumber: idNumber
       };
-      
-      localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+
+      sessionStorage.setItem('currentUser', JSON.stringify(updatedUser));
 
       return {
         success: true,
@@ -184,7 +184,7 @@ export class IdVerificationService {
    */
   async getIdStatus(userId: string): Promise<any> {
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
       return {
         id_verified: currentUser?.idVerified || false,
         user_type: currentUser?.passengerType || 'Regular',

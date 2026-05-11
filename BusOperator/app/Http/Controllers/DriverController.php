@@ -1033,7 +1033,6 @@ public function profile($id, Request $request)
             return response()->json([
                 'success' => true,
                 'message' => 'Password reset successfully',
-                'new_password' => $newPassword
             ]);
 
         } catch (\Exception $e) {
@@ -1043,5 +1042,72 @@ public function profile($id, Request $request)
                 'message' => 'Failed to reset password'
             ], 500);
         }
+    }
+
+    /** Driver performance KPIs for the mobile app */
+    public function performance(int $driverId)
+    {
+        $driver = Driver::find($driverId);
+        if (! $driver) {
+            return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
+        }
+
+        $schedules = Schedule::where('driver_id', $driverId)->get();
+
+        $total      = $schedules->count();
+        $completed  = $schedules->where('status', 'completed')->count();
+        $active     = $schedules->where('status', 'active')->count();
+        $accepted   = $schedules->where('status', 'accepted')->count();
+        $declined   = $schedules->where('status', 'declined')->count();
+        $cancelled  = $schedules->where('status', 'cancelled')->count();
+
+        $completionRate  = $total > 0 ? round(($completed / $total) * 100, 1) : 0;
+        $acceptanceRate  = ($accepted + $completed + $active) > 0
+            ? round((($accepted + $completed + $active) / $total) * 100, 1)
+            : 0;
+
+        // Incident count from notifications table
+        $incidents = DB::table('notifications')
+            ->where('driver_id', $driverId)
+            ->where('type', 'incident')
+            ->count();
+
+        // Average rating from feedbacks
+        $avgRating = DB::table('feedbacks')
+            ->where('driver_id', $driverId)
+            ->whereNotNull('overall_rating')
+            ->avg('overall_rating');
+
+        $totalReviews = DB::table('feedbacks')
+            ->where('driver_id', $driverId)
+            ->count();
+
+        // Trips this month
+        $thisMonth = $schedules->filter(function ($s) {
+            return Carbon::parse($s->date)->isCurrentMonth();
+        });
+        $monthTotal     = $thisMonth->count();
+        $monthCompleted = $thisMonth->where('status', 'completed')->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'driver'          => ['id' => $driver->id, 'name' => $driver->name],
+                'total_trips'     => $total,
+                'completed_trips' => $completed,
+                'active_trips'    => $active,
+                'declined_trips'  => $declined,
+                'cancelled_trips' => $cancelled,
+                'completion_rate' => $completionRate,
+                'acceptance_rate' => $acceptanceRate,
+                'incident_count'  => $incidents,
+                'average_rating'  => $avgRating ? round($avgRating, 2) : null,
+                'total_reviews'   => $totalReviews,
+                'this_month' => [
+                    'total'     => $monthTotal,
+                    'completed' => $monthCompleted,
+                ],
+            ],
+        ]);
     }
 }

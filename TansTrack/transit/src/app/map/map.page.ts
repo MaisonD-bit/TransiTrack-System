@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   ActionSheetController,
@@ -46,7 +46,7 @@ interface Schedule {
   styleUrls: ['./map.page.scss'],
   standalone: false
 })
-export class MapPage implements OnInit, ViewWillEnter {
+export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   schedules: Schedule[] = [];
   currentSchedule: Schedule | null = null;
   allRoutes: Schedule[] = [];
@@ -59,8 +59,10 @@ export class MapPage implements OnInit, ViewWillEnter {
   isNearDestination = false;
   private lastPositionPush = 0;
   private arrivalPromptShown = false;
+  private manifestPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  private readonly mapboxToken = '';
+  private readonly mapboxToken =
+    'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
 
   constructor(
     private apiService: ApiService,
@@ -71,6 +73,44 @@ export class MapPage implements OnInit, ViewWillEnter {
     private toastController: ToastController,
     private loadingController: LoadingController
   ) {}
+
+  ngOnDestroy() {
+    this.stopManifestPoll();
+  }
+
+  private startManifestPoll(scheduleId: number): void {
+    this.stopManifestPoll();
+    this.loadManifest(scheduleId);
+    this.manifestPollTimer = setInterval(() => this.loadManifest(scheduleId), 15000);
+  }
+
+  private stopManifestPoll(): void {
+    if (this.manifestPollTimer) {
+      clearInterval(this.manifestPollTimer);
+      this.manifestPollTimer = null;
+    }
+  }
+
+  private loadManifest(scheduleId: number): void {
+    this.apiService.getPassengerManifest(scheduleId).subscribe({
+      next: (response) => {
+        if (response.success && Array.isArray(response.passengers)) {
+          this.mapBoardingPassengers = response.passengers.map((p: any) => ({
+            public_ticket_id: p.ticket_id,
+            fare: p.fare,
+            commuter_name: p.commuter_name,
+            commuter_email: p.commuter_email,
+            alighted: p.alighted,
+            boarding_lng: p.boarding_lng,
+            boarding_lat: p.boarding_lat,
+            boarding_stop_name: p.boarding_stop_name,
+            is_boarding_request: p.is_boarding_request === true,
+          }));
+        }
+      },
+      error: () => {},
+    });
+  }
 
   ngOnInit() {
     this.route.queryParams.subscribe((params) => {
@@ -257,6 +297,7 @@ export class MapPage implements OnInit, ViewWillEnter {
         if (!response.success || !response.schedules) {
           this.currentSchedule = null;
           this.allRoutes = [];
+          this.stopManifestPoll();
           return;
         }
 
@@ -282,7 +323,8 @@ export class MapPage implements OnInit, ViewWillEnter {
         }
 
         this.mapRouteStops = Array.isArray(route.stops) ? route.stops : [];
-        this.mapBoardingPassengers = this.currentSchedule.boarding_passengers ?? [];
+        this.mapBoardingPassengers = [];
+        this.startManifestPoll(this.currentSchedule.id);
 
         void this.buildRouteGeometry(this.currentSchedule);
       },
@@ -391,6 +433,21 @@ export class MapPage implements OnInit, ViewWillEnter {
 
     this.mapRouteGeoJson = null;
   }
+
+  // getTimingStatus(schedule: Schedule | null): { label: string; color: string } {
+  //   if (!schedule) return { label: 'ON TIME', color: 'success' };
+  //   const now = new Date();
+  //   const start = this.parseScheduleStart(schedule);
+  //   const end = this.parseScheduleEnd(schedule);
+  //   if (end && now > end) {
+  //     const overMin = Math.floor((now.getTime() - end.getTime()) / 60000);
+  //     return overMin > 30
+  //       ? { label: 'OVERDUE', color: 'danger' }
+  //       : { label: 'LATE', color: 'warning' };
+  //   }
+  //   if (start && now < start) return { label: 'UPCOMING', color: 'medium' };
+  //   return { label: 'ON TIME', color: 'success' };
+  // }
 
   getScheduleTime(schedule: Schedule): string {
     return `${this.formatTime(schedule.start_time)} - ${this.formatTime(schedule.end_time)}`;
@@ -568,26 +625,7 @@ export class MapPage implements OnInit, ViewWillEnter {
     if (this.arrivalPromptShown || !this.currentSchedule) return;
     this.arrivalPromptShown = true;
     this.isNearDestination = true;
-
-    const destination = this.currentSchedule.route?.end_location ?? 'your destination';
-    const alert = await this.alertController.create({
-      header: 'You have arrived!',
-      message: `The bus has reached ${destination}. End the trip now?`,
-      backdropDismiss: false,
-      buttons: [
-        {
-          text: 'End Trip',
-          cssClass: 'alert-button-confirm',
-          handler: () => this.doCompleteSchedule(this.currentSchedule!)
-        },
-        {
-          text: 'Not yet',
-          role: 'cancel',
-          handler: () => { this.arrivalPromptShown = false; }
-        }
-      ]
-    });
-    await alert.present();
+    this.doCompleteSchedule(this.currentSchedule);
   }
 
   startSchedule(schedule: Schedule) {

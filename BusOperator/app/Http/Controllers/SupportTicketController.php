@@ -38,6 +38,13 @@ class SupportTicketController extends Controller
         return response()->json(['success' => true, 'data' => $tickets]);
     }
 
+    public function show($id)
+    {
+        $ticket = SupportTicket::where('public_ticket_id', $id)->firstOrFail();
+
+        return response()->json(['success' => true, 'data' => $ticket]);
+    }
+
     public function updateStatus(Request $request, $id)
     {
         $ticket = SupportTicket::where('public_ticket_id', $id)->firstOrFail();

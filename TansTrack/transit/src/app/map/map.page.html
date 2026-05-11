@@ -49,7 +49,7 @@
           </p>
         </div>
         <div class="route-status">
-          <ion-badge color="success">ON TIME</ion-badge>
+          <!-- <ion-badge [color]="getTimingStatus(currentSchedule).color">{{ getTimingStatus(currentSchedule).label }}</ion-badge> -->
         </div>
         <!-- Action Buttons -->
         <div class="route-actions" style="margin-top: 1em;">
@@ -78,6 +78,42 @@
         (arrivedAtDestination)="onArrivedAtDestination()">
       </app-route-map>
     </div>
+
+    <!-- Aboard Commuters List -->
+    <ion-card *ngIf="mapBoardingPassengers.length > 0" class="ion-margin-top">
+      <ion-card-header>
+        <ion-card-title>
+          <ion-icon name="people" color="primary"></ion-icon>
+          Aboard Commuters ({{ mapBoardingPassengers.length }})
+        </ion-card-title>
+      </ion-card-header>
+      <ion-card-content class="ion-no-padding">
+        <ion-list lines="inset">
+          <ion-item *ngFor="let p of mapBoardingPassengers; let i = index">
+            <ion-avatar slot="start">
+              <div style="width:36px;height:36px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center;font-weight:bold;color:#1a73e8;font-size:14px;">
+                {{ (p.commuter_name || 'G').charAt(0).toUpperCase() }}
+              </div>
+            </ion-avatar>
+            <ion-label>
+              <h3>{{ p.commuter_name || 'Guest Commuter' }}</h3>
+              <p *ngIf="p.commuter_email">{{ p.commuter_email }}</p>
+              <p class="ion-text-wrap">
+                <ion-badge color="success">₱{{ p.fare | number:'1.2-2' }}</ion-badge>
+                <small class="ion-margin-start text-muted">{{ p.public_ticket_id }}</small>
+              </p>
+            </ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-card-content>
+    </ion-card>
+
+    <ion-card *ngIf="currentSchedule && mapBoardingPassengers.length === 0" class="ion-margin-top">
+      <ion-card-content class="ion-text-center text-muted">
+        <ion-icon name="people-outline" style="font-size:2rem;"></ion-icon>
+        <p>No commuters aboard yet.</p>
+      </ion-card-content>
+    </ion-card>
   </ng-container>
 
   <!-- All Routes View -->

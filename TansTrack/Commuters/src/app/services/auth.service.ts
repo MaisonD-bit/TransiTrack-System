@@ -26,13 +26,13 @@ export class AuthService {
   }
 
   private async loadCurrentUser() {
-    const userData = localStorage.getItem('currentUser');
+    const userData = sessionStorage.getItem('currentUser');
     if (userData) {
       try {
         this.currentUser = JSON.parse(userData);
       } catch (error) {
         console.error('Error parsing user data:', error);
-        localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('currentUser');
       }
     }
   }
@@ -55,9 +55,9 @@ export class AuthService {
       if (response.success && user) {
         this.currentUser = user;
         if (response.token) {
-          localStorage.setItem('authToken', response.token);
+          sessionStorage.setItem('authToken', response.token);
         }
-        localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+        sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
         return this.currentUser;
       } else {
         throw new Error(response.message || 'Login failed');
@@ -103,7 +103,7 @@ export class AuthService {
 
       if (response.success && user) {
         this.currentUser = user;
-        localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+        sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
         return this.currentUser;
       } else {
         throw new Error(response.message || 'Registration failed');
@@ -144,7 +144,7 @@ export class AuthService {
             ...this.currentUser,
             ...profileData
           };
-          localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+          sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
           return true;
         }
       } catch (apiError) {
@@ -156,7 +156,7 @@ export class AuthService {
         ...this.currentUser,
         ...profileData
       };
-      localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+      sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
       return true;
 
     } catch (error) {
@@ -168,7 +168,7 @@ export class AuthService {
   async logout(): Promise<void> {
     try {
       // Laravel: POST /api/v1/commuters/logout (no user id in path)
-      const token = localStorage.getItem('authToken');
+      const token = sessionStorage.getItem('authToken');
       const headers = token
         ? new HttpHeaders({
             'Content-Type': 'application/json',
@@ -183,14 +183,14 @@ export class AuthService {
       console.error('Logout error:', error);
     } finally {
       this.currentUser = null;
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('currentUser');
+      sessionStorage.removeItem('authToken');
     }
   }
 
   isLoggedIn(): boolean {
     if (this.currentUser) return true;
-    return !!localStorage.getItem('currentUser');
+    return !!sessionStorage.getItem('currentUser');
   }
 
   getUserId(): string | null {
