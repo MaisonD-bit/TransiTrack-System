@@ -11,6 +11,7 @@ use App\Support\TicketBoarding;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class CommuterRoutesController extends Controller
 {
@@ -940,12 +941,7 @@ class CommuterRoutesController extends Controller
 
         $passengers = $schedule->tickets->map(function (Ticket $t) use ($stopsLookup) {
             $commuter = $t->commuter;
-            $name = $commuter
-                ? trim(implode(' ', array_filter([
-                    $commuter->first_name ?? null,
-                    $commuter->last_name ?? null,
-                ]))) ?: $commuter->name ?? 'Guest'
-                : 'Guest';
+            $name = $commuter ? ($commuter->displayName() ?: 'Guest') : 'Guest';
 
             $boardingStop = $t->from_stop_index !== null ? ($stopsLookup[(int) $t->from_stop_index] ?? null) : null;
 
@@ -967,25 +963,28 @@ class CommuterRoutesController extends Controller
         // Include waiting boarding requests (commuters flagged at stops, not yet paid).
         // Exclude requests older than 4 hours — those are stale sessions that were never cleaned up.
         // Deduplicate by newest: commuter_id → email → name → per-record fallback.
-        $boardingReqs = BoardingRequest::query()
-            ->where('schedule_id', $scheduleId)
-            ->where('status', 'waiting')
-            ->where('created_at', '>=', now()->subHours(4))
-            ->orderByDesc('id')
-            ->get()
-            ->unique(function (BoardingRequest $r) {
-                if ($r->commuter_id !== null && (int) $r->commuter_id > 0) {
-                    return 'id:' . $r->commuter_id;
-                }
-                if (! empty($r->commuter_email)) {
-                    return 'email:' . $r->commuter_email;
-                }
-                if (! empty($r->commuter_name)) {
-                    return 'name:' . $r->commuter_name;
-                }
-                return 'anon:' . $r->id;
-            })
-            ->values();
+        $boardingReqs = collect();
+        if (Schema::hasTable('boarding_requests')) {
+            $boardingReqs = BoardingRequest::query()
+                ->where('schedule_id', $scheduleId)
+                ->where('status', 'waiting')
+                ->where('created_at', '>=', now()->subHours(4))
+                ->orderByDesc('id')
+                ->get()
+                ->unique(function (BoardingRequest $r) {
+                    if ($r->commuter_id !== null && (int) $r->commuter_id > 0) {
+                        return 'id:' . $r->commuter_id;
+                    }
+                    if (! empty($r->commuter_email)) {
+                        return 'email:' . $r->commuter_email;
+                    }
+                    if (! empty($r->commuter_name)) {
+                        return 'name:' . $r->commuter_name;
+                    }
+                    return 'anon:' . $r->id;
+                })
+                ->values();
+        }
 
         $pendingPassengers = $boardingReqs->map(function (BoardingRequest $r) {
             return [
@@ -1014,6 +1013,84 @@ class CommuterRoutesController extends Controller
             'total'      => $allPassengers->count(),
             'paid'       => $passengers->where('payment_status', 'paid')->count(),
             'on_board'   => $passengers->where('alighted', false)->count(),
+        ]);
+    }
+
+    /**
+     * Driver app: verify a scanned e-ticket QR belongs to this schedule (optional mark cash paid).
+     */
+    public function driverVerifyTicketQr(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'schedule_id' => ['required', 'integer', 'exists:schedules,id'],
+            'driver_id' => ['required', 'integer', 'exists:drivers,id'],
+            'qr_payload' => ['required', 'string', 'max:512'],
+            'mark_paid_cash' => ['sometimes', 'boolean'],
+        ]);
+
+        $schedule = Schedule::query()->find($data['schedule_id']);
+        if (! $schedule) {
+            return response()->json(['success' => false, 'message' => 'Schedule not found.'], 404);
+        }
+        if ((int) $schedule->driver_id !== (int) $data['driver_id']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This trip is not assigned to your driver account.',
+            ], 403);
+        }
+
+        $raw = trim($data['qr_payload']);
+        if (str_starts_with($raw, 'TT-PAY|')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'That is a payment QR, not a passenger e-ticket. Ask the commuter to show their e-ticket QR.',
+            ], 422);
+        }
+
+        $parts = explode('|', $raw);
+        $publicId = trim((string) ($parts[0] ?? ''));
+        if ($publicId === '' || strlen($publicId) > 64) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not read a valid ticket from this QR.',
+            ], 422);
+        }
+
+        $ticket = Ticket::query()
+            ->where('schedule_id', $schedule->id)
+            ->where('public_ticket_id', $publicId)
+            ->first();
+
+        if (! $ticket) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No booking found for this ticket on your current trip.',
+            ], 404);
+        }
+
+        $markCash = filter_var($data['mark_paid_cash'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($markCash && ($ticket->payment_status ?? '') !== 'paid') {
+            $ticket->payment_status = 'paid';
+            $ticket->payment_method = 'cash';
+            $ticket->save();
+        }
+
+        $ticket->load('commuter');
+        $commuter = $ticket->commuter;
+        $name = 'Guest';
+        if ($commuter) {
+            $name = $commuter->displayName() ?: ($commuter->name ?? 'Guest');
+        }
+
+        return response()->json([
+            'success' => true,
+            'ticket' => [
+                'public_ticket_id' => $ticket->public_ticket_id,
+                'commuter_name' => $name,
+                'fare' => (float) $ticket->fare,
+                'payment_status' => $ticket->payment_status ?? 'pending',
+                'payment_method' => $ticket->payment_method,
+            ],
         ]);
     }
 }

@@ -50,4 +50,17 @@ class Commuter extends Authenticatable // Extend Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed', // Ensure passwords are hashed correctly
     ];
+
+    /**
+     * Full name for UI/API. Uses first_name + last_name when those columns exist and are set;
+     * otherwise falls back to `name` (base commuters table).
+     */
+    public function displayName(): string
+    {
+        $fn = isset($this->attributes['first_name']) ? trim((string) $this->attributes['first_name']) : '';
+        $ln = isset($this->attributes['last_name']) ? trim((string) $this->attributes['last_name']) : '';
+        $fromParts = trim($fn . ' ' . $ln);
+
+        return $fromParts !== '' ? $fromParts : trim((string) ($this->attributes['name'] ?? ''));
+    }
 }

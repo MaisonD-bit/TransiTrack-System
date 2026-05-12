@@ -13,6 +13,7 @@ use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\RouteApprovalWebController;
 use App\Http\Controllers\SupportTicketWebController;
+use App\Http\Controllers\DriverLocationController;
 
 // Maya payment callbacks — public GET routes, no auth or CSRF needed
 Route::get('/payments/maya/success', [MayaController::class, 'paymentSuccess']);
@@ -47,10 +48,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/terminal', [TerminalController::class, 'index'])->name('terminal.panel');
     Route::get('/panel/trips', [TripController::class, 'index'])->name('trips.panel');
     Route::get('/panel/trips/poll', [TripController::class, 'poll'])->name('trips.panel.poll');
+    Route::get('/panel/live-tracking', [DriverLocationController::class, 'index'])->name('live-tracking.panel');
+    Route::get('/panel/api/driver-locations', [DriverLocationController::class, 'latestForOperator'])->name('panel.api.driver-locations');
     Route::get('/panel/route-requests', [RouteApprovalWebController::class, 'index'])->name('route-requests.panel');
     Route::patch('/panel/schedules/{id}/approve-cancel', [ScheduleController::class, 'approveCancellation'])->name('schedules.approve-cancel');
     Route::patch('/panel/schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation'])->name('schedules.reject-cancel');
     Route::get('/panel/support-tickets', [SupportTicketWebController::class, 'index'])->name('support-tickets.panel');
+    Route::get('/panel/support-tickets/poll', [SupportTicketWebController::class, 'pollData'])->name('support-tickets.panel.poll');
     Route::patch('/panel/support-tickets/{id}', [SupportTicketWebController::class, 'updateStatus'])->name('support-tickets.update');
     Route::post('/panel/route-requests', [RouteApprovalWebController::class, 'store'])->name('route-requests.store');
     Route::delete('/panel/route-requests/{routeApprovalRequest}', [RouteApprovalWebController::class, 'destroy'])->name('route-requests.destroy');

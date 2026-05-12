@@ -105,6 +105,10 @@ export class HomePage implements OnInit, ViewWillEnter {
     extension_request_used?: boolean;
   } | null = null;
 
+  emergencyName = '';
+  emergencyRelation = '';
+  emergencyContact = '';
+
   constructor(
     private authService: AuthService,
     private apiService: ApiService,
@@ -119,6 +123,7 @@ export class HomePage implements OnInit, ViewWillEnter {
     setInterval(() => this.updateTime(), 1000);
     this.loadDriverSchedules();
     this.loadDriverProfile();
+    this.loadDriverEmergencyFromApi();
     this.loadRecentNotifications();
 
     setInterval(() => {
@@ -139,6 +144,7 @@ export class HomePage implements OnInit, ViewWillEnter {
     this.lastScheduleStatus = null;
     this.loadDriverSchedules();
     this.loadTerminalParking();
+    this.loadDriverEmergencyFromApi();
   }
 
   async loadRecentNotifications() {
@@ -285,6 +291,71 @@ export class HomePage implements OnInit, ViewWillEnter {
     if (name) {
       this.userName = name;
     }
+  }
+
+  async loadDriverEmergencyFromApi(): Promise<void> {
+    const id = Number(this.authService.getDriverId());
+    if (!id) {
+      this.emergencyName = '';
+      this.emergencyRelation = '';
+      this.emergencyContact = '';
+      return;
+    }
+    try {
+      const res: any = await firstValueFrom(this.apiService.getDriverProfile(id));
+      this.emergencyName = (res?.emergency_name || '').trim();
+      this.emergencyRelation = (res?.emergency_relation || '').trim();
+      this.emergencyContact = (res?.emergency_contact || '').trim();
+    } catch {
+      /* keep previous */
+    }
+  }
+
+  hasEmergencyContact(): boolean {
+    return !!this.emergencyContact;
+  }
+
+  async openEmergencyContactDetails(): Promise<void> {
+    if (!this.hasEmergencyContact()) {
+      return;
+    }
+    const rel = this.emergencyRelation ? ` (${this.emergencyRelation})` : '';
+    const nameLine = `${this.emergencyName || 'Contact'}${rel}`;
+    const phoneLine = this.emergencyContact;
+    const href = this.emergencyPhoneHref();
+    const buttons = [
+      ...(href
+        ? [
+            {
+              text: 'Call',
+              handler: () => {
+                window.location.href = href;
+              },
+            },
+          ]
+        : []),
+      { text: 'Close', role: 'cancel' as const },
+    ];
+    const alert = await this.alertController.create({
+      header: 'Emergency contact',
+      subHeader: nameLine,
+      message: phoneLine,
+      buttons,
+    });
+    await alert.present();
+  }
+
+  emergencyPhoneHref(): string | null {
+    const digits = String(this.emergencyContact || '').replace(/\D/g, '');
+    return digits.length >= 7 ? `tel:${digits}` : null;
+  }
+
+  private emergencyAlertFooter(): string {
+    if (!this.hasEmergencyContact()) {
+      return '';
+    }
+    const rel = this.emergencyRelation ? ` (${this.emergencyRelation})` : '';
+    return `\n\nYour registered emergency contact:\n${this.emergencyName}${rel}: ${this.emergencyContact}`;
   }
 
   async respondToSchedule(scheduleId: number, action: 'accept' | 'decline') {
@@ -660,7 +731,8 @@ export class HomePage implements OnInit, ViewWillEnter {
     const alert = await this.alertController.create({
       header: 'Report incident',
       message:
-        'Choose the incident type. Your current GPS location will be sent to your operator (shown on Trip Logs map and Notifications).',
+        'Choose the incident type. Your current GPS location will be sent to your operator (shown on Trip Logs map and Notifications).' +
+        this.emergencyAlertFooter(),
       inputs: [
         {
           name: 'issueType',
@@ -787,7 +859,8 @@ export class HomePage implements OnInit, ViewWillEnter {
     const alert = await this.alertController.create({
       header: `Report: ${issueLabels[incidentType] || issueLabels[issueType] || 'Incident'}`,
       message:
-        'Add optional notes, then submit. We will use your device GPS so the operator can see you on the map.',
+        'Add optional notes, then submit. We will use your device GPS so the operator can see you on the map.' +
+        this.emergencyAlertFooter(),
       inputs: [
         {
           name: 'details',
@@ -885,7 +958,8 @@ export class HomePage implements OnInit, ViewWillEnter {
   async presentEmergencyAlert() {
     const alert = await this.alertController.create({
       header: '🚨 Emergency Alert',
-      message: 'What type of emergency are you experiencing?',
+      message:
+        'What type of emergency are you experiencing?' + this.emergencyAlertFooter(),
       inputs: [
         {
           name: 'emergencyType',
@@ -947,7 +1021,13 @@ export class HomePage implements OnInit, ViewWillEnter {
   async presentEmergencyConfirmation(emergencyType: string) {
     const alert = await this.alertController.create({
       header: '⚠️ Confirm Emergency',
-      message: `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>This will immediately notify your operator and emergency services. Are you sure?`,
+      message:
+        `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>This will immediately notify your operator and emergency services. Are you sure?<br><br>` +
+        (this.hasEmergencyContact()
+          ? `<small>Your emergency contact on file: <strong>${this.emergencyName}</strong>` +
+            (this.emergencyRelation ? ` (${this.emergencyRelation})` : '') +
+            ` — ${this.emergencyContact}</small>`
+          : ''),
       inputs: [
         {
           name: 'location',

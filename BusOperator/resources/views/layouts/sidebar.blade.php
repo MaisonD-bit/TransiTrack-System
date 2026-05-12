@@ -1,7 +1,10 @@
 <div class="sidebar">
     <div class="logo">
         <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
-        <h1>TransiTrack</h1>
+        <div class="logo-text">
+            <h1 class="mb-0">TransiTrack</h1>
+            <small class="text-white-50">Bus operator</small>
+        </div>
     </div>
     <div class="nav-links">
         <a href="{{ route('operator.panel') }}" class="nav-item {{ request()->routeIs('operator.panel') ? 'active' : '' }}">
@@ -19,6 +22,10 @@
         <a href="{{ route('trips.panel') }}" class="nav-item {{ request()->routeIs('trips.panel') ? 'active' : '' }}">
             <i class="fas fa-clipboard-list"></i>
             <span>Trip Logs</span>
+        </a>
+        <a href="{{ route('live-tracking.panel') }}" class="nav-item {{ request()->routeIs('live-tracking.panel') ? 'active' : '' }}">
+            <i class="fas fa-location-arrow"></i>
+            <span>Live Tracking</span>
         </a>
         <a href="{{ route('route-requests.panel') }}" class="nav-item {{ request()->routeIs('route-requests.*') ? 'active' : '' }}">
             <i class="fas fa-code-branch"></i>

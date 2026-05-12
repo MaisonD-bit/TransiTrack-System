@@ -76,7 +76,7 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
       await this.scanner.start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decoded) => this.handleResult(decoded),
+        (decoded: string) => this.handleResult(decoded),
         () => {}
       );
       this.isScanning = true;

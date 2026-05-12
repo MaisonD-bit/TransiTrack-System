@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
-import { StreamChat, Channel } from 'stream-chat';
+import { StreamChat, Channel, type LocalMessage } from 'stream-chat';
 import { environment } from '../../environments/environment';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
@@ -70,14 +70,28 @@ export class ChatPage implements OnInit, OnDestroy {
 
       // Create or get the direct channel between driver and operator
       const channelId = `driver${driverId}-op${tokenData.operator_id}`;
+      const driverDisplayName = String(tokenData.user_name || 'Driver').trim() || 'Driver';
+
       this.channel = this.client.channel('messaging', channelId, {
+        name: driverDisplayName,
         members: [tokenData.user_id, tokenData.operator_id],
       } as any);
 
       await this.channel.watch();
 
+      const existingName = (this.channel.data as { name?: string } | undefined)?.name;
+      if (existingName == null || String(existingName).trim() === '') {
+        try {
+          await this.channel.update({ name: driverDisplayName } as any);
+        } catch {
+          // Bus operator UI derives title from member names if name cannot be persisted
+        }
+      }
+
       // Load existing messages
-      this.messages = (this.channel.state.messages || []).map(m => this.formatMsg(m));
+      this.messages = (this.channel.state.messages || []).map((m: LocalMessage) =>
+        this.formatMsg(m)
+      );
 
       // Listen for new messages
       this.channel.on('message.new', (event: any) => {
@@ -115,7 +129,7 @@ export class ChatPage implements OnInit, OnDestroy {
     }
   }
 
-  private formatMsg(m: any) {
+  private formatMsg(m: LocalMessage) {
     return {
       id: m.id,
       text: m.text,

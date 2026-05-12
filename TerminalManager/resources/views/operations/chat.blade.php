@@ -584,6 +584,40 @@
         scrollToBottom();
     }
 
+    function shouldHideRedundantAttachmentCaption(message) {
+        const raw = (message.text || '').trim();
+        const fileOrImage = (message.attachments || []).filter(
+            (a) => a && (a.type === 'file' || a.type === 'image')
+        );
+        if (!fileOrImage.length) {
+            return false;
+        }
+        if (!raw) {
+            return true;
+        }
+        for (const att of fileOrImage) {
+            if (att.type === 'file') {
+                const fn = String(att.title || att.fallback || '').trim();
+                if (!fn) {
+                    continue;
+                }
+                if (raw === fn || raw === '📎 ' + fn) {
+                    return true;
+                }
+            }
+            if (att.type === 'image') {
+                const fb = String(att.fallback || att.title || '').trim();
+                if (raw === '📷 Image') {
+                    return true;
+                }
+                if (fb && (raw === fb || raw === '📷 ' + fb)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // Append single message
     function appendMessage(message) {
         const container = document.getElementById('messages-container');
@@ -610,16 +644,10 @@
             });
         }
 
-        // Hide "filename" text that Stream may echo above file attachments
         const rawText = (message.text || '').trim();
-        const attachmentTitles = (message.attachments || [])
-            .map(a => (a && (a.title || a.fallback || a.name)) ? String(a.title || a.fallback || a.name).trim() : '')
-            .filter(Boolean);
-
-        const shouldHideText = rawText !== '' && attachmentTitles.some(t => t === rawText || rawText.endsWith(t));
-        const textBlock = (!shouldHideText && rawText)
-            ? `<div class="message-text">${escapeHtml(message.text)}</div>`
-            : '';
+        const hideCaption = shouldHideRedundantAttachmentCaption(message);
+        const textBlock =
+            rawText && !hideCaption ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
 
         div.innerHTML = `
             <div class="message-bubble">

@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Ensures schedules has live-position columns (some DBs skipped the original migration).
+     */
     public function up(): void
     {
         if (! Schema::hasTable('schedules')) {
@@ -14,10 +17,10 @@ return new class extends Migration
 
         Schema::table('schedules', function (Blueprint $table) {
             if (! Schema::hasColumn('schedules', 'current_lat')) {
-                $table->decimal('current_lat', 10, 7)->nullable()->after('started_at');
+                $table->decimal('current_lat', 10, 7)->nullable();
             }
             if (! Schema::hasColumn('schedules', 'current_lng')) {
-                $table->decimal('current_lng', 10, 7)->nullable()->after('current_lat');
+                $table->decimal('current_lng', 10, 7)->nullable();
             }
         });
     }

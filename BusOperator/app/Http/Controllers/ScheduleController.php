@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Schedule;
 use App\Support\TicketBoarding;
 use App\Models\Driver;
+use App\Models\DriverLocation;
 use App\Models\Notification;
 use App\Models\Route;
 use App\Models\RouteApprovalRequest;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
@@ -549,10 +551,12 @@ class ScheduleController extends Controller
                 $createdSchedules[] = $schedule;
             }
             DB::commit();
+            $count = count($createdSchedules);
+
             return response()->json([
                 'success' => true,
-                'message' => count($createdSchedules) . ' schedule(s) created successfully!',
-                'count' => count($createdSchedules)
+                'message' => $this->schedulesCreatedSuccessMessage($count),
+                'count' => $count,
             ], 201);
         } catch (ValidationException $e) {
             DB::rollBack();
@@ -587,6 +591,18 @@ class ScheduleController extends Controller
         }
 
         return [$startAt, $endAt];
+    }
+
+    private function schedulesCreatedSuccessMessage(int $count): string
+    {
+        if ($count <= 0) {
+            return 'No schedules were created.';
+        }
+        if ($count === 1) {
+            return 'Schedule created successfully';
+        }
+
+        return $count.' schedules created successfully';
     }
 
     private function assertScheduleTimeOrder(string $date, string $start, string $end, bool $endsNextDay): void
@@ -646,8 +662,9 @@ class ScheduleController extends Controller
         $driverName = $conflict->driver?->name ?? 'This driver';
         $routeName = $conflict->route?->name ?? 'a route';
         $status = $conflict->status ?? 'unknown';
+        $window = $conflict->humanReadableTripWindow();
 
-        return "Cannot {$verb}: {$driverName} already has a {$status} trip ({$routeName}) from {$conflict->start_time} to {$conflict->end_time} on {$conflict->date}. Choose a different time, or finish or cancel the existing trip first.";
+        return "Cannot {$verb}: {$driverName} already has a {$status} trip ({$routeName}) from {$window}. Choose a different time, or finish or cancel the existing trip first.";
     }
 
 
@@ -891,9 +908,33 @@ class ScheduleController extends Controller
             'latitude'  => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
         ]);
-        $schedule->current_lat = $data['latitude'];
-        $schedule->current_lng = $data['longitude'];
-        $schedule->save();
+
+        // Avoid Eloquent `save()` touching `updated_at` / `created_at` when those columns are missing on `schedules`.
+        if (Schema::hasColumn('schedules', 'current_lat') && Schema::hasColumn('schedules', 'current_lng')) {
+            DB::table('schedules')->where('id', (int) $id)->update([
+                'current_lat' => $data['latitude'],
+                'current_lng' => $data['longitude'],
+            ]);
+        } else {
+            Log::warning("Schedule {$id} position update skipped: schedules.current_lat/current_lng columns missing. Run migrations.");
+        }
+
+        try {
+            DriverLocation::recordPing(
+                (int) $schedule->driver_id,
+                (int) $schedule->id,
+                (float) $data['latitude'],
+                (float) $data['longitude'],
+                null,
+                null,
+                null,
+                null,
+                3
+            );
+        } catch (\Throwable $e) {
+            Log::warning('DriverLocation::recordPing failed: '.$e->getMessage());
+        }
+
         return response()->json(['success' => true]);
     }
 

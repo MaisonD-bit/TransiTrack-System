@@ -25,7 +25,6 @@ class TripController extends Controller
             'date' => $data['date'],
             'tripRows' => $data['tripRows'],
             'totalRevenue' => $data['totalRevenue'],
-            'mapCenter' => $data['mapCenter'],
             'tripPollChecksum' => $data['checksum'],
             'incidentMarkers' => $data['incidentMarkers'],
         ]);
@@ -72,7 +71,7 @@ class TripController extends Controller
     }
 
     /**
-     * @return array{date: string, tripRows: Collection<int, array<string, mixed>>, totalRevenue: float, mapCenter: array{0: float, 1: float}, checksum: string}
+     * @return array{date: string, tripRows: Collection<int, array<string, mixed>>, totalRevenue: float, checksum: string, incidentMarkers: list<array<string, mixed>>}
      */
     private function buildTripPanelData(int $userId, Carbon $date): array
     {
@@ -118,15 +117,6 @@ class TripController extends Controller
             ->whereIn('schedule_id', $scheduleIds)
             ->sum('fare');
 
-        $mapCenter = [123.8854, 10.3157];
-        $first = $schedules->first();
-        if ($first?->route?->start_coordinates) {
-            $parts = explode(',', $first->route->start_coordinates);
-            if (count($parts) === 2) {
-                $mapCenter = [(float) trim($parts[0]), (float) trim($parts[1])];
-            }
-        }
-
         $incidentMarkers = Notification::query()
             ->where('recipient_id', $userId)
             ->whereNull('sender_id')
@@ -166,7 +156,6 @@ class TripController extends Controller
             'date' => $date->toDateString(),
             'tripRows' => $tripRows,
             'totalRevenue' => $totalRevenue,
-            'mapCenter' => $mapCenter,
             'checksum' => $checksum,
             'incidentMarkers' => $incidentMarkers,
         ];

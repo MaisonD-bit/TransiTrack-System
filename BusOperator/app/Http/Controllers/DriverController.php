@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Driver;
+use App\Models\Notification;
 use App\Models\Schedule;
 use App\Models\Route as BusRoute;
 use App\Models\Bus;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class DriverController extends Controller
@@ -186,6 +188,9 @@ class DriverController extends Controller
             'emergency_relation' => $driver->emergency_relation,
             'emergency_contact' => $driver->emergency_contact,
             'status' => $driver->status,
+            'suspended_until' => $driver->suspended_until
+                ? $driver->suspended_until->toIso8601String()
+                : null,
             'photo_url' => $driver->photo_url,
             'notes' => $driver->notes,
             'app_registered' => $driver->app_registered,
@@ -227,7 +232,7 @@ class DriverController extends Controller
             'emergency_name' => 'string|max:255|nullable',
             'emergency_relation' => 'string|max:100|nullable',
             'emergency_contact' => 'string|max:20|nullable',
-            'status' => 'required|string|in:active,inactive,pending,suspended',
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
@@ -242,8 +247,17 @@ class DriverController extends Controller
             $updateData = $request->only([
                 'name', 'email', 'contact_number', 'date_of_birth', 'gender',
                 'address', 'license_number', 'license_expiry', 'emergency_name',
-                'emergency_relation', 'emergency_contact', 'status', 'notes'
+                'emergency_relation', 'emergency_contact', 'status', 'notes',
             ]);
+
+            $susp = $this->resolveSuspensionUpdate($request, $driver, $request->status);
+            if ($susp['errors']) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $susp['errors'],
+                ], 422);
+            }
+            $updateData = array_merge($updateData, $susp['driver_updates']);
 
             // Handle photo upload
             if ($request->hasFile('photo')) {
@@ -265,23 +279,51 @@ class DriverController extends Controller
             $updateData['user_id'] = $driver->user_id;
 
             $driver->update($updateData);
+            $driver->refresh();
+
+            $operatorId = auth()->id();
+            if ($susp['notify_suspension_start'] && $susp['suspended_until'] && $susp['suspension_days'] !== null) {
+                $days = (int) $susp['suspension_days'];
+                $until = $susp['suspended_until'];
+                Notification::create([
+                    'type' => 'driver_suspension',
+                    'message' => sprintf(
+                        'Your account has been suspended for %d %s. You will regain access after %s.',
+                        $days,
+                        $days === 1 ? 'day' : 'days',
+                        $until->timezone(config('app.timezone'))->format('M j, Y g:i A')
+                    ),
+                    'sender_id' => $operatorId,
+                    'driver_id' => $driver->id,
+                    'is_read' => false,
+                ]);
+            }
+            if ($susp['notify_manual_reactivation']) {
+                Notification::create([
+                    'type' => 'driver_reactivation',
+                    'message' => 'Your account has been reactivated by the bus operator. You may use the app again.',
+                    'sender_id' => $operatorId,
+                    'driver_id' => $driver->id,
+                    'is_read' => false,
+                ]);
+            }
 
             Log::info('Driver updated successfully', [
                 'driver_id' => $driver->id,
-                'updated_fields' => array_keys($updateData)
+                'updated_fields' => array_keys($updateData),
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Driver updated successfully',
-                'driver' => $driver
+                'driver' => $driver,
             ]);
 
         } catch (\Exception $e) {
             Log::error('Driver update error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update driver'
+                'message' => 'Failed to update driver',
             ], 500);
         }
     }
@@ -292,31 +334,77 @@ class DriverController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'status' => 'required|string|in:active,inactive,pending,suspended'
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
+            'suspension_days' => 'nullable|integer|min:1|max:366',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
             ], 422);
         }
 
         try {
             $driver = Driver::findOrFail($id);
-            $driver->update(['status' => $request->status]);
+
+            if ($driver->user_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized action',
+                ], 403);
+            }
+
+            $susp = $this->resolveSuspensionUpdate($request, $driver, $request->status);
+            if ($susp['errors']) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $susp['errors'],
+                ], 422);
+            }
+
+            $payload = array_merge(['status' => $request->status], $susp['driver_updates']);
+            $driver->update($payload);
+            $driver->refresh();
+
+            $operatorId = auth()->id();
+            if ($susp['notify_suspension_start'] && $susp['suspended_until'] && $susp['suspension_days'] !== null) {
+                $days = (int) $susp['suspension_days'];
+                $until = $susp['suspended_until'];
+                Notification::create([
+                    'type' => 'driver_suspension',
+                    'message' => sprintf(
+                        'Your account has been suspended for %d %s. You will regain access after %s.',
+                        $days,
+                        $days === 1 ? 'day' : 'days',
+                        $until->timezone(config('app.timezone'))->format('M j, Y g:i A')
+                    ),
+                    'sender_id' => $operatorId,
+                    'driver_id' => $driver->id,
+                    'is_read' => false,
+                ]);
+            }
+            if ($susp['notify_manual_reactivation']) {
+                Notification::create([
+                    'type' => 'driver_reactivation',
+                    'message' => 'Your account has been reactivated by the bus operator. You may use the app again.',
+                    'sender_id' => $operatorId,
+                    'driver_id' => $driver->id,
+                    'is_read' => false,
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Driver status updated successfully',
-                'driver' => $driver
+                'driver' => $driver,
             ]);
 
         } catch (\Exception $e) {
             Log::error('Driver status update error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update driver status'
+                'message' => 'Failed to update driver status',
             ], 500);
         }
     }
@@ -756,15 +844,32 @@ public function profile($id, Request $request)
 
         Log::info('  Password verified');
 
+        $driver->releaseSuspensionIfDue();
+        $driver->refresh();
+
         // Check if driver is active
         if ($driver->status !== 'active') {
             Log::warning('❌ Driver not active', [
                 'email' => $driver->email,
-                'status' => $driver->status
+                'status' => $driver->status,
             ]);
+            if ($driver->status === 'suspended') {
+                if ($driver->suspended_until) {
+                    $until = $driver->suspended_until instanceof Carbon
+                        ? $driver->suspended_until
+                        : Carbon::parse((string) $driver->suspended_until);
+                    $whenStr = $until->copy()->timezone(config('app.timezone'))->format('M j, Y g:i A');
+                    $msg = 'Your account is Suspended. It will be available again on '.$whenStr.'.';
+                } else {
+                    $msg = 'Your account is Suspended. Contact your bus operator for details.';
+                }
+            } else {
+                $msg = "Your account is {$driver->status}. Please wait for approval from bus operator.";
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => "Your account is {$driver->status}. Please wait for approval from bus operator."
+                'message' => $msg,
             ], 403);
         }
 
@@ -1067,20 +1172,26 @@ public function profile($id, Request $request)
             : 0;
 
         // Incident count from notifications table
-        $incidents = DB::table('notifications')
-            ->where('driver_id', $driverId)
-            ->where('type', 'incident')
-            ->count();
+        $incidents = 0;
+        if (Schema::hasTable('notifications')) {
+            $incidents = (int) DB::table('notifications')
+                ->where('driver_id', $driverId)
+                ->where('type', 'incident')
+                ->count();
+        }
 
-        // Average rating from feedbacks
-        $avgRating = DB::table('feedbacks')
-            ->where('driver_id', $driverId)
-            ->whereNotNull('overall_rating')
-            ->avg('overall_rating');
+        $avgRating = null;
+        $totalReviews = 0;
+        if (Schema::hasTable('feedbacks')) {
+            $avgRating = DB::table('feedbacks')
+                ->where('driver_id', $driverId)
+                ->whereNotNull('overall_rating')
+                ->avg('overall_rating');
 
-        $totalReviews = DB::table('feedbacks')
-            ->where('driver_id', $driverId)
-            ->count();
+            $totalReviews = (int) DB::table('feedbacks')
+                ->where('driver_id', $driverId)
+                ->count();
+        }
 
         // Trips this month
         $thisMonth = $schedules->filter(function ($s) {
@@ -1109,5 +1220,66 @@ public function profile($id, Request $request)
                 ],
             ],
         ]);
+    }
+
+    /**
+     * @return array{
+     *     errors: array<string, array<int, string>>,
+     *     driver_updates: array<string, mixed>,
+     *     notify_suspension_start: bool,
+     *     notify_manual_reactivation: bool,
+     *     suspension_days: int|null,
+     *     suspended_until: \Carbon\Carbon|null
+     * }
+     */
+    private function resolveSuspensionUpdate(Request $request, Driver $driver, string $newStatus): array
+    {
+        $base = [
+            'errors' => [],
+            'driver_updates' => [],
+            'notify_suspension_start' => false,
+            'notify_manual_reactivation' => false,
+            'suspension_days' => null,
+            'suspended_until' => null,
+        ];
+
+        if ($newStatus === 'suspended') {
+            $days = (int) $request->input('suspension_days', 0);
+            if ($driver->status !== 'suspended') {
+                if ($days < 1 || $days > 366) {
+                    return array_replace($base, [
+                        'errors' => ['suspension_days' => ['Enter the number of suspension days (1–366).']],
+                    ]);
+                }
+                $until = Carbon::now()->addDays($days);
+
+                return array_replace($base, [
+                    'driver_updates' => ['suspended_until' => $until],
+                    'notify_suspension_start' => true,
+                    'suspension_days' => $days,
+                    'suspended_until' => $until,
+                ]);
+            }
+            if ($days >= 1 && $days <= 366) {
+                $until = Carbon::now()->addDays($days);
+
+                return array_replace($base, [
+                    'driver_updates' => ['suspended_until' => $until],
+                    'suspension_days' => $days,
+                    'suspended_until' => $until,
+                ]);
+            }
+
+            return $base;
+        }
+
+        $out = array_replace($base, [
+            'driver_updates' => ['suspended_until' => null],
+        ]);
+        if ($driver->status === 'suspended' && $newStatus === 'active') {
+            $out['notify_manual_reactivation'] = true;
+        }
+
+        return $out;
     }
 }

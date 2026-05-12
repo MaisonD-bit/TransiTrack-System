@@ -1,5 +1,6 @@
 .perf-content {
   --background: #f4f5f8;
+  font-size: 1rem;
 }
 
 .loading-state, .empty-state {
@@ -10,8 +11,8 @@
   padding: 60px 20px;
   gap: 16px;
   color: var(--ion-color-medium);
-  ion-icon { font-size: 48px; }
-  p { font-size: 16px; margin: 0; }
+  ion-icon { font-size: 56px; }
+  p { font-size: 1rem; margin: 0; }
 }
 
 .driver-banner {
@@ -19,8 +20,8 @@
   align-items: center;
   gap: 12px;
   padding: 20px 16px 8px;
-  ion-icon { font-size: 40px; color: var(--ion-color-primary); }
-  h2 { margin: 0; font-size: 20px; font-weight: 700; }
+  ion-icon { font-size: 2.5rem; color: var(--ion-color-primary); }
+  h2 { margin: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.25; }
 }
 
 .kpi-grid {
@@ -35,7 +36,7 @@
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 
-  ion-card-content { padding: 16px; }
+  ion-card-content { padding: 18px 16px; }
 }
 
 .rating-card {
@@ -43,37 +44,83 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
   }
   .rating-score {
-    font-size: 48px;
-    font-weight: 800;
+    font-size: 1.8rem;
+    font-weight: 700;
     color: var(--ion-color-warning);
     line-height: 1;
   }
   .rating-stars {
     display: flex;
-    gap: 4px;
-    font-size: 22px;
+    gap: 8px;
+    font-size: 1.25rem;
   }
   .rating-label {
-    font-size: 13px;
+    font-size: 0.95rem;
     color: var(--ion-color-medium);
-    margin-top: 4px;
+    margin-top: 8px;
+    text-align: center;
+    line-height: 1.4;
+    max-width: 320px;
+    font-weight: 500;
   }
 }
 
 .kpi-value {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: var(--ion-color-primary);
   line-height: 1.1;
   &.danger-val { color: var(--ion-color-danger); }
 }
 .kpi-label {
-  font-size: 12px;
-  color: var(--ion-color-medium);
-  margin: 4px 0 8px;
+  font-size: 1rem;
+  color: var(--ion-color-dark, #2f2f2f);
+  margin: 8px 0 12px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
-.month-card ion-item { --padding-start: 0; }
+.kpi-card ion-progress-bar {
+  height: 12px;
+  border-radius: 6px;
+  --border-radius: 6px;
+}
+
+.month-card {
+  ion-card-header {
+    padding-bottom: 8px;
+  }
+  ion-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .month-stat-row {
+    --padding-start: 0;
+    --inner-padding-end: 0;
+    --min-height: 60px;
+    font-size: 1rem;
+  }
+  ion-label {
+    font-size: 0.95rem !important;
+    font-weight: 600;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  ion-card-content ion-item.month-stat-row span.month-stat {
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--ion-color-medium-shade, #666);
+  }
+  span.month-stat--success {
+    color: var(--ion-color-success) !important;
+  }
+  span.month-stat--danger {
+    color: var(--ion-color-danger) !important;
+  }
+}

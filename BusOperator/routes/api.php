@@ -16,6 +16,7 @@ use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\MayaController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\DriverLocationController;
 
 Route::prefix('v1')->group(function () {
 
@@ -43,10 +44,11 @@ Route::prefix('v1')->group(function () {
     });
     
     Route::prefix('drivers')->group(function () {
+        Route::post('/register', [DriverController::class, 'registerFromApp']);
+        Route::post('/{driverId}/location', [DriverLocationController::class, 'store']);
         Route::get('/{driverId}/schedules', [ScheduleController::class, 'getDriverSchedules']);
         Route::get('/{id}/performance', [DriverController::class, 'performance']);
         Route::get('/{id}', [DriverController::class, 'show']);
-        Route::post('/register', [DriverController::class, 'registerFromApp']);
         Route::put('/{id}/status', [DriverController::class, 'updateStatus']);
     });
     
@@ -114,6 +116,8 @@ Route::prefix('v1')->group(function () {
     Route::patch('commuter/boarding-requests/{id}/cancel', [CommuterRoutesController::class, 'cancelBoardingRequest']);
     Route::post('commuter/cancel-my-boarding-requests', [CommuterRoutesController::class, 'cancelMyBoardingRequests']);
     Route::get('schedules/{scheduleId}/manifest', [CommuterRoutesController::class, 'manifest']);
+    /** Driver scans commuter e-ticket QR (public_ticket_id|…) for the active schedule */
+    Route::post('driver/verify-ticket-qr', [CommuterRoutesController::class, 'driverVerifyTicketQr']);
     Route::get('driver/stream-token', [ChatController::class, 'driverStreamToken']);
 
     // Feedback & ratings
@@ -173,6 +177,7 @@ Route::group(['middleware' => 'api'], function () {
     
     // Driver schedules - THE MAIN ROUTE YOUR IONIC APP NEEDS
     Route::get('drivers/{driverId}/schedules', [ScheduleController::class, 'getDriverSchedules']);
+    Route::post('drivers/{driverId}/location', [DriverLocationController::class, 'store']);
     
     // Schedule actions
     Route::post('schedules/{id}/accept', [ScheduleController::class, 'acceptSchedule']);

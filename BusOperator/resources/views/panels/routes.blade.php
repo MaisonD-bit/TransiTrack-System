@@ -120,6 +120,10 @@
                 <!-- Map for End Location and Stops Selection -->
                 <div class="row mb-4">
                     <div class="col-12">
+                        <div class="alert alert-warning py-2 mb-0 rounded-0 rounded-top" id="pathwayLockNotice" style="display: none;">
+                            <i class="fas fa-lock me-2"></i>
+                            Destination and pathway are locked while editing. Only a sysadmin can change the approved route path; you may update name, fare, status, and other details below.
+                        </div>
                         <div class="card">
                             <div class="card-header bg-light">
                                 <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Select Destination & Stops in Cebu</h6>
@@ -150,7 +154,7 @@
                                     </div>
                                 </div>
                                 <div class="mt-2 d-flex gap-2">
-                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearEndPoint()">
+                                    <button type="button" id="clearDestinationBtn" class="btn btn-sm btn-outline-danger" onclick="clearEndPoint()">
                                         <i class="fas fa-trash me-1"></i>Clear Destination
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="centerMapToCebu()">

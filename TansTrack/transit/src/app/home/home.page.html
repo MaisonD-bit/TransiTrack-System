@@ -286,6 +286,21 @@
             </ion-button>
           </ion-col>
         </ion-row>
+        <ion-row *ngIf="hasEmergencyContact()" class="ion-margin-top">
+          <ion-col size="12">
+            <ion-button
+              expand="block"
+              fill="outline"
+              color="primary"
+              class="action-btn emergency-contact"
+              (click)="openEmergencyContactDetails()"
+              style="outline: none !important; --box-shadow-focused: none;"
+            >
+              <ion-icon name="call-outline" slot="start"></ion-icon>
+              Emergency contact
+            </ion-button>
+          </ion-col>
+        </ion-row>
         <ion-row style="margin-top: 0.5em;">
           <ion-col size="12">
             <ion-button 

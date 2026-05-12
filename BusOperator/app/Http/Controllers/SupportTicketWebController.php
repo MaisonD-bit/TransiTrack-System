@@ -3,24 +3,80 @@
 namespace App\Http\Controllers;
 
 use App\Models\SupportTicket;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SupportTicketWebController extends Controller
 {
     public function index()
     {
-        $tickets = SupportTicket::with('commuter:id,first_name,last_name,email')
+        $tickets = $this->loadTicketsForPanel();
+
+        $counts = $this->buildCounts($tickets);
+
+        $ticketsPoll = $tickets->map(fn (SupportTicket $t) => $this->ticketToPollArray($t))->values();
+
+        return view('panels.support-tickets', compact('tickets', 'counts', 'ticketsPoll'));
+    }
+
+    /**
+     * JSON snapshot for auto-refresh on the Support Tickets panel (session auth).
+     */
+    public function pollData(): JsonResponse
+    {
+        $tickets = $this->loadTicketsForPanel();
+
+        return response()->json([
+            'success' => true,
+            'counts'  => $this->buildCounts($tickets),
+            'tickets' => $tickets->map(fn (SupportTicket $t) => $this->ticketToPollArray($t))->values(),
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function ticketToPollArray(SupportTicket $t): array
+    {
+        return [
+            'id'                => $t->id,
+            'public_ticket_id'  => $t->public_ticket_id,
+            'subject'           => $t->subject,
+            'description'       => $t->description,
+            'category'          => $t->category,
+            'priority'          => $t->priority,
+            'status'            => $t->status,
+            'operator_response' => $t->operator_response,
+            'created_human'     => $t->created_at?->diffForHumans() ?? '',
+            'commuter'          => $t->commuter ? [
+                'display_name' => $t->commuter->displayName(),
+                'email'        => $t->commuter->email,
+            ] : null,
+        ];
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, SupportTicket>
+     */
+    private function loadTicketsForPanel()
+    {
+        return SupportTicket::with('commuter:id,name,email')
             ->orderByDesc('created_at')
             ->get();
+    }
 
-        $counts = [
-            'open'        => $tickets->where('status', 'open')->count(),
-            'in_progress' => $tickets->where('status', 'in-progress')->count(),
-            'resolved'    => $tickets->where('status', 'resolved')->count(),
-            'total'       => $tickets->count(),
+    /**
+     * @param  \Illuminate\Support\Collection<int, SupportTicket>  $tickets
+     * @return array{open: int, in_progress: int, resolved: int, total: int}
+     */
+    private function buildCounts($tickets): array
+    {
+        return [
+            'open'         => $tickets->where('status', 'open')->count(),
+            'in_progress'  => $tickets->where('status', 'in-progress')->count(),
+            'resolved'     => $tickets->where('status', 'resolved')->count(),
+            'total'        => $tickets->count(),
         ];
-
-        return view('panels.support-tickets', compact('tickets', 'counts'));
     }
 
     public function updateStatus(Request $request, $id)

@@ -521,6 +521,12 @@
                                 </select>
                                 <div class="invalid-feedback" id="status_error"></div>
                             </div>
+                            <div class="col-md-6 mb-3" id="suspensionDaysGroup" style="display: none;">
+                                <label for="suspension_days" class="form-label">Suspension length (days)</label>
+                                <input type="number" id="suspension_days" name="suspension_days" class="form-control" min="1" max="366" placeholder="e.g. 7">
+                                <div class="form-text">Required when suspending a driver who is not already suspended. Leave blank if already suspended to keep the current end date.</div>
+                                <div class="invalid-feedback" id="suspension_days_error"></div>
+                            </div>
                         </div>
                     </div>
                 </div>

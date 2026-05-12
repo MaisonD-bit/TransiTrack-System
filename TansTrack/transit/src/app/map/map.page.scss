@@ -1,5 +1,13 @@
-ion-content {
+.map-page-content {
   --background: #f8f9fa;
+}
+
+.map-page-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
 }
 
 .app-logo {
@@ -8,10 +16,11 @@ ion-content {
 }
 
 .map-controls {
+  flex: 0 0 auto;
   padding: 16px;
   background: white;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  
+
   ion-segment {
     --background: #f0f0f0;
     border-radius: 8px;
@@ -19,7 +28,8 @@ ion-content {
 }
 
 .route-info-banner {
-  margin: 0 16px 16px 16px;
+  flex: 0 0 auto;
+  margin: 0 16px 12px 16px;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
@@ -30,7 +40,7 @@ ion-content {
 
     .route-details {
       flex: 1;
-      
+
       h3 {
         margin: 0 0 8px 0;
         font-size: 1.1rem;
@@ -52,24 +62,37 @@ ion-content {
         }
       }
     }
-
-    .route-status {
-      ion-badge {
-        font-size: 0.7rem;
-        padding: 6px 12px;
-        border-radius: 12px;
-        font-weight: 600;
-      }
-    }
   }
 }
 
 .full-map-container {
-  height: calc(100vh - 280px);
-  margin: 0 16px 16px 16px;
+  /* Explicit height: percentage heights inside Ionic scroll views often collapse to ~0. */
+  flex: 0 0 auto;
+  margin: 0 16px 12px 16px;
+  height: min(56vh, calc(100dvh - 280px));
+  min-height: 280px;
+  max-height: 640px;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  background: #e9ecef;
+
+  app-route-map {
+    flex: 1;
+    display: block;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.map-below-card {
+  flex: 0 0 auto;
+  margin-left: 16px;
+  margin-right: 16px;
+  margin-bottom: 12px;
 }
 
 ion-fab {
@@ -82,4 +105,14 @@ ion-fab {
       --color: var(--ion-color-dark);
     }
   }
+}
+
+.ticket-scanner-modal {
+  --background: #0f172a;
+  height: 100%;
+}
+
+.ticket-scanner-modal app-driver-qr-scanner {
+  display: block;
+  min-height: 100%;
 }

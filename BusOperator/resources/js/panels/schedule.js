@@ -60,6 +60,13 @@ function showDoubleBookingModal(message) {
     showModal('doubleBookingModal');
 }
 
+/** True when message is from ScheduleController::scheduleOverlapMessage (any trip status). */
+function isScheduleOverlapMessage(msg) {
+    if (!msg || typeof msg !== 'string') return false;
+    if (msg.includes('already has a schedule')) return true;
+    return msg.includes('Choose a different time, or finish or cancel the existing trip first');
+}
+
 /** Today as YYYY-MM-DD (local) */
 function scheduleTodayYmd() {
     const t = new Date();
@@ -387,7 +394,7 @@ function submitScheduleForm(e) {
             showScheduleFeedbackModal('Please check the form for errors', 'error');
         } else if (error.message) {
             console.log('Error message:', error.message);
-            if (error.message.includes('already has a schedule')) {
+            if (isScheduleOverlapMessage(error.message)) {
                 showDoubleBookingModal(error.message);
             } else {
                 showScheduleFeedbackModal('Error creating schedule: ' + error.message, 'error');
@@ -559,7 +566,7 @@ function saveScheduleChanges() {
         if (error.errors) {
             showValidationErrors(error.errors);
             showScheduleFeedbackModal('Please check the form for errors', 'error');
-        } else if (error.message && error.message.includes('already has a schedule')) {
+        } else if (error.message && isScheduleOverlapMessage(error.message)) {
             showDoubleBookingModal(error.message);
         } else {
             showScheduleFeedbackModal('Error updating schedule: ' + (error.message || 'Unknown error'), 'error');
@@ -1153,7 +1160,10 @@ async function saveAllSchedules() {
         const result = await response.json();
         
         if (result.success) {
-            showScheduleFeedbackModal(result.message || `Successfully created ${result.count} schedule(s)!`, 'success', {
+            const c = typeof result.count === 'number' ? result.count : 0;
+            const fallbackMsg =
+                c === 1 ? 'Schedule created successfully' : c > 1 ? `${c} schedules created successfully` : 'Schedules saved.';
+            showScheduleFeedbackModal(result.message || fallbackMsg, 'success', {
                 onOk: () => {
                     const card = document.getElementById('scheduleFormCard');
                     if (card) card.style.display = 'none';
@@ -1186,7 +1196,7 @@ async function saveAllSchedules() {
             if (parts.length) msg = parts.join('\n');
         }
 
-        if (msg.includes('already has a schedule')) {
+        if (isScheduleOverlapMessage(msg)) {
             showDoubleBookingModal(msg);
         } else {
             showScheduleFeedbackModal(msg, 'error');

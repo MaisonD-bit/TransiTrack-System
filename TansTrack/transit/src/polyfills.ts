@@ -49,6 +49,8 @@ import './zone-flags';
  */
 import 'zone.js';  // Included with Angular CLI.
 
+/** Mapbox GL worker URL before any lazy chunk imports `mapbox-gl`. */
+import './mapbox-gl-setup';
 
 /***************************************************************************************************
  * APPLICATION IMPORTS

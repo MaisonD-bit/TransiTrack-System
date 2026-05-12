@@ -36,14 +36,30 @@ class MayaController extends Controller
             'commuter_name'    => ['nullable', 'string', 'max:128'],
         ]);
 
-        if (! $this->secretKey) {
-            return response()->json(['success' => false, 'message' => 'Maya is not configured.'], 500);
+        // Maya Checkout uses PUBLIC key in Basic Auth (see developers.maya.ph).
+        if (! $this->publicKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Maya is not configured: set MAYA_PUBLIC_KEY in your BusOperator .env (sandbox or production key from Maya Business Manager).',
+            ], 503);
         }
 
-        $appUrl    = rtrim(config('services.maya.callback_url', config('app.url')), '/');
+        $appUrl = rtrim((string) (config('services.maya.callback_url') ?: config('app.url')), '/');
+        if ($appUrl === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Set APP_URL or MAYA_CALLBACK_URL so Maya can redirect after payment.',
+            ], 503);
+        }
+
         $ticketId  = $data['public_ticket_id'] ?? null;
-        $ticketRef = urlencode($ticketId ?? 'verify');
+        $ticketRef = rawurlencode($ticketId ?? 'verify');
         $amount    = round((float) $data['amount'], 2);
+
+        $fullName = trim((string) ($data['commuter_name'] ?? 'Commuter')) ?: 'Commuter';
+        $nameParts = preg_split('/\s+/', $fullName, 2, PREG_SPLIT_NO_EMPTY) ?: ['Commuter'];
+        $firstName = mb_substr($nameParts[0], 0, 80);
+        $lastName  = mb_substr($nameParts[1] ?? 'Customer', 0, 80);
 
         $payload = [
             'totalAmount' => [
@@ -52,8 +68,8 @@ class MayaController extends Controller
                 'details'  => ['subtotal' => $amount],
             ],
             'buyer' => [
-                'firstName' => $data['commuter_name'] ?? 'Commuter',
-                'lastName'  => '',
+                'firstName' => $firstName,
+                'lastName'  => $lastName,
                 'contact'   => ['email' => 'commuter@transitrackph.com'],
             ],
             'items' => [
@@ -71,14 +87,25 @@ class MayaController extends Controller
                 'failure' => "{$appUrl}/payments/maya/failure?ticket={$ticketRef}",
                 'cancel'  => "{$appUrl}/payments/maya/cancel?ticket={$ticketRef}",
             ],
-            'requestReferenceNumber' => 'TRANSIT-' . strtoupper(substr($ticketId ?? ('VFY' . time()), -12)),
+            'requestReferenceNumber' => 'TT-' . strtoupper(substr(sha1(($ticketId ?? '') . microtime(true)), 0, 20)),
             'metadata'               => (object) [],
         ];
 
-        $response = Http::withoutVerifying()->withHeaders([
-            'Authorization' => 'Basic ' . base64_encode($this->publicKey . ':'),
-            'Content-Type'  => 'application/json',
-        ])->post("{$this->baseUrl}/checkout/v1/checkouts", $payload);
+        try {
+            $response = Http::timeout(30)
+                ->withoutVerifying()
+                ->withHeaders([
+                    'Authorization' => 'Basic ' . base64_encode($this->publicKey . ':'),
+                    'Content-Type'  => 'application/json',
+                ])->post("{$this->baseUrl}/checkout/v1/checkouts", $payload);
+        } catch (\Throwable $e) {
+            Log::error('Maya checkout HTTP exception', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not reach Maya: ' . $e->getMessage(),
+            ], 502);
+        }
 
         if (! $response->successful()) {
             Log::error('Maya checkout creation failed', [

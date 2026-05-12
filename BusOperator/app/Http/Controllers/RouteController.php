@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class RouteController extends Controller
 {
@@ -49,21 +50,28 @@ class RouteController extends Controller
      */
     public function store(Request $request)
     {
+        $userId = (int) auth()->id();
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'code' => 'required|string|max:255|unique:routes,code',
-            'start_location' => 'required|string',
-            'end_location' => 'required|string',
-            'start_coordinates' => 'required|string',
-            'end_coordinates' => 'required|string',
+            'code' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('routes', 'code')->where(fn ($q) => $q->where('user_id', $userId)),
+            ],
+            'start_location' => 'required|string|max:255',
+            'end_location' => 'required|string|max:255',
+            'start_coordinates' => 'required|string|max:255',
+            'end_coordinates' => 'required|string|max:255',
             'distance_km' => 'required|numeric|min:0',
             'estimated_duration' => 'required|integer|min:0',
             'description' => 'nullable|string',
             'route_fare' => 'required|numeric|min:0', // ✅ Changed from regular_price/aircon_price
             'bus_type' => 'required|in:regular,aircon',
             'status' => 'required|in:active,inactive',
-            'geometry' => 'required|string',
-            'stops_data' => 'nullable|string', // ✅ Changed from array to string
+            'geometry' => 'required|string|max:65535',
+            'stops_data' => 'nullable|string|max:65535', // ✅ Changed from array to string
         ]);
 
         if ($validator->fails()) {
@@ -173,21 +181,32 @@ class RouteController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $route = BusRoute::where('user_id', auth()->id())->findOrFail($id);
+        $user = auth()->user();
+        $route = BusRoute::where('user_id', $user->id)
+            ->where('terminal', $user->terminal)
+            ->findOrFail($id);
+
+        $userId = (int) auth()->id();
 
         $validator = Validator::make($request->all(), [
             'name' => 'string|max:255',
-            'code' => 'string|max:10|unique:routes,code,' . $id,
+            'code' => [
+                'string',
+                'max:255',
+                Rule::unique('routes', 'code')
+                    ->where(fn ($q) => $q->where('user_id', $userId))
+                    ->ignore($id),
+            ],
             'start_location' => 'string|max:255',
             'end_location' => 'string|max:255',
             'description' => 'nullable|string',
-            'route_fare' => 'required|numeric|min:0', 
+            'route_fare' => 'required|numeric|min:0',
             'distance_km' => 'numeric|min:0',
             'estimated_duration' => 'integer|min:1',
             'bus_type' => 'required|string|in:regular,aircon',
             'status' => 'string|in:active,inactive',
-            'geometry' => 'required|string',
-            'stops_data' => 'nullable|string', 
+            'geometry' => 'required|string|max:65535',
+            'stops_data' => 'nullable|string|max:65535',
         ]);
 
         if ($validator->fails()) {
@@ -199,10 +218,20 @@ class RouteController extends Controller
 
         try {
             $data = $request->all();
-            
-            // ✅ Parse stops_data if it's a JSON string
-            if (isset($data['stops_data']) && is_string($data['stops_data'])) {
-                $data['stops_data'] = json_decode($data['stops_data'], true);
+
+            // Operators cannot change pathway / map geometry; sysadmin approval required.
+            $pathwayLocked = [
+                'geometry',
+                'stops_data',
+                'start_coordinates',
+                'end_coordinates',
+                'distance_km',
+                'estimated_duration',
+                'start_location',
+                'end_location',
+            ];
+            foreach ($pathwayLocked as $key) {
+                unset($data[$key]);
             }
             
             // ✅ Update regular_price and aircon_price based on route_fare and bus_type

@@ -1,6 +1,17 @@
 let currentFormData = {};
 
-// Toast notification function
+function syncSuspensionDaysField() {
+    const statusEl = document.getElementById('status');
+    const group = document.getElementById('suspensionDaysGroup');
+    const daysInput = document.getElementById('suspension_days');
+    if (!statusEl || !group || !daysInput) return;
+    const suspended = statusEl.value === 'suspended';
+    group.style.display = suspended ? '' : 'none';
+    if (!suspended) {
+        daysInput.classList.remove('is-invalid');
+    }
+}
+
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `position-fixed top-0 end-0 m-3 alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} alert-dismissible fade show`;
@@ -38,6 +49,7 @@ function saveCurrentFormData() {
         emergency_contact: document.getElementById('emergency_contact')?.value || '',
         status: document.getElementById('status')?.value || 'active',
         notes: document.getElementById('notes')?.value || '',
+        suspension_days: document.getElementById('suspension_days')?.value || '',
         photo_preview: document.getElementById('photo-preview')?.src || ''
     };
 }
@@ -66,6 +78,7 @@ function restoreFormData() {
     setFieldValue('emergency_contact', currentFormData.emergency_contact);
     setFieldValue('status', currentFormData.status);
     setFieldValue('notes', currentFormData.notes);
+    setFieldValue('suspension_days', currentFormData.suspension_days);
     
     if (currentFormData.photo_preview) {
         const preview = document.getElementById('photo-preview');
@@ -98,7 +111,14 @@ function showDriverForm() {
     // Reset photo preview
     const preview = document.getElementById('photo-preview');
     if (preview) preview.src = 'https://randomuser.me/api/portraits/men/1.jpg';
-    
+
+    const suspensionDays = document.getElementById('suspension_days');
+    if (suspensionDays) suspensionDays.value = '';
+
+    const driverForm = document.getElementById('driverForm');
+    if (driverForm) driverForm.dataset.wasSuspended = '0';
+    syncSuspensionDaysField();
+
     // Clear validation errors
     clearValidationErrors();
     
@@ -232,6 +252,13 @@ function editDriver(driverId) {
             setFieldValue('emergency_contact', data.emergency_contact);
             setFieldValue('status', data.status);
             setFieldValue('notes', data.notes);
+            setFieldValue('suspension_days', '');
+
+            const driverFormEl = document.getElementById('driverForm');
+            if (driverFormEl) {
+                driverFormEl.dataset.wasSuspended = data.status === 'suspended' ? '1' : '0';
+            }
+            syncSuspensionDaysField();
             
             // Update photo preview
             const preview = document.getElementById('photo-preview');
@@ -611,6 +638,11 @@ document.addEventListener('DOMContentLoaded', function() {
         input.addEventListener('input', saveCurrentFormData);
         input.addEventListener('change', saveCurrentFormData);
     });
+
+    const statusSelect = document.getElementById('status');
+    if (statusSelect) {
+        statusSelect.addEventListener('change', syncSuspensionDaysField);
+    }
     
     // Form submission with better error handling and data preservation
     const driverForm = document.getElementById('driverForm');
@@ -635,6 +667,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const submitBtn = document.getElementById('submitBtn');
             const submitText = document.getElementById('submitText');
             const originalText = submitText?.textContent || 'Save';
+
+            const formEl = document.getElementById('driverForm');
+            const wasSuspended = formEl?.dataset.wasSuspended === '1';
+            const statusVal = document.getElementById('status')?.value;
+            const daysRaw = document.getElementById('suspension_days')?.value?.trim() ?? '';
+            const daysNum = parseInt(daysRaw, 10);
+            if (statusVal === 'suspended' && !wasSuspended && (!daysRaw || daysNum < 1 || daysNum > 366)) {
+                showToast('Enter the number of suspension days (1–366).', 'error');
+                return;
+            }
             
             if (submitBtn) submitBtn.disabled = true;
             if (submitText) submitText.textContent = 'Saving...';

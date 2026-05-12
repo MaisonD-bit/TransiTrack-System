@@ -248,7 +248,7 @@ export class SchedulePage implements OnInit, OnDestroy {
           text: 'Accept',
           handler: async () => {
             try {
-              const response = await this.apiService.post(`schedules/${schedule.id}/accept`, {}).toPromise();
+              const response = await this.apiService.acceptSchedule(schedule.id).toPromise();
               if (response && response.success) {
                 await this.loadSchedules();
                 await this.presentToast('Schedule accepted successfully!', 'success');

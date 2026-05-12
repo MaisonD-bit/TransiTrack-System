@@ -31,26 +31,39 @@ export class ApiService {
     return new HttpHeaders(headersConfig);
   }
 
-  // Error handling
+  // Error handling — prefer API `message` so users do not see Angular HttpClient noise.
   private handleError = (error: HttpErrorResponse): Observable<never> => {
     console.error('API Error:', error);
     console.error('Error status:', error.status);
     console.error('Error message:', error.message);
     console.error('Error body:', error.error);
-    
+
     let errorMessage = 'Unknown error occurred';
-    
+
     if (error.error instanceof ErrorEvent) {
-      // Client-side error
-      errorMessage = `Client Error: ${error.error.message}`;
+      errorMessage = error.error.message || 'Client error';
     } else {
-      // Server-side error
-      errorMessage = `Server Error: ${error.status} - ${error.message}`;
-      if (error.error && error.error.message) {
-        errorMessage += ` - ${error.error.message}`;
+      const body = error.error;
+      if (body && typeof body === 'object' && typeof body.message === 'string' && body.message.trim()) {
+        errorMessage = body.message.trim();
+      } else if (typeof body === 'string' && body.trim()) {
+        try {
+          const parsed = JSON.parse(body) as { message?: string };
+          if (parsed?.message && typeof parsed.message === 'string') {
+            errorMessage = parsed.message.trim();
+          } else {
+            errorMessage = body.trim();
+          }
+        } catch {
+          errorMessage = body.trim();
+        }
+      } else if (error.status === 0) {
+        errorMessage = 'Network error. Check your connection.';
+      } else {
+        errorMessage = `Something went wrong (${error.status}). Please try again.`;
       }
     }
-    
+
     return throwError(() => new Error(errorMessage));
   };
 
@@ -325,6 +338,27 @@ export class ApiService {
     ).pipe(catchError(this.handleError));
   }
 
+  /**
+   * Optional GPS ping (writes `driver_locations`). Use as backup if schedule `update-position` fails.
+   * Primary path should still call {@link updateSchedulePosition} so `schedules.current_lat/lng` stay in sync for commuters.
+   */
+  postDriverLocation(
+    driverId: number,
+    body: {
+      latitude: number;
+      longitude: number;
+      accuracy_m?: number;
+      speed_mps?: number;
+      heading_deg?: number;
+      schedule_id?: number;
+      recorded_at?: string;
+    }
+  ): Observable<any> {
+    return this.http
+      .post(`${this.apiUrl}/drivers/${driverId}/location`, body, { headers: this.getHeaders() })
+      .pipe(catchError(this.handleError));
+  }
+
   requestTerminalParkingExtension(driverId: number, additionalMinutes: number): Observable<any> {
     return this.http.post(
       `${this.apiUrl}/terminal/request-space-extension`,
@@ -354,5 +388,17 @@ export class ApiService {
       `${this.apiUrl}/schedules/${scheduleId}/manifest`,
       { headers: this.getHeaders() }
     ).pipe(catchError(this.handleError));
+  }
+
+  /** Driver scans commuter e-ticket QR for the active schedule */
+  verifyDriverTicketQr(body: {
+    schedule_id: number;
+    driver_id: number;
+    qr_payload: string;
+    mark_paid_cash?: boolean;
+  }): Observable<any> {
+    return this.http
+      .post(`${this.apiUrl}/driver/verify-ticket-qr`, body, { headers: this.getHeaders() })
+      .pipe(catchError(this.handleError));
   }
 }

@@ -13,12 +13,7 @@
   <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.gstatic.com https://api.mapbox.com https://*.tiles.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://*.google.com https://apis.google.com https://api.mapbox.com; script-src-elem 'self' 'unsafe-inline' https://*.firebaseio.com https://*.googleapis.com https://*.google.com https://apis.google.com https://api.mapbox.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.googleapis.com wss://*.firebaseio.com https://*.firebasedatabase.app https://*.cloudfunctions.net https://*.firebase.app https://*.firebaseauth.com https://*.firestore.app https://apis.google.com https://api.mapbox.com https://*.tiles.mapbox.com https://events.mapbox.com; frame-src 'self' https://*.firebaseapp.com https://*.firebase.app https://*.firebaseio.com https://jobop-5af67.firebaseapp.com; worker-src 'self' blob:;"> -->
 
   <link rel="icon" type="image/png" href="assets/icon/favicon.png" />
-  
-  <!-- Mapbox CSS and JS -->
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-  <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-directions/v4.1.1/mapbox-gl-directions.js"></script>
-  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-directions/v4.1.1/mapbox-gl-directions.css" type="text/css" />
+  <!-- Mapbox GL is bundled via npm (mapbox-gl) + global.scss; avoid CDN v2 JS + npm v3 CSS mismatch. -->
 
   <!-- add to homescreen for ios -->
   <meta name="mobile-web-app-capable" content="yes" />

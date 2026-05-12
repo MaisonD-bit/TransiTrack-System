@@ -1,3 +1,15 @@
+function syncEditProfileSuspensionField() {
+    const statusEl = document.getElementById('edit_status');
+    const group = document.getElementById('editSuspensionDaysGroup');
+    const daysInput = document.getElementById('edit_suspension_days');
+    if (!statusEl || !group || !daysInput) return;
+    const suspended = statusEl.value === 'suspended';
+    group.style.display = suspended ? '' : 'none';
+    if (!suspended) {
+        daysInput.classList.remove('is-invalid');
+    }
+}
+
 // Toast notification function (same as other panels)
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
@@ -69,7 +81,9 @@ function clearDateFilter() {
 
 // Edit driver function
 function editDriver(id) {
-    const modal = new bootstrap.Modal(document.getElementById('editDriverModal'));
+    const modalEl = document.getElementById('editDriverModal');
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl?.addEventListener('shown.bs.modal', () => syncEditProfileSuspensionField(), { once: true });
     modal.show();
 }
 
@@ -179,12 +193,23 @@ function saveDriverChanges() {
     const saveBtn = document.getElementById('saveDriverBtn');
     const saveText = document.getElementById('saveDriverText');
     const originalText = saveText.textContent;
+
+    const initialStatus = form?.dataset.initialDriverStatus || '';
+    const statusVal = document.getElementById('edit_status')?.value;
+    const daysRaw = document.getElementById('edit_suspension_days')?.value?.trim() ?? '';
+    const daysNum = parseInt(daysRaw, 10);
+    if (statusVal === 'suspended' && initialStatus !== 'suspended' && (!daysRaw || daysNum < 1 || daysNum > 366)) {
+        showToast('Enter the number of suspension days (1–366).', 'error');
+        return;
+    }
     
     // Clear previous validation errors
     clearValidationErrors();
     
     saveBtn.disabled = true;
     saveText.textContent = 'Saving...';
+
+    formData.append('_method', 'PUT');
     
     fetch(`/drivers/${driverId}`, {
         method: 'POST',
@@ -301,6 +326,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Confirmation button handlers
     document.getElementById('confirmDeleteBtn')?.addEventListener('click', performDeleteDriver);
     document.getElementById('confirmToggleStatusBtn')?.addEventListener('click', performToggleStatus);
+    
+    document.getElementById('edit_status')?.addEventListener('change', syncEditProfileSuspensionField);
+    syncEditProfileSuspensionField();
     
     // Set the drivers route for navigation
     window.driversRoute = document.querySelector('a[href*="drivers.panel"]')?.getAttribute('href') || '/drivers';

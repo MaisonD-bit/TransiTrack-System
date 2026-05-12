@@ -39,5 +39,21 @@ class NorthTerminalSpaceSeeder extends Seeder
                 $space
             );
         }
+
+        // LEFT column slots (clustering often assigns L1–Ln; historically only R* was seeded)
+        foreach (range(1, 16) as $i) {
+            NorthTerminalSpace::updateOrCreate(
+                ['space_id' => 'L'.$i],
+                [
+                    'space_id' => 'L'.$i,
+                    'position' => 'LEFT',
+                    'position_order' => $i,
+                    'route_name' => null,
+                    'accommodation_type' => null,
+                    'is_occupied' => false,
+                    'status' => 'available',
+                ]
+            );
+        }
     }
 }

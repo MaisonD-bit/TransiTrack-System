@@ -226,9 +226,25 @@
             color: #fff;
         }
 
-        .logo h1 {
+        .logo .logo-text {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+        }
+
+        .logo .logo-text h1 {
             font-size: 22px;
             font-weight: 600;
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        .logo .logo-text small {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 400;
+            margin-top: 2px;
         }
 
         .content-wrapper {
@@ -277,7 +293,10 @@
     <div class="sidebar">
         <div class="logo">
             <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
-            <h1>TransiTrack</h1>
+            <div class="logo-text">
+                <h1>TransiTrack</h1>
+                <small class="text-white-50">Terminal manager</small>
+            </div>
         </div>
 
         <div class="sidebar-section">

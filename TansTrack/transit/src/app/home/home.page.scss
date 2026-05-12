@@ -159,6 +159,11 @@
       --color: var(--ion-color-warning);
     }
 
+    &.emergency-contact {
+      --border-color: var(--ion-color-primary);
+      --color: var(--ion-color-primary);
+    }
+
     &.emergency {
       --background: var(--ion-color-danger);
       --color: white;

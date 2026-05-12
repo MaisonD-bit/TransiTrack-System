@@ -11,6 +11,9 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
+        $schedule->command('drivers:release-expired-suspensions')->everyFiveMinutes();
+    })
     ->withMiddleware(function (Middleware $middleware) {
         // CORS must run early so OPTIONS preflight gets headers (append runs late).
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);

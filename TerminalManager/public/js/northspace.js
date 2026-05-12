@@ -710,9 +710,9 @@ function saveSpaceOccupancy() {
     const spaceId = selectedSpaceElement.getAttribute('data-space-id') || '';
     const isOccupied = selectedSpaceElement.classList.contains('occupied-bay');
     
-    // PROPERLY CLAMP DURATION
-    let minsRaw = parseInt(document.getElementById('panelTimeMinutes').value);
-    const mins = Math.max(Math.min(minsRaw, 360), 1);
+    // PROPERLY CLAMP DURATION (NaN-safe)
+    const minsRaw = parseInt(document.getElementById('panelTimeMinutes').value, 10);
+    const mins = Number.isFinite(minsRaw) ? Math.max(1, Math.min(360, minsRaw)) : 15;
 
     if (isEditMode && isOccupied) {
         // ADD TIME TO OCCUPIED SPACE
@@ -812,22 +812,34 @@ function saveSpaceOccupancy() {
             return;
         }
 
+        const driverIdNum = parseInt(driverId, 10);
+        const operatorIdNum = parseInt(operatorId, 10);
+        if (!Number.isFinite(driverIdNum) || driverIdNum < 1) {
+            alert('Please select a valid driver');
+            return;
+        }
+        if (!Number.isFinite(operatorIdNum) || operatorIdNum < 1) {
+            alert('Please select a valid operator');
+            return;
+        }
+
         const occupyPayload = {
-            space_id: spaceId,
-            driver_id: parseInt(driverId),
-            operator_id: parseInt(operatorId),
+            space_id: String(spaceId).trim(),
+            driver_id: driverIdNum,
+            operator_id: operatorIdNum,
             duration_minutes: mins,
             route_name: window.selectedDriverRoute || null,
             accommodation_type: document.getElementById('panelAccommodationType').value || null
         };
 
         console.log('Sending occupy request:', occupyPayload);
-        console.log('Space ID:', spaceId, 'Driver ID:', driverId, 'Duration:', mins);
+        console.log('Space ID:', spaceId, 'Driver ID:', driverIdNum, 'Operator ID:', operatorIdNum, 'Duration:', mins);
 
         fetch('/api/north-terminal/occupy', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             },
             body: JSON.stringify(occupyPayload)

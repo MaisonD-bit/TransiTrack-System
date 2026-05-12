@@ -93,12 +93,9 @@
         </div>
     @empty
         <div class="alert alert-light border mb-0">
-            <p class="mb-2 small">
+            <p class="mb-0 small">
                 <strong>No pending requests for {{ strtoupper($terminal) }} terminal.</strong>
                 The bus operator must submit from an account whose profile terminal is also <strong>{{ ucfirst($terminal) }}</strong>.
-            </p>
-            <p class="mb-0 small text-muted">
-                Use the <strong>same MySQL database</strong> as the Bus Operator app (<code>DB_DATABASE</code> / host / user). If the list stays empty, compare <code>.env</code> between apps and confirm submissions exist in table <code>route_approval_requests</code> with <code>terminal</code> matching your manager account.
             </p>
         </div>
     @endforelse

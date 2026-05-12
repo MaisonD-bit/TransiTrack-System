@@ -145,6 +145,35 @@ class NorthTerminalSpaceController extends Controller
         }
     }
 
+    /**
+     * SVG clustering assigns L{n}, T{n}, R{n} before DB rows may exist — create a stub row so occupy works.
+     *
+     * @return array{position: string, position_order: int, route_name: null, accommodation_type: null, is_occupied: bool, status: string}
+     */
+    private function inferNorthSpaceDefaults(string $spaceId): array
+    {
+        $spaceId = strtoupper(trim($spaceId));
+        $letter = substr($spaceId, 0, 1);
+        $order = (int) substr($spaceId, 1);
+        if ($order < 1) {
+            $order = 1;
+        }
+        $position = match ($letter) {
+            'L' => 'LEFT',
+            'R' => 'RIGHT',
+            default => 'TOP',
+        };
+
+        return [
+            'position' => $position,
+            'position_order' => $order,
+            'route_name' => null,
+            'accommodation_type' => null,
+            'is_occupied' => false,
+            'status' => 'available',
+        ];
+    }
+
     // Occupy a space
     public function occupy(Request $request)
     {
@@ -153,16 +182,27 @@ class NorthTerminalSpaceController extends Controller
         try {
             Log::info('Occupy request received:', $request->all());
 
-            $request->validate([
-                'space_id' => 'required|exists:north_terminal_spaces,space_id',
-                'driver_id' => 'required|exists:drivers,id',
-                'operator_id' => 'required|exists:users,id',
-                'duration_minutes' => 'required|integer|between:1,360',
-                'route_name' => 'nullable|string',
-                'accommodation_type' => 'nullable|string'
+            $request->merge([
+                'driver_id' => (int) $request->input('driver_id'),
+                'operator_id' => (int) $request->input('operator_id'),
+                'duration_minutes' => (int) $request->input('duration_minutes'),
             ]);
 
-            $space = NorthTerminalSpace::findOrFail($request->space_id);
+            $request->validate([
+                'space_id' => ['required', 'string', 'max:32', 'regex:/^[LTR]\d+$/i'],
+                'driver_id' => 'required|integer|exists:drivers,id',
+                'operator_id' => 'required|integer|exists:users,id',
+                'duration_minutes' => 'required|integer|between:1,360',
+                'route_name' => 'nullable|string',
+                'accommodation_type' => 'nullable|string|max:255',
+            ]);
+
+            $spaceId = strtoupper(trim((string) $request->space_id));
+            $space = NorthTerminalSpace::firstOrCreate(
+                ['space_id' => $spaceId],
+                $this->inferNorthSpaceDefaults($spaceId)
+            );
+
             $driver = Driver::with('user')->findOrFail($request->driver_id);
             $operator = DB::table('users')->find($request->operator_id);
 

@@ -78,9 +78,22 @@ body {
     color: #fff;
 }
 
-.logo h1 {
+.logo .logo-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.logo .logo-text h1 {
     font-size: 22px;
     font-weight: 600;
+    line-height: 1.2;
+}
+
+.logo .logo-text small {
+    font-size: 0.8125rem;
+    margin-top: 2px;
 }
 
 .sidebar .logo-img {

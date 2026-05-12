@@ -9,6 +9,7 @@ class Route extends Model
 {
     use HasFactory;
 
+    /** Fillable fields; pathway/geo fields are ignored on operator update (see RouteController::update). */
     protected $fillable = [
         'name',
         'code',

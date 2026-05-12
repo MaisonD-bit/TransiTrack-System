@@ -11,23 +11,6 @@
             <h2 class="mb-0 fw-bold">Schedule Management</h2>
         </div>
         <!-- Toggle Button for Route Assignment -->
-         <div class="modal fade" id="deleteScheduleModal" tabindex="-1" aria-labelledby="deleteScheduleModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title" id="deleteScheduleModalLabel">Delete Schedule</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    Are you sure you want to delete this schedule?
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelDeleteBtn">Cancel</button>
-                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
-                </div>
-                </div>
-            </div>
-            </div>
         <button type="button" class="btn btn-sm btn-outline-primary ms-2 active" id="toggleScheduleFormBtn">
             <i class="fas fa-plus me-2"></i>Create New Schedule
         </button>
@@ -108,7 +91,6 @@
                 <div class="row g-3">
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Route <span class="text-danger">*</span></label>
-                        <small class="text-muted d-block mb-1">Approved routes with terminal-configured stops only.</small>
                         <select name="schedules[][route_id]" class="form-select route-select" required>
                             <option value="">-- Choose Route --</option>
                             @foreach($routes ?? [] as $route)
@@ -128,7 +110,7 @@
                         <label class="form-label fw-bold">Bus <span class="text-danger">*</span></label>
                         <select name="schedules[][bus_id]" class="form-select bus-select" required>
                             <option value="">-- Choose Bus --</option>
-                            @foreach($buses as $bus)
+                            @foreach($buses ?? [] as $bus)
                                 <option value="{{ $bus->id }}" data-type="{{ $bus->accommodation_type }}">
                                     {{ $bus->bus_number }} - {{ $bus->model }}
                                     @if($bus->accommodation_type === 'air-conditioned')
@@ -453,6 +435,25 @@
     </div>
 </div>
 
+<!-- Delete Schedule Confirmation -->
+<div class="modal fade" id="deleteScheduleModal" tabindex="-1" aria-labelledby="deleteScheduleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteScheduleModalLabel">Delete Schedule</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this schedule?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelDeleteBtn">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- View Schedule Modal - CENTERED -->
 <div class="modal fade" id="viewScheduleModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -494,7 +495,6 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="edit_route_id" class="form-label">Route <span class="text-danger">*</span></label>
-                            <small class="text-muted d-block mb-1">Approved routes with terminal-configured stops only.</small>
                             <select id="edit_route_id" name="route_id" class="form-select" required>
                                 <option value="">-- Select Route --</option>
                                 @foreach($routes ?? [] as $route)
@@ -630,59 +630,60 @@
             </div>
         </div>
     </div>
-
-    <!-- Pending Cancellation Requests -->
-    @php
-        $pendingCancellations = $schedules->getCollection()->filter(fn($s) => $s->cancellation_status === 'pending_approval');
-    @endphp
-    @if($pendingCancellations->isNotEmpty())
-    <div class="card border-0 shadow-sm mt-4 border-start border-warning border-4">
-        <div class="card-header bg-warning bg-opacity-10 d-flex align-items-center gap-2">
-            <i class="fas fa-exclamation-triangle text-warning"></i>
-            <h5 class="mb-0 text-warning">Pending Cancellation Requests ({{ $pendingCancellations->count() }})</h5>
-        </div>
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Schedule</th>
-                        <th>Driver</th>
-                        <th>Route</th>
-                        <th>Date</th>
-                        <th>Reason</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($pendingCancellations as $s)
-                    <tr>
-                        <td class="text-muted small">#{{ $s->id }}</td>
-                        <td>{{ $s->driver?->first_name }} {{ $s->driver?->last_name }}</td>
-                        <td>{{ $s->route?->name ?? 'N/A' }}</td>
-                        <td class="small">{{ \Carbon\Carbon::parse($s->date)->format('M d, Y') }}</td>
-                        <td class="small text-danger">{{ $s->cancel_reason }}</td>
-                        <td>
-                            <form method="POST" action="{{ route('schedules.approve-cancel', $s->id) }}" class="d-inline">
-                                @csrf @method('PATCH')
-                                <button class="btn btn-sm btn-success me-1">
-                                    <i class="fas fa-check me-1"></i>Approve
-                                </button>
-                            </form>
-                            <form method="POST" action="{{ route('schedules.reject-cancel', $s->id) }}" class="d-inline">
-                                @csrf @method('PATCH')
-                                <button class="btn btn-sm btn-outline-danger">
-                                    <i class="fas fa-times me-1"></i>Reject
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-    </div>
-    @endif
 </div>
+
+<!-- Pending Cancellation Requests -->
+@php
+    $pendingCancellations = $schedules->getCollection()->filter(fn($s) => ($s->cancellation_status ?? null) === 'pending_approval');
+@endphp
+@if($pendingCancellations->isNotEmpty())
+<div class="card border-0 shadow-sm mt-4 border-start border-warning border-4">
+    <div class="card-header bg-warning bg-opacity-10 d-flex align-items-center gap-2">
+        <i class="fas fa-exclamation-triangle text-warning"></i>
+        <h5 class="mb-0 text-warning">Pending Cancellation Requests ({{ $pendingCancellations->count() }})</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Schedule</th>
+                    <th>Driver</th>
+                    <th>Route</th>
+                    <th>Date</th>
+                    <th>Reason</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($pendingCancellations as $s)
+                <tr>
+                    <td class="text-muted small">#{{ $s->id }}</td>
+                    <td>{{ $s->driver?->name ?? 'N/A' }}</td>
+                    <td>{{ $s->route?->name ?? 'N/A' }}</td>
+                    <td class="small">{{ \Carbon\Carbon::parse($s->date)->format('M d, Y') }}</td>
+                    <td class="small text-danger">{{ $s->cancel_reason }}</td>
+                    <td>
+                        <form method="POST" action="{{ route('schedules.approve-cancel', $s->id) }}" class="d-inline">
+                            @csrf @method('PATCH')
+                            <button class="btn btn-sm btn-success me-1">
+                                <i class="fas fa-check me-1"></i>Approve
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('schedules.reject-cancel', $s->id) }}" class="d-inline">
+                            @csrf @method('PATCH')
+                            <button class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-times me-1"></i>Reject
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+</div>
+@endif
+
 @endsection
 
 @push('scripts')

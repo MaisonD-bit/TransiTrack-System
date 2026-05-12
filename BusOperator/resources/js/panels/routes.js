@@ -4,6 +4,38 @@ let routeLayer;
 let stopMarkers = [];
 let stops = [];
 let isAddingStop = false;
+/** When true (editing an existing route), map destination and pathway cannot be changed. */
+let pathwayEditLocked = false;
+
+function applyPathwayEditLockUI() {
+    const notice = document.getElementById('pathwayLockNotice');
+    if (notice) {
+        notice.style.display = pathwayEditLocked ? 'block' : 'none';
+    }
+    const addBtn = document.getElementById('addStopBtn');
+    if (addBtn) {
+        addBtn.disabled = pathwayEditLocked;
+        addBtn.classList.toggle('opacity-50', pathwayEditLocked);
+        addBtn.title = pathwayEditLocked ? 'Path changes require sysadmin approval.' : '';
+    }
+    const clearBtn = document.getElementById('clearDestinationBtn');
+    if (clearBtn) {
+        clearBtn.disabled = pathwayEditLocked;
+    }
+    const search = document.getElementById('destinationSearch');
+    if (search) {
+        search.disabled = pathwayEditLocked;
+        search.title = pathwayEditLocked ? 'Destination is locked while editing.' : '';
+    }
+    if (pathwayEditLocked) {
+        isAddingStop = false;
+        if (addBtn) {
+            addBtn.classList.remove('btn-success');
+            addBtn.classList.add('btn-outline-success');
+            addBtn.innerHTML = '<i class="fas fa-route me-1"></i>Add Pathway';
+        }
+    }
+}
 
 // Fare rates
 const FARE_RATES = {
@@ -98,14 +130,54 @@ function clearValidationErrors() {
 
 function showValidationErrors(errors) {
     clearValidationErrors();
+    const fieldToInputId = {
+        code: 'route_code',
+        name: 'route_name',
+        status: 'route_status',
+        bus_type: 'bus_type',
+        route_fare: 'route_fare',
+        description: 'description',
+    };
+    const unmapped = [];
     for (const [field, messages] of Object.entries(errors)) {
-        const input = document.getElementById(field === 'code' ? 'route_code' : field === 'name' ? 'route_name' : field === 'status' ? 'route_status' : field);
+        const inputId = fieldToInputId[field] || field;
+        const input = document.getElementById(inputId);
         const errorDiv = document.getElementById(`${field}_error`);
         if (input && errorDiv) {
             input.classList.add('is-invalid');
             errorDiv.textContent = messages[0];
+        } else if (messages && messages[0]) {
+            unmapped.push(messages[0]);
         }
     }
+    if (unmapped.length) {
+        showToast(unmapped[0], 'error');
+    }
+}
+
+/** Normalize API/DB geometry to a GeoJSON LineString for Mapbox (handles object or JSON string). */
+function parseRouteGeometry(geo) {
+    if (!geo) return null;
+    if (typeof geo === 'object' && geo !== null) {
+        if (geo.type === 'Feature' && geo.geometry) {
+            return parseRouteGeometry(geo.geometry);
+        }
+        if (geo.type === 'LineString' && Array.isArray(geo.coordinates)) {
+            return geo;
+        }
+        if (Array.isArray(geo.coordinates)) {
+            return { type: 'LineString', coordinates: geo.coordinates };
+        }
+    }
+    if (typeof geo === 'string') {
+        try {
+            const parsed = JSON.parse(geo);
+            return parseRouteGeometry(parsed);
+        } catch (e) {
+            return null;
+        }
+    }
+    return null;
 }
 
 //   FIXED: Proper map initialization with boundary
@@ -183,6 +255,11 @@ function initializeMap() {
         console.log('Map clicked at:', e.lngLat);
         console.log('isAddingStop mode:', isAddingStop);
         console.log('endMarker exists:', !!endMarker);
+
+        if (pathwayEditLocked) {
+            showToast('Destination and pathway cannot be changed here. Contact a sysadmin to update the approved route path.', 'info');
+            return;
+        }
         
         if (isAddingStop) {
             console.log('Adding pathway stop...');
@@ -233,6 +310,10 @@ function initializeMap() {
                             item.textContent = feature.place_name;
                             item.onclick = (event) => {
                                 event.preventDefault();
+                                if (pathwayEditLocked) {
+                                    showToast('Destination cannot be changed while editing. Contact a sysadmin to update the approved route path.', 'info');
+                                    return;
+                                }
                                 const [lng, lat] = feature.center;
                                 resultsContainer.style.display = 'none';
                                 searchInput.value = feature.place_name;
@@ -275,6 +356,9 @@ function initializeMap() {
 }
 
 function setEndPoint(coords) {
+    if (pathwayEditLocked) {
+        return;
+    }
     if (!isPointInAllowedArea(coords.lng, coords.lat)) {
         const terminalName = (userTerminal === 'south') ? 'Southern Cebu' : 'Northern Cebu';
         showToast(`Destination must be in ${terminalName}. Please select a location within the highlighted blue area.`, 'error');
@@ -304,6 +388,9 @@ function autoGenerateRouteCode(placeName) {
 }
 
 function addStop(coords) {
+    if (pathwayEditLocked) {
+        return;
+    }
     console.log('addStop called with coords:', coords);
     console.log('isAddingStop:', isAddingStop);
     
@@ -345,12 +432,9 @@ function updateStopsList() {
     const stopsList = document.getElementById('stopsList');
     stopsList.innerHTML = '';
     stops.forEach((stop, idx) => {
-        stopsList.innerHTML += `
-            <div class="d-flex align-items-center justify-content-between mb-2 p-2 bg-light rounded">
-                <div class="d-flex align-items-center gap-2" style="flex: 1; min-width: 0;">
-                    <span class="badge bg-primary">${idx + 1}</span>
-                    <span class="text-dark text-truncate">${stop.name}</span>
-                </div>
+        const removeBtn = pathwayEditLocked
+            ? ''
+            : `
                 <button 
                     type="button" 
                     class="btn btn-sm btn-danger" 
@@ -360,6 +444,14 @@ function updateStopsList() {
                 >
                     <i class="fas fa-times"></i>
                 </button>
+            `;
+        stopsList.innerHTML += `
+            <div class="d-flex align-items-center justify-content-between mb-2 p-2 bg-light rounded">
+                <div class="d-flex align-items-center gap-2" style="flex: 1; min-width: 0;">
+                    <span class="badge bg-primary">${idx + 1}</span>
+                    <span class="text-dark text-truncate">${stop.name}</span>
+                </div>
+                ${removeBtn}
             </div>
         `;
     });
@@ -367,6 +459,9 @@ function updateStopsList() {
 }
 
 window.removeStop = function(idx) {
+    if (pathwayEditLocked) {
+        return;
+    }
     if (stopMarkers[idx]) {
         stopMarkers[idx].remove();
     }
@@ -377,6 +472,9 @@ window.removeStop = function(idx) {
 };
 
 window.clearStops = function() {
+    if (pathwayEditLocked) {
+        return;
+    }
     stopMarkers.forEach(marker => marker.remove());
     stopMarkers = [];
     stops = [];
@@ -512,38 +610,59 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function drawRoute(geometry) {
+    if (!routeMap || !geometry) return;
     window.lastRouteGeometry = geometry;
-    if (routeMap.getLayer('route')) {
-        routeMap.removeLayer('route');
-    }
-    if (routeMap.getSource('route')) {
-        routeMap.removeSource('route');
-    }
-    routeMap.addSource('route', {
-        type: 'geojson',
-        data: {
-            type: 'Feature',
-            properties: {},
-            geometry: geometry
+
+    const applyDraw = () => {
+        if (!routeMap || !routeMap.getStyle) return;
+        try {
+            if (routeMap.getLayer('route')) {
+                routeMap.removeLayer('route');
+            }
+            if (routeMap.getSource('route')) {
+                routeMap.removeSource('route');
+            }
+            routeMap.addSource('route', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: geometry
+                }
+            });
+            const lineWidth = pathwayEditLocked ? 7 : 5;
+            const lineOpacity = pathwayEditLocked ? 1 : 0.8;
+            routeMap.addLayer({
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': '#2563eb',
+                    'line-width': lineWidth,
+                    'line-opacity': lineOpacity
+                }
+            });
+        } catch (e) {
+            console.error('drawRoute failed:', e);
         }
-    });
-    routeMap.addLayer({
-        id: 'route',
-        type: 'line',
-        source: 'route',
-        layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
-        },
-        paint: {
-            'line-color': '#3b82f6',
-            'line-width': 5,
-            'line-opacity': 0.8
-        }
-    });
+    };
+
+    if (routeMap.isStyleLoaded()) {
+        applyDraw();
+    } else {
+        routeMap.once('load', applyDraw);
+    }
 }
 
 function clearEndPoint() {
+    if (pathwayEditLocked) {
+        showToast('Destination cannot be cleared while editing. Contact a sysadmin to change the route path.', 'info');
+        return;
+    }
     if (endMarker) {
         endMarker.remove();
         endMarker = null;
@@ -594,6 +713,7 @@ function centerMapToCebu() {
 
 // Form visibility functions
 function showAddRouteForm() {
+    pathwayEditLocked = false;
     document.getElementById('routeForm').reset();
     document.getElementById('route_id').value = '';
     document.getElementById('method_field').value = '';
@@ -616,6 +736,7 @@ function showAddRouteForm() {
         
         document.getElementById('geometry').value = '';
         document.getElementById('stops_data').value = '[]';
+        applyPathwayEditLockUI();
     }, 100);
 }
 
@@ -652,6 +773,8 @@ function isPointNearLine(point, lineCoords, thresholdMeters = 50) {
 }
 
 function hideRouteForm() {
+    pathwayEditLocked = false;
+    applyPathwayEditLockUI();
     document.getElementById('routeFormSection').style.display = 'none';
     document.getElementById('routeForm').reset();
     if (routeMap) {
@@ -684,6 +807,11 @@ document.addEventListener('DOMContentLoaded', function() {
         newAddStopBtn.addEventListener('click', function(e) {
             e.preventDefault();
             console.log('Add Pathway button clicked, isAddingStop:', isAddingStop);
+
+            if (pathwayEditLocked) {
+                showToast('Pathway cannot be edited here. Contact a sysadmin to update the approved route path.', 'info');
+                return;
+            }
             
             if (!endMarker) {
                 showToast('Please select a destination first.', 'error');
@@ -870,6 +998,9 @@ function editRoute(id) {
       showAddRouteForm();
 
       const r = data.route;
+      pathwayEditLocked = true;
+      applyPathwayEditLockUI();
+
       // Set form fields
       document.getElementById('route_id').value = r.id;
       document.getElementById('method_field').value = 'PUT';
@@ -885,7 +1016,9 @@ function editRoute(id) {
       document.getElementById('route_status').value = r.status || 'active';
       document.getElementById('bus_type').value = r.bus_type || 'regular';
       document.getElementById('description').value = r.description || '';
-      document.getElementById('geometry').value = r.geometry || '';
+      const geo = r.geometry;
+      document.getElementById('geometry').value =
+        typeof geo === 'string' ? geo : (geo ? JSON.stringify(geo) : '');
       
       // Load stops data into global variable
       stops = r.stops_data || [];
@@ -921,21 +1054,17 @@ function editRoute(id) {
         updateStopsList();
 
         // Force recalculate route using saved geometry/stops
-        if (r.geometry) {
-          try {
-            const geoJson = JSON.parse(r.geometry);
+        const geoJson = parseRouteGeometry(r.geometry);
+        if (geoJson && geoJson.coordinates && geoJson.coordinates.length) {
             drawRoute(geoJson);
-            // Fit map to route
             const bounds = new mapboxgl.LngLatBounds();
             geoJson.coordinates.forEach(coord => bounds.extend(coord));
             routeMap.fitBounds(bounds, { padding: 40 });
-          } catch (e) {
-            console.error('Invalid geometry on edit:', e);
-          }
         } else {
           // Fallback: recalculate via Mapbox if no geometry
           calculateRouteWithStops();
         }
+        applyPathwayEditLockUI();
       }, 300);
     })
     .catch(error => {
@@ -1104,17 +1233,13 @@ function initializeMapForEdit(routeData) {
 
   // Draw saved route geometry
   if (routeData.geometry) {
-    try {
-      const geoJson = JSON.parse(routeData.geometry);
-      if (geoJson && geoJson.coordinates) {
+    const geoJson = parseRouteGeometry(routeData.geometry);
+    if (geoJson && geoJson.coordinates && geoJson.coordinates.length) {
         drawRoute(geoJson);
         // Fit map to route bounds
         const bounds = new mapboxgl.LngLatBounds();
         geoJson.coordinates.forEach(coord => bounds.extend(coord));
         routeMap.fitBounds(bounds, { padding: 40 });
-      }
-    } catch (e) {
-      console.error('Invalid geometry:', e);
     }
   }
 
@@ -1160,6 +1285,9 @@ routeMap.on('load', function() {
 
   // Re-enable click handlers
   routeMap.on('click', function(e) {
+    if (pathwayEditLocked) {
+      return;
+    }
     if (isAddingStop) {
       addStop(e.lngLat);
     } else if (!endMarker) {

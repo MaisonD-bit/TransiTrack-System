@@ -88,10 +88,11 @@ async function loadChannels() {
 
             const lastMessage = channel.state.messages[channel.state.messages.length - 1];
             const lastMessageText = channelPreviewText(lastMessage);
+            const displayName = getChannelDisplayName(channel);
 
             channelDiv.innerHTML = `
                 <div class="channel-content">
-                    <div class="channel-name">${channel.data.name || 'Unnamed Channel'}</div>
+                    <div class="channel-name">${escapeHtml(displayName)}</div>
                     <div class="channel-last-message">${lastMessageText}</div>
                 </div>
             `;
@@ -127,8 +128,8 @@ async function loadChannel(channel) {
         // Add active class to selected channel
         document.querySelector(`[data-channel-id="${channel.id}"]`)?.classList.add('active');
 
-        // Update header
-        document.getElementById('channel-name').textContent = channel.data.name || 'Chat';
+        // Update header (DM / driver channels often have no `data.name` — derive from members)
+        document.getElementById('channel-name').textContent = getChannelDisplayName(channel);
 
         const memberCount = Object.keys(channel.state.members).length;
         document.getElementById('channel-members').textContent = `${memberCount} members`;
@@ -201,6 +202,44 @@ function displayMessages(messages) {
     scrollToBottom();
 }
 
+/**
+ * When a message has file/image attachments, omit the top text line if it only repeats
+ * the filename (e.g. legacy "📎 report.docx" sent alongside the file card).
+ */
+function shouldHideRedundantAttachmentCaption(message) {
+    const raw = (message.text || '').trim();
+    const fileOrImage = (message.attachments || []).filter(
+        (a) => a && (a.type === 'file' || a.type === 'image')
+    );
+    if (!fileOrImage.length) {
+        return false;
+    }
+    if (!raw) {
+        return true;
+    }
+    for (const att of fileOrImage) {
+        if (att.type === 'file') {
+            const fn = String(att.title || att.fallback || '').trim();
+            if (!fn) {
+                continue;
+            }
+            if (raw === fn || raw === '📎 ' + fn) {
+                return true;
+            }
+        }
+        if (att.type === 'image') {
+            const fb = String(att.fallback || att.title || '').trim();
+            if (raw === '📷 Image') {
+                return true;
+            }
+            if (fb && (raw === fb || raw === '📷 ' + fb)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Append single message
 function appendMessage(message) {
     // Prevent duplicate messages from appearing
@@ -238,7 +277,9 @@ function appendMessage(message) {
     }
 
     const text = (message.text || '').trim();
-    const textBlock = text ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
+    const hideCaption = shouldHideRedundantAttachmentCaption(message);
+    const textBlock =
+        text && !hideCaption ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
 
     div.innerHTML = `
         <div class="message-bubble">
@@ -286,6 +327,38 @@ document.getElementById('message-form').addEventListener('submit', async (e) => 
     }
 });
 
+/**
+ * Stream channel title: use explicit name, else other members' display names (e.g. driver DM).
+ */
+function getChannelDisplayName(channel) {
+    const raw = channel?.data?.name;
+    if (raw != null && String(raw).trim() !== '') {
+        return String(raw).trim();
+    }
+    const members = channel?.state?.members;
+    if (!members || typeof members !== 'object') {
+        return 'Chat';
+    }
+    const myId = String(window.userId);
+    const otherNames = Object.values(members)
+        .filter((m) => m && m.user_id != null && String(m.user_id) !== myId)
+        .map((m) => (m.user && m.user.name ? String(m.user.name).trim() : ''))
+        .filter(Boolean);
+    if (otherNames.length === 1) {
+        return otherNames[0];
+    }
+    if (otherNames.length > 1) {
+        return otherNames.join(', ');
+    }
+    const allNames = Object.values(members)
+        .map((m) => (m.user && m.user.name ? String(m.user.name).trim() : ''))
+        .filter(Boolean);
+    if (allNames.length) {
+        return allNames.join(', ');
+    }
+    return 'Chat';
+}
+
 function channelPreviewText(lastMessage) {
     if (!lastMessage) {
         return 'No messages yet';
@@ -320,7 +393,7 @@ async function uploadAndSendImage(file) {
             throw new Error('Upload did not return a URL');
         }
         await currentChannel.sendMessage({
-            text: file.name ? '📷 ' + file.name : '📷 Image',
+            text: '',
             attachments: [{
                 type: 'image',
                 image_url: imageUrl,
@@ -344,7 +417,7 @@ async function uploadAndSendFile(file) {
             throw new Error('Upload did not return a URL');
         }
         await currentChannel.sendMessage({
-            text: '📎 ' + file.name,
+            text: '',
             attachments: [{
                 type: 'file',
                 asset_url: assetUrl,

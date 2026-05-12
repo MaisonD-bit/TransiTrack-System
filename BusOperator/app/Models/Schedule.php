@@ -126,6 +126,25 @@ class Schedule extends Model
         return [$start, $end];
     }
 
+    /**
+     * Human-readable window for operator messages, e.g. "10:44 PM to 10:53 PM on May 12, 2026".
+     */
+    public function humanReadableTripWindow(): string
+    {
+        $dateStr = $this->date instanceof \Carbon\CarbonInterface
+            ? $this->date->format('F j, Y')
+            : Carbon::parse((string) $this->date)->format('F j, Y');
+
+        $startAt = $this->start_time instanceof \Carbon\CarbonInterface
+            ? $this->start_time
+            : Carbon::parse((string) $this->start_time);
+        $endAt = $this->end_time instanceof \Carbon\CarbonInterface
+            ? $this->end_time
+            : Carbon::parse((string) $this->end_time);
+
+        return $startAt->format('g:i A').' to '.$endAt->format('g:i A').' on '.$dateStr;
+    }
+
     // Accessors
     public function getFormattedDateAttribute()
     {

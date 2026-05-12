@@ -82,17 +82,17 @@
         <ion-card-title>This Month</ion-card-title>
       </ion-card-header>
       <ion-card-content>
-        <ion-item lines="none">
+        <ion-item lines="none" class="month-stat-row">
           <ion-label>Trips Assigned</ion-label>
-          <ion-note slot="end">{{ kpi.this_month.total }}</ion-note>
+          <span slot="end" class="month-stat">{{ kpi.this_month.total }}</span>
         </ion-item>
-        <ion-item lines="none">
+        <ion-item lines="none" class="month-stat-row">
           <ion-label>Trips Completed</ion-label>
-          <ion-note slot="end" color="success">{{ kpi.this_month.completed }}</ion-note>
+          <span slot="end" class="month-stat month-stat--success">{{ kpi.this_month.completed }}</span>
         </ion-item>
-        <ion-item lines="none">
+        <ion-item lines="none" class="month-stat-row">
           <ion-label>Trips Declined / Cancelled</ion-label>
-          <ion-note slot="end" color="danger">{{ kpi.declined_trips + kpi.cancelled_trips }}</ion-note>
+          <span slot="end" class="month-stat month-stat--danger">{{ kpi.declined_trips + kpi.cancelled_trips }}</span>
         </ion-item>
       </ion-card-content>
     </ion-card>

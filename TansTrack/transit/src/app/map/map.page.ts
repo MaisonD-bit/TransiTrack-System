@@ -6,10 +6,13 @@ import {
   LoadingController,
   ToastController,
   ViewWillEnter,
+  ViewWillLeave,
 } from '@ionic/angular';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
+import { firstValueFrom, Subscription } from 'rxjs';
+import { MapService } from '../services/map.service';
 import {
   RouteMapBoardingPassenger,
   RouteMapStop
@@ -46,7 +49,7 @@ interface Schedule {
   styleUrls: ['./map.page.scss'],
   standalone: false
 })
-export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
+export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave {
   schedules: Schedule[] = [];
   currentSchedule: Schedule | null = null;
   allRoutes: Schedule[] = [];
@@ -56,10 +59,17 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   selectedSegment: string = 'current';
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
-  isNearDestination = false;
-  private lastPositionPush = 0;
-  private arrivalPromptShown = false;
   private manifestPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Live [lng, lat] from device GPS (mock GPS apps feed the same API). */
+  driverLngLat: [number, number] | null = null;
+  private gpsSub?: Subscription;
+  private gpsLastSentAt = 0;
+  /** Schedule id the active `gpsSub` was started for (re-subscribe when it changes). */
+  private trackingScheduleId: number | null = null;
+
+  ticketScannerOpen = false;
+  emergencyTelHref: string | null = null;
 
   private readonly mapboxToken =
     'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
@@ -71,11 +81,18 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     private actionSheetController: ActionSheetController,
     private alertController: AlertController,
     private toastController: ToastController,
-    private loadingController: LoadingController
+    private loadingController: LoadingController,
+    private mapService: MapService
   ) {}
 
   ngOnDestroy() {
     this.stopManifestPoll();
+    this.stopGpsTracking();
+  }
+
+  ionViewWillLeave(): void {
+    this.stopManifestPoll();
+    this.stopGpsTracking();
   }
 
   private startManifestPoll(scheduleId: number): void {
@@ -123,10 +140,12 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     });
 
     this.loadDriverSchedules();
+    this.loadDriverEmergencyContact();
   }
 
   ionViewWillEnter() {
     this.loadDriverSchedules();
+    this.loadDriverEmergencyContact();
   }
 
   /** Local calendar day `Y-m-d` (avoid UTC drift from `toISOString()`). */
@@ -291,13 +310,12 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
-        this.isNearDestination = false;
-        this.arrivalPromptShown = false;
 
         if (!response.success || !response.schedules) {
           this.currentSchedule = null;
           this.allRoutes = [];
           this.stopManifestPoll();
+          this.ensureGpsTracking();
           return;
         }
 
@@ -319,6 +337,11 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
 
         const route = this.currentSchedule?.route;
         if (!this.currentSchedule || !route) {
+          this.mapRouteGeoJson = null;
+          this.mapRouteStops = [];
+          this.mapBoardingPassengers = [];
+          this.stopManifestPoll();
+          this.ensureGpsTracking();
           return;
         }
 
@@ -327,6 +350,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         this.startManifestPoll(this.currentSchedule.id);
 
         void this.buildRouteGeometry(this.currentSchedule);
+        this.ensureGpsTracking();
       },
       error: () => {
         this.currentSchedule = null;
@@ -334,6 +358,8 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
+        this.stopManifestPoll();
+        this.ensureGpsTracking();
       }
     });
   }
@@ -463,6 +489,83 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
 
   refreshSchedules() {
     this.loadDriverSchedules();
+  }
+
+  private stopGpsTracking(): void {
+    this.gpsSub?.unsubscribe();
+    this.gpsSub = undefined;
+    this.trackingScheduleId = null;
+    this.mapService.stopGpsTracking();
+    this.driverLngLat = null;
+  }
+
+  /**
+   * While the trip is accepted or active, follow device GPS and push coordinates to the server
+   * so operators/commuters see movement. Fake-GPS apps replace real fixes transparently.
+   */
+  private ensureGpsTracking(): void {
+    const st = (this.currentSchedule?.status || '').toLowerCase();
+    const shouldTrack = st === 'accepted' || st === 'active';
+    if (!shouldTrack) {
+      this.stopGpsTracking();
+      return;
+    }
+
+    const sid = this.currentSchedule?.id;
+    if (!sid) {
+      this.stopGpsTracking();
+      return;
+    }
+
+    if (this.gpsSub && this.trackingScheduleId === sid) {
+      return;
+    }
+
+    this.stopGpsTracking();
+    this.trackingScheduleId = sid;
+
+    this.gpsSub = this.mapService.startGpsTracking(true).subscribe({
+      next: (pos) => {
+        if (!pos) {
+          return;
+        }
+        this.driverLngLat = [pos.longitude, pos.latitude];
+
+        const now = Date.now();
+        if (now - this.gpsLastSentAt < 5000) {
+          return;
+        }
+        this.gpsLastSentAt = now;
+
+        const activeId = this.currentSchedule?.id;
+        if (!activeId) {
+          return;
+        }
+
+        const driverId = Number(this.authService.getDriverId());
+        this.apiService.updateSchedulePosition(activeId, pos.latitude, pos.longitude).subscribe({
+          next: () => {},
+          error: () => {
+            if (!driverId || Number.isNaN(driverId)) {
+              return;
+            }
+            this.apiService
+              .postDriverLocation(driverId, {
+                latitude: pos.latitude,
+                longitude: pos.longitude,
+                schedule_id: activeId,
+                recorded_at: new Date(pos.timestamp).toISOString(),
+              })
+              .subscribe({ error: () => {} });
+          },
+        });
+      },
+      error: () => {},
+    });
+  }
+
+  completeSchedule(schedule: Schedule): void {
+    this.doCompleteSchedule(schedule);
   }
 
   async openIncidentReport(): Promise<void> {
@@ -612,22 +715,6 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   }
 
-  onBusPositionUpdate(pos: { lng: number; lat: number }) {
-    const now = Date.now();
-    if (now - this.lastPositionPush < 5000) return;
-    this.lastPositionPush = now;
-    const id = this.currentSchedule?.id;
-    if (!id) return;
-    this.apiService.updateSchedulePosition(id, pos.lat, pos.lng).subscribe();
-  }
-
-  async onArrivedAtDestination() {
-    if (this.arrivalPromptShown || !this.currentSchedule) return;
-    this.arrivalPromptShown = true;
-    this.isNearDestination = true;
-    this.doCompleteSchedule(this.currentSchedule);
-  }
-
   startSchedule(schedule: Schedule) {
     this.apiService.startSchedule(schedule.id).subscribe({
       next: (response) => {
@@ -731,6 +818,196 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         type: 'LineString',
         coordinates: waypoints
       };
+    }
+  }
+
+  openEmergencyTel(): void {
+    if (this.emergencyTelHref && typeof window !== 'undefined') {
+      window.location.href = this.emergencyTelHref;
+    }
+  }
+
+  loadDriverEmergencyContact(): void {
+    const id = Number(this.authService.getDriverId());
+    if (!id) {
+      this.emergencyTelHref = null;
+      return;
+    }
+    this.apiService.getDriverProfile(id).subscribe({
+      next: (res: any) => {
+        const phone = res?.emergency_contact;
+        if (phone && String(phone).trim()) {
+          const digits = String(phone).replace(/\D/g, '');
+          this.emergencyTelHref = digits.length >= 7 ? `tel:${digits}` : null;
+        } else {
+          this.emergencyTelHref = null;
+        }
+      },
+      error: () => {
+        this.emergencyTelHref = null;
+      },
+    });
+  }
+
+  openTicketScanner(): void {
+    if (!this.currentSchedule?.id) {
+      void this.toastNoScheduleForScan();
+      return;
+    }
+    this.ticketScannerOpen = true;
+  }
+
+  closeTicketScanner(): void {
+    this.ticketScannerOpen = false;
+  }
+
+  onTicketScannerDismiss(): void {
+    this.ticketScannerOpen = false;
+  }
+
+  private async toastNoScheduleForScan(): Promise<void> {
+    const t = await this.toastController.create({
+      message: 'Choose a current route first, then scan a ticket.',
+      duration: 2800,
+      color: 'warning',
+    });
+    await t.present();
+  }
+
+  async centerOnMyLocation(): Promise<void> {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      const t = await this.toastController.create({
+        message: 'Location is not available here.',
+        duration: 2200,
+        color: 'medium',
+      });
+      await t.present();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async () => {
+        const ok = await this.toastController.create({
+          message: 'GPS OK. Pan and zoom the map to navigate.',
+          duration: 2200,
+          color: 'success',
+        });
+        await ok.present();
+      },
+      async () => {
+        const bad = await this.toastController.create({
+          message: 'Could not read GPS. Check permissions.',
+          duration: 3000,
+          color: 'warning',
+        });
+        await bad.present();
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+    );
+  }
+
+  async onTicketQrScanned(raw: string): Promise<void> {
+    const scheduleId = this.currentSchedule?.id;
+    const driverId = Number(this.authService.getDriverId());
+    if (!scheduleId || !driverId) {
+      await this.toastNoScheduleForScan();
+      return;
+    }
+
+    const loading = await this.loadingController.create({ message: 'Checking ticket…' });
+    await loading.present();
+
+    let payload: any;
+    try {
+      payload = await firstValueFrom(
+        this.apiService.verifyDriverTicketQr({
+          schedule_id: scheduleId,
+          driver_id: driverId,
+          qr_payload: raw,
+          mark_paid_cash: false,
+        })
+      );
+    } catch (e: any) {
+      await loading.dismiss();
+      const t = await this.toastController.create({
+        message: e?.message || 'Could not verify ticket.',
+        duration: 4000,
+        color: 'danger',
+      });
+      await t.present();
+      return;
+    }
+
+    await loading.dismiss();
+    this.closeTicketScanner();
+
+    if (!payload?.success || !payload.ticket) {
+      const t = await this.toastController.create({
+        message: payload?.message || 'Ticket verification failed.',
+        duration: 3500,
+        color: 'danger',
+      });
+      await t.present();
+      return;
+    }
+
+    const tix = payload.ticket;
+    const paid = String(tix.payment_status || '').toLowerCase() === 'paid';
+    const header = paid ? 'Ticket verified' : 'Ticket found';
+
+    const buttons: any[] = [];
+    if (!paid) {
+      buttons.push({
+        text: 'Mark paid (cash)',
+        handler: () => {
+          void this.markTicketCashPaid(raw);
+        },
+      });
+    }
+    buttons.push({ text: 'OK', role: 'cancel' });
+
+    const alert = await this.alertController.create({
+      header,
+      message:
+        `${tix.commuter_name}\n` +
+        `ID: ${tix.public_ticket_id}\n` +
+        `Fare: ₱${Number(tix.fare).toFixed(2)}\n` +
+        `Payment: ${tix.payment_status}` +
+        (tix.payment_method ? ` (${tix.payment_method})` : ''),
+      buttons,
+    });
+    await alert.present();
+    this.loadDriverSchedules();
+  }
+
+  private async markTicketCashPaid(raw: string): Promise<void> {
+    const scheduleId = this.currentSchedule?.id;
+    const driverId = Number(this.authService.getDriverId());
+    if (!scheduleId || !driverId) {
+      return;
+    }
+    try {
+      await firstValueFrom(
+        this.apiService.verifyDriverTicketQr({
+          schedule_id: scheduleId,
+          driver_id: driverId,
+          qr_payload: raw,
+          mark_paid_cash: true,
+        })
+      );
+      const t = await this.toastController.create({
+        message: 'Recorded as paid (cash).',
+        duration: 2500,
+        color: 'success',
+      });
+      await t.present();
+      this.loadDriverSchedules();
+    } catch (e: any) {
+      const t = await this.toastController.create({
+        message: e?.message || 'Could not update payment.',
+        duration: 3500,
+        color: 'danger',
+      });
+      await t.present();
     }
   }
 }

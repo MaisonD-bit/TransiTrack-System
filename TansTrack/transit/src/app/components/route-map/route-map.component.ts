@@ -1,10 +1,8 @@
-import { Component, Input, Output, EventEmitter, AfterViewInit, ElementRef, ViewChild, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, Input, AfterViewInit, ElementRef, ViewChild, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
-import { Subscription } from 'rxjs';
-import { BusSimulatorService } from '../../services/bus-simulator.service';
-
-declare var mapboxgl: any;
+import mapboxgl from 'mapbox-gl';
+import { environment } from '../../../environments/environment';
 
 /** Terminal-approved stop (lng/lat), aligned with commuter API */
 export interface RouteMapStop {
@@ -38,7 +36,6 @@ export interface RouteMapBoardingPassenger {
   imports: [CommonModule, IonicModule]
 })
 export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
-  constructor(private busSimulator: BusSimulatorService) {}
   @Input() mapId: string = 'route-map';
   @Input() height: string = '220px';
   @Input() routeGeoJson: any = null;
@@ -46,12 +43,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() routeStops: RouteMapStop[] = [];
   /** Ticket holders for this schedule (boarding list) */
   @Input() boardingPassengers: RouteMapBoardingPassenger[] = [];
-  /** When true, animates a bus marker along the route coordinates */
-  @Input() simulate: boolean = false;
-  /** Emits each position the simulation marker moves to */
-  @Output() positionUpdate = new EventEmitter<{ lng: number; lat: number }>();
-  /** Emits once when the simulated bus reaches the final route coordinate */
-  @Output() arrivedAtDestination = new EventEmitter<void>();
+  /** Live driver position [lng, lat] from device GPS (or mock location app). */
+  @Input() driverLngLat: [number, number] | null = null;
 
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
@@ -60,26 +53,52 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private stopMarkers: any[] = [];
   /** key = "lng,lat" stop position → marker for that waiting group */
   private boardingStopMarkers = new Map<string, { marker: any; lng: number; lat: number }>();
-  private busMarker: any = null;
-  private simulationSub: Subscription | null = null;
+  /** Bus / driver position from GPS updates */
+  private liveBusMarker: any = null;
+  private resizeObserver: ResizeObserver | null = null;
 
   ngAfterViewInit() {
-    mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
-    // Note: mapbox-gl v3 exposes EVENTS_URL as read-only; do not assign it (throws TypeError).
+    const token = environment.mapbox.accessToken.trim();
+    if (token) {
+      mapboxgl.accessToken = token;
+    }
 
+    const el = this.mapContainer.nativeElement;
     this.map = new mapboxgl.Map({
-      container: this.mapContainer.nativeElement,
-      style: 'mapbox://styles/mapbox/streets-v11',
+      container: el,
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: [123.920994, 10.311008],
-      zoom: 12
+      zoom: 12,
+      attributionControl: true,
     });
+
+    this.resizeObserver = new ResizeObserver(() => {
+      try {
+        this.map?.resize();
+      } catch {
+        /* ignore */
+      }
+    });
+    this.resizeObserver.observe(el);
 
     this.map.on('load', () => {
       this.mapLoaded = true;
       this.drawRoute();
-      if (this.simulate) {
-        this.startSimulation();
-      }
+      this.syncLiveBusMarker();
+      queueMicrotask(() => {
+        try {
+          this.map?.resize();
+        } catch {
+          /* ignore */
+        }
+      });
+      setTimeout(() => {
+        try {
+          this.map?.resize();
+        } catch {
+          /* ignore */
+        }
+      }, 200);
     });
   }
 
@@ -89,22 +108,32 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       (changes['routeGeoJson'] || changes['routeStops'] || changes['boardingPassengers'])
     ) {
       this.drawRoute();
-      // Only restart simulation when route geometry changes, NOT when boarding passengers update
-      if (this.simulate && (changes['routeGeoJson'] || changes['routeStops'])) {
-        this.startSimulation();
+      if (changes['routeGeoJson'] || changes['height']) {
+        setTimeout(() => {
+          try {
+            this.map?.resize();
+          } catch {
+            /* ignore */
+          }
+        }, 150);
       }
     }
-    if (changes['simulate'] && this.mapLoaded) {
-      if (this.simulate) {
-        this.startSimulation();
-      } else {
-        this.stopSimulation();
-      }
+    if (this.mapLoaded && changes['driverLngLat']) {
+      this.syncLiveBusMarker();
     }
   }
 
   ngOnDestroy() {
-    this.stopSimulation();
+    this.clearLiveBusMarker();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    try {
+      this.map?.remove();
+    } catch {
+      /* ignore */
+    }
+    this.map = null;
+    this.mapLoaded = false;
   }
 
   drawRoute() {
@@ -167,53 +196,42 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
     this.addStopMarkers();
     this.addBoardingMarkers();
+    this.syncLiveBusMarker();
 
     if (!hasLine && this.routeStops?.length) {
       this.fitToStopsOnly();
     }
   }
 
-  private readonly SIM_STEP_KEY = 'driver_sim_step';
-
-  private startSimulation() {
-    this.stopSimulation();
-    if (!this.mapLoaded || !this.map) return;
-    const coords: number[][] = this.routeGeoJson?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) return;
-
-    const saved = sessionStorage.getItem(this.SIM_STEP_KEY);
-    const savedStep = saved !== null ? parseInt(saved, 10) : -1;
-    const startIdx = savedStep >= 0 && savedStep < coords.length ? savedStep : 0;
-
-    this.busMarker = new mapboxgl.Marker({ color: '#0074D9', scale: 1.2 })
-      .setLngLat([coords[startIdx][0], coords[startIdx][1]])
-      .addTo(this.map);
-
-    this.simulationSub = this.busSimulator.simulateAlongLine(coords, 400, startIdx).subscribe({
-      next: ({ lng, lat, index }) => {
-        this.busMarker.setLngLat([lng, lat]);
-        this.positionUpdate.emit({ lng, lat });
-        sessionStorage.setItem(this.SIM_STEP_KEY, String(index));
-        this.checkBusPastBoardingStops(lng, lat);
-      },
-      complete: () => {
-        this.arrivedAtDestination.emit();
-        sessionStorage.removeItem(this.SIM_STEP_KEY);
-        if (this.busMarker) {
-          this.busMarker.remove();
-          this.busMarker = null;
-        }
-        this.simulationSub = null;
-      },
-    });
+  private syncLiveBusMarker() {
+    if (!this.mapLoaded || !this.map) {
+      return;
+    }
+    const pos = this.driverLngLat;
+    if (!pos || pos.length !== 2 || Number.isNaN(pos[0]) || Number.isNaN(pos[1])) {
+      this.clearLiveBusMarker();
+      return;
+    }
+    const lng = pos[0];
+    const lat = pos[1];
+    if (!this.liveBusMarker) {
+      this.liveBusMarker = new mapboxgl.Marker({ color: '#0074D9', scale: 1.2 })
+        .setLngLat([lng, lat])
+        .addTo(this.map);
+    } else {
+      this.liveBusMarker.setLngLat([lng, lat]);
+    }
+    this.checkBusPastBoardingStops(lng, lat);
   }
 
-  private stopSimulation() {
-    this.simulationSub?.unsubscribe();
-    this.simulationSub = null;
-    if (this.busMarker) {
-      this.busMarker.remove();
-      this.busMarker = null;
+  private clearLiveBusMarker() {
+    if (this.liveBusMarker) {
+      try {
+        this.liveBusMarker.remove();
+      } catch {
+        /* ignore */
+      }
+      this.liveBusMarker = null;
     }
   }
 
@@ -338,7 +356,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.boardingStopMarkers.clear();
   }
 
-  /** Called on each simulation step — removes markers for stops the bus has passed (~200 m). */
+  /** Removes waiting-at-stop markers when the bus is near that stop (~200 m). */
   private checkBusPastBoardingStops(busLng: number, busLat: number) {
     const toRemove: string[] = [];
     this.boardingStopMarkers.forEach(({ marker, lng, lat }, key) => {
