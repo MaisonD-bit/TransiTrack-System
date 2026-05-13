@@ -37,6 +37,7 @@ class MayaController extends Controller
         ]);
 
         if (! $this->secretKey) {
+            Log::error('[Maya] Secret key not configured');
             return response()->json(['success' => false, 'message' => 'Maya is not configured.'], 500);
         }
 
@@ -75,13 +76,19 @@ class MayaController extends Controller
             'metadata'               => (object) [],
         ];
 
+        Log::info('[Maya] Sending checkout request', [
+            'baseUrl' => $this->baseUrl,
+            'amount' => $amount,
+            'ticket' => $ticketId,
+        ]);
+
         $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Basic ' . base64_encode($this->publicKey . ':'),
             'Content-Type'  => 'application/json',
         ])->post("{$this->baseUrl}/checkout/v1/checkouts", $payload);
 
         if (! $response->successful()) {
-            Log::error('Maya checkout creation failed', [
+            Log::error('[Maya] Checkout creation failed', [
                 'status' => $response->status(),
                 'body'   => $response->body(),
             ]);
@@ -93,6 +100,11 @@ class MayaController extends Controller
         }
 
         $body = $response->json();
+        
+        Log::info('[Maya] Checkout success', [
+            'checkoutId' => $body['checkoutId'] ?? null,
+            'hasRedirectUrl' => isset($body['redirectUrl']),
+        ]);
 
         return response()->json([
             'success'      => true,

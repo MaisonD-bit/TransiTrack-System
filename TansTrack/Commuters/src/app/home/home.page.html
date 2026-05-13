@@ -194,7 +194,7 @@
         <app-route-map
           [mapId]="'home-route-map'"
           [height]="'380px'"
-          [routeGeoJson]="selectedRoute.geometry"
+          [routeGeoJson]="mapRouteGeometry"
           [startCoord]="selectedRoute.startCoord"
           [endCoord]="selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
@@ -229,7 +229,7 @@
         [ticketID]="ticketId"
         [ticketFare]="ticketFare"
         [currentTime]="currentTime"
-        [paymentMethod]="paymentMethod"
+        [(paymentMethod)]="paymentMethod"
         [operatorCompany]="ticketOperatorCompany"
         [busLabel]="ticketBusLabel"
         [discountPercent]="discountPercent"

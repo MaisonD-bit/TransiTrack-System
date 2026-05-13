@@ -213,7 +213,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       }
 
       // Only animate active buses — accepted buses stay fixed at route start
-      if (routeCoords && b.status === 'active') {
+      if (routeCoords && b.status === 'active' && !this.disableSimulator) {
         const startIdx = this.findNearestCoordIndex(routeCoords, b.lng, b.lat);
         const mk = marker;
         const simSub = this.busSimulatorService.simulateAlongLine(routeCoords, 400, startIdx, this.stopPins).subscribe({

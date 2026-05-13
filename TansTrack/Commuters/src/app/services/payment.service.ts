@@ -55,12 +55,15 @@ export class PaymentService {
     commuter_name?: string;
   }): Promise<{ success: boolean; checkout_url?: string; message?: string }> {
     try {
+      console.log('[PaymentService] Creating Maya checkout with payload:', payload);
       const res: any = await firstValueFrom(
         this.http.post(`${environment.apiUrl}/payments/maya/checkout`, payload)
       );
+      console.log('[PaymentService] Maya checkout response:', res);
       return { success: true, checkout_url: res.checkout_url };
     } catch (err: any) {
       const msg = err?.error?.message ?? 'Could not start Maya payment.';
+      console.error('[PaymentService] Maya checkout error:', err, 'Message:', msg);
       return { success: false, message: msg };
     }
   }

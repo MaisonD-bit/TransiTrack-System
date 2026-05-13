@@ -61,6 +61,11 @@ class CommuterRoutesController extends Controller
                 if (is_string($geometry)) {
                     $geometry = json_decode($geometry, true);
                 }
+                $returnMap = null;
+                $returnCoords = $this->lineStringCoordinates($route->return_geometry);
+                if ($returnCoords && count($returnCoords) >= 2) {
+                    $returnMap = ['type' => 'LineString', 'coordinates' => $returnCoords];
+                }
 
                 $schedule = $this->findTodaysBookableScheduleForRoute((int) $route->id);
 
@@ -72,6 +77,8 @@ class CommuterRoutesController extends Controller
                     'code' => $route->code,
                     'bus_type' => $route->bus_type,
                     'geometry' => $geometry,
+                    'return_map_geometry' => $returnMap,
+                    'return_stops' => $route->return_stops_data ?? null,
                     'distance_km' => (float) ($route->distance_km ?? 0),
                     'regular_price' => (float) ($route->regular_price ?? $route->route_fare ?? 0),
                     'aircon_price' => (float) ($route->aircon_price ?? $route->route_fare ?? 0),

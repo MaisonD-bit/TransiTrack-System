@@ -84,7 +84,7 @@
         </div>
         <div class="detail-row payment-row">
           <span class="detail-label">Payment Method:</span>
-          <ion-select [(ngModel)]="paymentMethod" interface="action-sheet" class="payment-method-select">
+          <ion-select [(ngModel)]="paymentMethod" (ngModelChange)="onPaymentMethodChange($event)" interface="action-sheet" class="payment-method-select">
             <ion-select-option value="cash">💵 Cash</ion-select-option>
             <ion-select-option value="paymaya">💳 PayMaya</ion-select-option>
             <ion-select-option value="gcash">📱 GCash</ion-select-option>

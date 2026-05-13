@@ -99,8 +99,16 @@ export class HomePage implements OnInit, ViewWillEnter {
 
   get tripLeg(): number { return this.currentSchedule?.trip_leg ?? 1; }
   get legStatus(): string { return this.currentSchedule?.leg_status ?? 'pending'; }
-  get legDirection(): 'outbound' | 'return' { return this.tripLeg % 2 === 1 ? 'outbound' : 'return'; }
-  get nextLegDirection(): 'outbound' | 'return' { return this.legDirection === 'outbound' ? 'return' : 'outbound'; }
+  get legDirection(): 'outbound' | 'return' {
+    const fromApi = this.currentSchedule?.leg_direction;
+    if (fromApi === 'outbound' || fromApi === 'return') {
+      return fromApi;
+    }
+    return this.tripLeg % 2 === 1 ? 'outbound' : 'return';
+  }
+  get nextLegDirection(): 'outbound' | 'return' {
+    return this.legDirection === 'outbound' ? 'return' : 'outbound';
+  }
   get hasReturnTrip(): boolean { return this.currentSchedule?.has_return_trip ?? false; }
   get returnTripSchedule(): Schedule | null {
     if (!this.currentSchedule || !this.hasReturnTrip) {
@@ -1161,7 +1169,14 @@ export class HomePage implements OnInit, ViewWillEnter {
       await this.acceptNextLeg();
       return;
     }
-    await this.presentToast('Declining return trip is not available from this screen.', 'warning');
+    if (!this.currentSchedule) return;
+    try {
+      await firstValueFrom(this.apiService.declineReturnTrip(this.currentSchedule.id));
+      await this.presentToast('Return trip declined.', 'warning');
+      await this.loadDriverSchedules();
+    } catch (e: any) {
+      await this.presentToast(e?.error?.message || e?.message || 'Could not decline return trip.', 'danger');
+    }
   }
 
   async startReturnTripAction() {

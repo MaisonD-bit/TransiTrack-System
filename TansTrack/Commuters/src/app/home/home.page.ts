@@ -41,7 +41,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     scheduleId?: number;
     selected?: boolean;
   }[] = [];
+  mapRouteGeometry: { type: 'LineString'; coordinates: number[][] } | null = null;
+  private mapStopsForRoute: { name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number }[] = [];
   selectedScheduleId: number | null = null;
+  private isSelectedBusReturn = false;
   private liveBusPollTimer: ReturnType<typeof setInterval> | null = null;
   private subscriptions: Subscription[] = [];
   // e-ticket state
@@ -71,6 +74,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   private alightStopReached: boolean = false;
   /** Pending payment waiting for Maya popup result. */
   private pendingMayaPayment: { payment: ScannedPayment; fare: number } | null = null;
+  /** Avoid spamming unpaid reminders when approaching the stop. */
+  private paymentReminderShown: boolean = false;
   // Post-trip UI state
   showRatingModal: boolean = false;
   showTripComplete: boolean = false;
@@ -187,6 +192,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.boardingRequestStopName = s.boardingRequestStopName || '';
       this.ticketPersistedToBackend = s.ticketPersistedToBackend ?? false;
       this.syncStopPinsForMap();
+      this.updateMapDirectionAssets();
       this.startLiveBusPoll();
     } catch {
       localStorage.removeItem(this.getTripStateKey());
@@ -209,7 +215,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private syncStopPinsForMap(): void {
-    const stops = this.selectedRoute?.stops;
+    const stops = this.mapStopsForRoute.length ? this.mapStopsForRoute : this.selectedRoute?.stops;
     if (!stops?.length) {
       this.stopPinsForMap = [];
       return;
@@ -265,8 +271,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private computeStopEtas(): void {
     const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
-    const coords: number[][] = this.selectedRoute?.geometry?.coordinates;
-    const stops = this.selectedRoute?.stops;
+    const coords: number[][] = this.mapRouteGeometry?.coordinates || this.selectedRoute?.geometry?.coordinates;
+    const stops = this.mapStopsForRoute.length ? this.mapStopsForRoute : this.selectedRoute?.stops;
 
     if (!bus?.position || !Array.isArray(coords) || coords.length < 2 || !stops?.length) {
       this.stopEtas = [];
@@ -332,6 +338,62 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     return null;
   }
 
+  private updateSelectedBusDirection(): void {
+    if (this.selectedScheduleId == null) {
+      this.isSelectedBusReturn = false;
+      return;
+    }
+    const bus = this.liveBuses.find((b) => b.schedule_id === this.selectedScheduleId);
+    this.isSelectedBusReturn = !!bus?.is_return_trip;
+  }
+
+  private updateMapDirectionAssets(): void {
+    const route = this.selectedRoute;
+    if (!route) {
+      this.mapRouteGeometry = null;
+      this.mapStopsForRoute = [];
+      this.syncStopPinsForMap();
+      return;
+    }
+
+    const baseGeom = this.normalizeLineStringGeometry(route.geometry);
+    const returnGeom = this.normalizeLineStringGeometry(
+      (route as any).return_map_geometry ?? (route as any).return_geometry
+    );
+
+    if (this.isSelectedBusReturn) {
+      if (returnGeom) {
+        this.mapRouteGeometry = returnGeom;
+      } else if (baseGeom) {
+        this.mapRouteGeometry = {
+          type: 'LineString',
+          coordinates: [...baseGeom.coordinates].reverse().map((c) => [Number(c[0]), Number(c[1])])
+        };
+      } else {
+        this.mapRouteGeometry = null;
+      }
+    } else {
+      this.mapRouteGeometry = baseGeom;
+    }
+
+    const baseStops = route.stops || [];
+    const returnStops = (route as any).return_stops || [];
+    const rawStops = this.isSelectedBusReturn
+      ? (returnStops.length ? returnStops : [...baseStops].reverse())
+      : baseStops;
+
+    const totalKm = Number(route.distance_km ?? 0);
+    this.mapStopsForRoute = rawStops.map((s: any) => {
+      const dist = s?.distance_km_from_start;
+      if (this.isSelectedBusReturn && typeof dist === 'number' && totalKm > 0) {
+        return { ...s, distance_km_from_start: Math.max(0, totalKm - dist) };
+      }
+      return s;
+    });
+
+    this.syncStopPinsForMap();
+  }
+
   onTerminalChange() {
     this.commuterService.setTerminal(this.commuterTerminal);
   }
@@ -344,6 +406,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.liveBuses = [];
     this.liveBusMapPins = [];
     this.selectedScheduleId = null;
+    this.mapRouteGeometry = null;
+    this.mapStopsForRoute = [];
+    this.isSelectedBusReturn = false;
     this.stopLiveBusPoll();
     this.syncStopPinsForMap();
   }
@@ -377,6 +442,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.liveBuses = [];
       this.liveBusMapPins = [];
       this.selectedScheduleId = null;
+      this.mapRouteGeometry = null;
+      this.mapStopsForRoute = [];
+      this.isSelectedBusReturn = false;
       this.ticketOperatorCompany = '';
       this.ticketBusLabel = '';
       this.discountAmount = 0;
@@ -385,6 +453,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     this.paymentCompleted = false;
+    this.paymentReminderShown = false;
     this.alightStopReached = false;
     this.alightNotified = false;
     this.resetBoardingRequest();
@@ -393,6 +462,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.selectedRoute = this.routes.find((route) => String(route.id) === sid) || null;
     console.log('Selected route:', this.selectedRoute);
     this.syncStopPinsForMap();
+    this.updateMapDirectionAssets();
 
     if (!this.selectedRoute) return;
 
@@ -400,6 +470,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (normalized) {
       this.selectedRoute.geometry = normalized;
     }
+    this.updateMapDirectionAssets();
 
     this.stopChoice = 'terminus';
     this.selectedScheduleId = null;
@@ -537,11 +608,15 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         }
         this.liveBuses = res.buses;
         this.updateLiveBusMapPins();
+        this.updateSelectedBusDirection();
+        this.updateMapDirectionAssets();
         if (
           this.selectedScheduleId != null &&
           !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
         ) {
           this.selectedScheduleId = null;
+          this.updateSelectedBusDirection();
+          this.updateMapDirectionAssets();
           this.showTicket = false;
           this.updateLiveBusMapPins();
           this.saveActiveTrip();
@@ -569,6 +644,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.selectedScheduleId = open[0].schedule_id;
     this.showTicket = true;
     this.updateLiveBusMapPins();
+    this.updateSelectedBusDirection();
+    this.updateMapDirectionAssets();
     this.syncTicketBusLabelsForETicket();
     this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute?.basefare ?? 0);
     this.saveActiveTrip();
@@ -598,6 +675,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.selectedScheduleId = b.schedule_id;
     this.showTicket = true;
     this.updateLiveBusMapPins();
+    this.updateSelectedBusDirection();
+    this.updateMapDirectionAssets();
     this.computeStopEtas();
     this.syncTicketBusLabelsForETicket();
     this.saveInProgressTripSnapshot(this.ticketFare ?? this.selectedRoute?.basefare ?? 0);
@@ -1028,6 +1107,15 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const userId = currentUser.id || '';
     const methods: any[] = JSON.parse(localStorage.getItem(`paymentMethods_${userId}`) || '[]');
     const defaultMethod = methods.find(m => m.isDefault) ?? methods[0] ?? null;
+    const selectedType = this.paymentMethod || 'cash';
+    let chosenMethod = defaultMethod;
+
+    if (selectedType !== 'cash') {
+      chosenMethod = methods.find(m => m.type === selectedType)
+        ?? (defaultMethod?.type === selectedType ? defaultMethod : { type: selectedType, number: '', name: selectedType });
+    } else {
+      chosenMethod = { type: 'cash' };
+    }
 
     const fare = payment.fareOverride ?? this.ticketFare ?? this.selectedRoute?.basefare ?? 0;
     const fareDisplay = `₱${(+fare).toFixed(2)}`;
@@ -1035,13 +1123,13 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     let paymentLine: string;
     let balanceLine = '';
 
-    if (defaultMethod && defaultMethod.type !== 'cash') {
-      const label = defaultMethod.type === 'gcash' ? 'GCash' : 'PayMaya';
-      const masked = defaultMethod.number?.replace(/\d(?=\d{4})/g, '•') ?? '';
+    if (chosenMethod && chosenMethod.type !== 'cash') {
+      const label = chosenMethod.type === 'gcash' ? 'GCash' : 'PayMaya';
+      const masked = chosenMethod.number?.replace(/\d(?=\d{4})/g, '•') ?? '';
       paymentLine = `${label} ${masked}`;
-      if (defaultMethod.type !== 'paymaya') {
+      if (chosenMethod.type !== 'paymaya' && chosenMethod.number) {
         try {
-          const bal = await this.paymentService.getEWalletBalance(defaultMethod.number);
+          const bal = await this.paymentService.getEWalletBalance(chosenMethod.number);
           balanceLine = `\nBalance: ₱${(+bal).toFixed(2)}`;
         } catch {}
       }
@@ -1054,7 +1142,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       message: `Route: ${payment.routeName}\nFare: ${fareDisplay}\nPay via: ${paymentLine}${balanceLine}`,
       buttons: [
         { text: 'Cancel', role: 'cancel' },
-        { text: 'Confirm & Board', handler: () => this.finalizePayment(payment, defaultMethod, fare) }
+        { text: 'Confirm & Board', handler: () => this.finalizePayment(payment, chosenMethod, fare) }
       ]
     });
     await alert.present();
@@ -1090,6 +1178,15 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private async openMayaCheckout(payment: ScannedPayment, fare: number) {
+    // CRITICAL: Open blank popup NOW while in user gesture context
+    // Then navigate to checkout URL after fetching it (avoids browser popup blocking)
+    const popup = window.open('', 'maya_payment', 'width=520,height=680,left=200,top=100');
+    
+    if (!popup || popup.closed) {
+      void this.showToast('Popup blocked. Please allow popups for this site and try again.', 'warning');
+      return;
+    }
+
     const loading = await this.loadingController.create({ message: 'Opening Maya payment…' });
     await loading.present();
 
@@ -1103,9 +1200,13 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       commuter_name: commuterName,
     });
 
+    console.log('[PayMaya] createCheckout response:', result);
+
     await loading.dismiss();
 
     if (!result.success || !result.checkout_url) {
+      popup.close();
+      console.error('[PayMaya] Failed to get checkout URL:', result);
       void this.showToast(result.message ?? 'Could not start Maya payment.', 'danger');
       return;
     }
@@ -1143,16 +1244,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
     window.addEventListener('message', this.mayaMessageHandler);
 
-    // Open Maya checkout in a popup window
-    const popup = window.open(result.checkout_url, 'maya_payment', 'width=520,height=680,left=200,top=100');
-
-    if (!popup || popup.closed) {
-      window.removeEventListener('message', this.mayaMessageHandler);
-      this.mayaMessageHandler = null;
-      this.pendingMayaPayment = null;
-      void this.showToast('Popup blocked. Please allow popups for this site and try again.', 'warning');
-      return;
-    }
+    // Navigate the already-open popup to the checkout URL
+    console.log('[PayMaya] Navigating popup to:', result.checkout_url);
+    popup.location.href = result.checkout_url;
 
     // Poll popup.closed as fallback — handles the case where the callback page
     // closes the window without postMessage getting through
@@ -1257,6 +1351,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     // Hide fare/ticket UI but keep route so the map stays visible
     this.showTicket = false;
     this.paymentCompleted = true;
+    this.paymentReminderShown = false;
     this.ticketFare = null;
     this.ticketId = '';
     this.saveActiveTrip(); // persist so refresh doesn't re-show the payment screen
@@ -1266,6 +1361,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   async closeTicket() {
+    if (!this.ensurePaymentBeforeAlight()) {
+      return;
+    }
     const alert = await this.alertController.create({
       header: 'End Trip?',
       message: 'Have you arrived at your destination?',
@@ -1278,6 +1376,24 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       ],
     });
     await alert.present();
+  }
+
+  private ensurePaymentBeforeAlight(): boolean {
+    if (this.paymentCompleted) {
+      return true;
+    }
+
+    if (this.paymentReminderShown) {
+      return false;
+    }
+    this.paymentReminderShown = true;
+
+    const method = this.getPaymentMethodLabel();
+    void this.showToast(`Please complete ${method} payment before ending your trip.`, 'warning');
+    if (this.paymentMethod === 'paymaya' || this.paymentMethod === 'gcash') {
+      this.showQrScanner = true;
+    }
+    return false;
   }
 
   /** Completes local trip + notifies operator; call when commuter confirms they have alighted. */
@@ -1554,6 +1670,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (this.alightStopReached) return;
     if (!this.showTicket && !this.paymentCompleted) return;
     if (!this.selectedScheduleId) return;
+
+    if (!this.paymentCompleted) {
+      this.ensurePaymentBeforeAlight();
+      return;
+    }
 
     // Use the terminal manager's stop lat/lng directly — no route geometry needed
     const destStop = this.selectedRoute?.stops?.[this.toStopIndex];

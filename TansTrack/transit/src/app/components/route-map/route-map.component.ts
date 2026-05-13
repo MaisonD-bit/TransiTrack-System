@@ -91,13 +91,21 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       (changes['routeGeoJson'] || changes['routeStops'] || changes['boardingPassengers'])
     ) {
       this.drawRoute();
+
       // Only restart simulation when route geometry changes, NOT when boarding passengers update
       if (this.simulate && (changes['routeGeoJson'] || changes['routeStops'])) {
+        // Clear saved simulation step when geometry changes to prevent teleporting on reversed routes.
+        try {
+          sessionStorage.removeItem(this.SIM_STEP_KEY);
+        } catch {}
         this.startSimulation();
       }
     }
     if (changes['simulate'] && this.mapLoaded) {
       if (this.simulate) {
+        try {
+          sessionStorage.removeItem(this.SIM_STEP_KEY);
+        } catch {}
         this.startSimulation();
       } else {
         this.stopSimulation();
@@ -105,11 +113,17 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
   }
 
+
   ngOnDestroy() {
     this.stopSimulation();
+    // Avoid cross-leg teleporting caused by stale sessionStorage.
+    try {
+      sessionStorage.removeItem(this.SIM_STEP_KEY);
+    } catch {}
   }
 
   drawRoute() {
+
     if (!this.mapLoaded || !this.map) {
       return;
     }

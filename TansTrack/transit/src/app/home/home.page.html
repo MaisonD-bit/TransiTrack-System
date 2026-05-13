@@ -33,13 +33,6 @@
   <ion-card class="schedule-card">
     <ion-card-header>
       <ion-card-title>Current Schedule</ion-card-title>
-      <ion-badge
-        *ngIf="currentSchedule"
-        [color]="legStatus === 'active' ? 'success' : (legStatus === 'accepted' ? 'warning' : 'medium')"
-        class="status-badge"
-      >
-        {{ legStatus === 'active' ? 'En Route' : (legStatus === 'accepted' ? 'Ready' : (currentSchedule.status === 'scheduled' ? 'Pending' : 'Leg ' + tripLeg)) }}
-      </ion-badge>
       <ion-badge *ngIf="!currentSchedule" color="medium" class="status-badge">None</ion-badge>
     </ion-card-header>
     <ion-card-content>
@@ -72,6 +65,17 @@
             Accept
           </ion-button>
           <ion-button expand="block" color="danger" fill="outline" (click)="respondToSchedule(currentSchedule.id, 'decline')">
+            <ion-icon name="close-circle-outline" slot="start"></ion-icon>
+            Decline
+          </ion-button>
+        </div>
+        <!-- Return-trip Accept / Decline (next leg pending) -->
+        <div *ngIf="hasReturnTrip && legStatus === 'pending' && currentSchedule.status !== 'scheduled'" class="schedule-actions">
+          <ion-button expand="block" color="success" (click)="respondToReturnTrip('accept')">
+            <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+            Accept
+          </ion-button>
+          <ion-button expand="block" color="danger" fill="outline" (click)="respondToReturnTrip('decline')">
             <ion-icon name="close-circle-outline" slot="start"></ion-icon>
             Decline
           </ion-button>
@@ -143,11 +147,11 @@
       <div *ngIf="returnTripSchedule">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
-          <span>{{ getReturnTripRoute(returnTripSchedule) }}</span>
+          <span>{{ getNextLegRoute() }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="location-outline"></ion-icon>
-          <span>{{ getReturnTripDestination(returnTripSchedule) }}</span>
+          <span>{{ getNextLegDestination() }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="time-outline"></ion-icon>

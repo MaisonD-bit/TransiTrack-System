@@ -63,6 +63,7 @@ export interface LiveRoute {
   basefare: number;
   pricePerKm: number;
   geometry: any;
+  return_map_geometry?: { type: 'LineString'; coordinates: number[][] } | null;
   distance_km?: number; // Route distance in kilometers
   // optional exact stored start/end coordinates (normalized to [lng, lat])
   startCoord?: [number, number] | null;
@@ -73,6 +74,7 @@ export interface LiveRoute {
   startedAt?: string; // When driver started the trip
   /** Terminal-manager stops (approved route package) */
   stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number }>;
+  return_stops?: Array<{ name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number }> | null;
   approval_request_id?: number;
   bus_type?: string;
 }
@@ -80,6 +82,7 @@ export interface LiveRoute {
 export interface LiveBusTrip {
   schedule_id: number;
   status: string;
+  is_return_trip?: boolean;
   bus_number: string;
   plate_number: string;
   bus_company: string;
@@ -180,6 +183,7 @@ export class CommuterService {
             if (line) {
               geometry = line;
             }
+            const returnLine = normalizeLineStringGeometry(route.return_map_geometry ?? route.return_geometry);
             const base =
               this.busType === 'aircon'
                 ? parseFloat(route.aircon_price) || 0
@@ -193,10 +197,12 @@ export class CommuterService {
               name: route.name,
               basefare: base,
               geometry,
+              return_map_geometry: returnLine,
               distance_km: route.distance_km ?? null,
               startCoord: null,
               endCoord: null,
               stops: route.stops || [],
+              return_stops: route.return_stops ?? null,
               approval_request_id: route.approval_request_id,
               bus_type: route.bus_type,
             };

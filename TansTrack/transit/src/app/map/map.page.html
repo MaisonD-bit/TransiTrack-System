@@ -53,11 +53,11 @@
         </div>
         <!-- Action Buttons -->
         <div class="route-actions" style="margin-top: 1em;">
-          <ion-button *ngIf="!isReturnTrip && currentSchedule?.status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
+          <ion-button *ngIf="!isReturnTrip && currentSchedule?.leg_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
             <ion-icon name="play-circle-outline" slot="start"></ion-icon>
             Start Route
           </ion-button>
-          <ion-button *ngIf="isReturnTrip && currentSchedule?.return_trip_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
+          <ion-button *ngIf="isReturnTrip && currentSchedule?.leg_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
             <ion-icon name="play-circle-outline" slot="start"></ion-icon>
             Start Return Trip
           </ion-button>
@@ -77,7 +77,7 @@
         [routeGeoJson]="mapRouteGeoJson"
         [routeStops]="mapRouteStops"
         [boardingPassengers]="mapBoardingPassengers"
-        [simulate]="isReturnTrip || currentSchedule?.status === 'active'"
+        [simulate]="currentSchedule?.leg_status === 'active'"
         (positionUpdate)="onBusPositionUpdate($event)"
         (arrivedAtDestination)="onArrivedAtDestination()">
       </app-route-map>

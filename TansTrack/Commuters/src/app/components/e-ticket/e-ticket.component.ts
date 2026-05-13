@@ -26,6 +26,7 @@ export class ETicketComponent implements OnChanges {
   @Output() close = new EventEmitter<void>();
   @Output() share = new EventEmitter<void>();
   @Output() scanToPay = new EventEmitter<void>();
+  @Output() paymentMethodChange = new EventEmitter<string>();
 
   qrDataUrl: string = '';
 
@@ -71,6 +72,11 @@ export class ETicketComponent implements OnChanges {
   closeTicket() { this.close.emit(); }
   shareTicket() { this.share.emit(); }
   openScanToPay() { this.scanToPay.emit(); }
+
+  onPaymentMethodChange(method: string) {
+    this.paymentMethod = method;
+    this.paymentMethodChange.emit(method);
+  }
 
   downloadQr() {
     if (!this.qrDataUrl) return;
