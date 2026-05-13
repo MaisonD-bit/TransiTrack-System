@@ -25,6 +25,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean; status?: string }[] = [];
   /** When true, skip the demo bus animation (use live markers instead). */
   @Input() disableSimulator: boolean = false;
+  /** The stop where the commuter wants to board — renders a pulsing cyan marker. */
+  @Input() commuterBoardingPin: { lng: number; lat: number; label?: string } | null = null;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
   mapLoaded: boolean = false;
@@ -35,6 +37,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private liveBusSimSubs: Subscription[] = [];
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
+  private commuterBoardingMarker: any = null;
   
   constructor(private busSimulatorService: BusSimulatorService) {}
 
@@ -90,6 +93,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       try { this.simulatedVehicleMarker.remove(); } catch (e) {}
       this.simulatedVehicleMarker = null;
     }
+    if (this.commuterBoardingMarker) {
+      try { this.commuterBoardingMarker.remove(); } catch (e) {}
+      this.commuterBoardingMarker = null;
+    }
     this.clearLiveBusMarkers(); // also unsubscribes liveBusSimSubs
   }
 
@@ -117,6 +124,9 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           this.simulatedVehicleMarker = null;
         }
       }
+    }
+    if (changes['commuterBoardingPin']) {
+      this.renderCommuterBoardingMarker();
     }
   }
 
@@ -395,6 +405,52 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     } else {
       this.drawStopPins();
     }
+
+    this.renderCommuterBoardingMarker();
+  }
+
+  private renderCommuterBoardingMarker(): void {
+    if (this.commuterBoardingMarker) {
+      try { this.commuterBoardingMarker.remove(); } catch (e) {}
+      this.commuterBoardingMarker = null;
+    }
+    if (!this.mapLoaded || !this.map || !this.commuterBoardingPin) return;
+
+    this.ensureCommuterMarkerStyles();
+
+    const { lng, lat, label } = this.commuterBoardingPin;
+    const el = document.createElement('div');
+    el.className = 'commuter-boarding-pin';
+    el.innerHTML = `
+      <div class="cbp-pulse"></div>
+      <div class="cbp-dot">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="#fff">
+          <path d="M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2zm0 12c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z"/>
+        </svg>
+      </div>`;
+
+    const stopLabel = label || 'Your boarding stop';
+    this.commuterBoardingMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 22 }).setHTML(
+          `<div style="padding:6px 8px;"><strong style="color:#0891b2">📍 ${stopLabel}</strong><br><span style="font-size:12px;color:#555">Your boarding stop</span></div>`
+        )
+      )
+      .addTo(this.map);
+  }
+
+  private ensureCommuterMarkerStyles(): void {
+    if (document.getElementById('cbp-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'cbp-styles';
+    s.textContent = `
+      .commuter-boarding-pin { position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+      .cbp-pulse { position: absolute; inset: 0; border-radius: 50%; border: 3px solid #06b6d4; animation: cbp-ring 1.6s ease-out infinite; }
+      .cbp-dot { width: 28px; height: 28px; background: #0891b2; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+      @keyframes cbp-ring { 0% { transform: scale(0.6); opacity: 0.9; } 100% { transform: scale(1.8); opacity: 0; } }
+    `;
+    document.head.appendChild(s);
   }
 
   private formatEta(minutes: number): string {

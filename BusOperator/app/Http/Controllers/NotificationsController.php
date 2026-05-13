@@ -506,6 +506,16 @@ class NotificationsController extends Controller
         }
     }
 
+    /** Mark all notifications as read for a specific driver (driver app). */
+    public function markAllDriverNotificationsAsRead(int $driverId): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('driver_id', $driverId)
+            ->whereNotNull('sender_id')
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
+        return response()->json(['success' => true]);
+    }
+
     /** Delete all notifications for a specific driver (driver app). */
     public function clearForDriver(int $driverId): \Illuminate\Http\JsonResponse
     {

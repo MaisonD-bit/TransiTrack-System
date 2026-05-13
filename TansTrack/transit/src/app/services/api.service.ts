@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpErrorResponse } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
+import { Observable, BehaviorSubject, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 
@@ -9,6 +9,9 @@ import { environment } from '../../environments/environment';
 })
 export class ApiService {
   private apiUrl: string;
+
+  /** Shared unread count — tabs badge and notifications page both read/write this. */
+  readonly driverUnreadCount$ = new BehaviorSubject<number>(0);
 
   constructor(private http: HttpClient) {
     this.apiUrl = environment.apiUrl; 
@@ -294,6 +297,12 @@ export class ApiService {
     }, { headers: this.getHeaders() });
   }
 
+  markAllDriverNotificationsAsRead(driverId: number): Observable<any> {
+    return this.http.patch(`${this.apiUrl}/notifications/driver/${driverId}/mark-all-read`, {}, {
+      headers: this.getHeaders()
+    }).pipe(catchError(this.handleError));
+  }
+
   clearDriverNotifications(driverId: number): Observable<any> {
     return this.http.delete(`${this.apiUrl}/notifications/driver/${driverId}/clear`, {
       headers: this.getHeaders()
@@ -350,5 +359,25 @@ export class ApiService {
       `${this.apiUrl}/schedules/${scheduleId}/manifest`,
       { headers: this.getHeaders() }
     ).pipe(catchError(this.handleError));
+  }
+
+  acceptReturnTrip(scheduleId: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/return/accept`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
+  }
+
+  declineReturnTrip(scheduleId: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/return/decline`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
+  }
+
+  startReturnTrip(scheduleId: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/return/start`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
+  }
+
+  completeReturnTrip(scheduleId: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/return/complete`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
+  }
+
+  endDay(scheduleId: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/end-day`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
   }
 }

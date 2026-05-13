@@ -276,6 +276,27 @@
                                     <div>
                                         <div class="fw-semibold">{{ $schedule->route->name ?? 'N/A' }}</div>
                                         <small class="text-muted">{{ $schedule->route->start_location ?? '' }} → {{ $schedule->route->end_location ?? '' }}</small>
+                                        @if($schedule->return_trip_status)
+                                            @php
+                                                $rtMap = [
+                                                    'pending'   => ['bg-warning text-dark', 'Return: Awaiting Driver'],
+                                                    'accepted'  => ['bg-info text-dark',    'Return: Accepted'],
+                                                    'active'    => ['bg-success',            'Return: In Progress'],
+                                                    'completed' => ['bg-secondary',          'Return: Completed'],
+                                                    'declined'  => ['bg-danger',             'Return: Declined'],
+                                                ];
+                                                [$rtCls, $rtLabel] = $rtMap[$schedule->return_trip_status] ?? ['bg-secondary', 'Return: ' . ucfirst($schedule->return_trip_status)];
+                                            @endphp
+                                            <div class="mt-1">
+                                                <span class="badge {{ $rtCls }}" style="font-size:0.65rem;">
+                                                    <i class="fas fa-exchange-alt me-1"></i>{{ $rtLabel }}
+                                                </span>
+                                            </div>
+                                        @elseif(!empty($schedule->route?->return_geometry))
+                                            <div class="mt-1">
+                                                <small class="text-muted fst-italic"><i class="fas fa-exchange-alt me-1"></i>Includes return trip</small>
+                                            </div>
+                                        @endif
                                     </div>
                                 </div>
                             </td>

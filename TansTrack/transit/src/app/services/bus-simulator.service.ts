@@ -11,7 +11,8 @@ export class BusSimulatorService {
   simulateAlongLine(
     coords: number[][],
     intervalMs: number = 55000,
-    startIndex: number = 0
+    startIndex: number = 0,
+    stops?: { lng: number; lat: number }[]
   ): Observable<{ lng: number; lat: number; index: number }> {
     const out$ = new Subject<{ lng: number; lat: number; index: number }>();
 
@@ -59,6 +60,26 @@ export class BusSimulatorService {
         steps.push(...seg);
       }
       steps.push(points[points.length - 1]);
+    }
+
+    // Insert pause frames at each stop so the bus marker dwells for ~5 s while boarding
+    if (stops && stops.length > 0) {
+      const pauseFrames = Math.max(1, Math.round(5000 / intervalMs));
+      const insertions = stops.map(stop => {
+        let nearest = 0, minDist = Infinity;
+        for (let i = 0; i < steps.length; i++) {
+          const dx = steps[i].lng - stop.lng;
+          const dy = steps[i].lat - stop.lat;
+          const d = dx * dx + dy * dy;
+          if (d < minDist) { minDist = d; nearest = i; }
+        }
+        return nearest;
+      });
+      const unique = [...new Set(insertions)].sort((a, b) => b - a);
+      for (const stepIdx of unique) {
+        const pause = Array.from({ length: pauseFrames }, () => ({ ...steps[stepIdx] }));
+        steps.splice(stepIdx, 0, ...pause);
+      }
     }
 
     let idx = Math.max(0, Math.min(startIndex, steps.length - 1));

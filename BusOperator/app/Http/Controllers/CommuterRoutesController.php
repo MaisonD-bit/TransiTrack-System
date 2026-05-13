@@ -533,9 +533,6 @@ class CommuterRoutesController extends Controller
             ->orderBy('start_time')
             ->get()
             ->filter(function (Schedule $s) use ($now) {
-                // Drop schedules that ran past their scheduled end window (+ 1 h grace period).
-                // Cleans up drivers who closed the app without pressing "Complete Route".
-                // This also handles post-midnight routes whose date is yesterday.
                 [, $windowEnd] = $s->windowBounds();
                 return $windowEnd->addHour()->gt($now);
             })
@@ -543,6 +540,7 @@ class CommuterRoutesController extends Controller
 
         $buses = [];
         foreach ($schedules as $s) {
+            $isReturnTrip = ($s->trip_leg ?? 1) % 2 === 0;
             $capacity = (int) ($s->bus?->capacity ?? 0);
             $aboard = TicketBoarding::aboardCount($s->tickets, $capacity);
             $isFull = $capacity > 0 && $aboard >= $capacity;
@@ -550,7 +548,8 @@ class CommuterRoutesController extends Controller
 
             $buses[] = [
                 'schedule_id' => $s->id,
-                'status' => $s->status,
+                'status' => $isReturnTrip ? 'active' : $s->status,
+                'is_return_trip' => $isReturnTrip,
                 'bus_number' => $s->bus?->bus_number ?? '',
                 'plate_number' => $s->bus?->plate_number ?? '',
                 'bus_company' => $s->bus?->bus_company ?? '',
@@ -776,24 +775,35 @@ class CommuterRoutesController extends Controller
             return null;
         }
 
+        // Always prefer the driver's real GPS position (works for both outbound and return trips)
+        if ($schedule->current_lat !== null && $schedule->current_lng !== null) {
+            return [
+                'lng' => (float) $schedule->current_lng,
+                'lat' => (float) $schedule->current_lat,
+            ];
+        }
+
+        $isReturnTrip = ($schedule->trip_leg ?? 1) % 2 === 0;
+
         $coords = $this->lineStringCoordinates($route->geometry);
         if (! $coords || count($coords) < 2) {
             return null;
         }
 
         $n = count($coords);
+
+        // Return trip with no real GPS: place at the terminal end (start of return direction)
+        if ($isReturnTrip) {
+            return [
+                'lng' => (float) $coords[$n - 1][0],
+                'lat' => (float) $coords[$n - 1][1],
+            ];
+        }
+
         if ($schedule->status !== 'active' || ! $schedule->started_at) {
             return [
                 'lng' => (float) $coords[0][0],
                 'lat' => (float) $coords[0][1],
-            ];
-        }
-
-        // Use the driver's real simulation position when available
-        if ($schedule->current_lat !== null && $schedule->current_lng !== null) {
-            return [
-                'lng' => (float) $schedule->current_lng,
-                'lat' => (float) $schedule->current_lat,
             ];
         }
 

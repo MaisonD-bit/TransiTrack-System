@@ -1,4 +1,5 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { ToastController, AlertController } from '@ionic/angular';
@@ -70,7 +71,7 @@ export class NotificationsPage implements OnInit, OnDestroy {
     }
 
     try {
-      const response: any = await this.apiService.getDriverNotifications(driverIdNum).toPromise();
+      const response: any = await firstValueFrom(this.apiService.getDriverNotifications(driverIdNum));
       if (response.success) {
         this.notifications = response.notifications;
         this.unreadCount = this.notifications.filter(n => !n.is_read).length;
@@ -97,10 +98,11 @@ export class NotificationsPage implements OnInit, OnDestroy {
     }
 
     try {
-      const response: any = await this.apiService.markNotificationAsRead(notification.id, driverIdNum).toPromise();
+      const response: any = await firstValueFrom(this.apiService.markNotificationAsRead(notification.id, driverIdNum));
       if (response.success) {
         notification.is_read = true;
         this.unreadCount = this.notifications.filter(n => !n.is_read).length;
+        this.apiService.driverUnreadCount$.next(this.unreadCount);
       } else {
         this.presentToast('Failed to mark notification as read', 'danger');
       }
@@ -112,24 +114,19 @@ export class NotificationsPage implements OnInit, OnDestroy {
 
   async markAllAsRead() {
     if (this.unreadCount === 0) return;
-    const driverId = this.authService.getDriverId();
-    // ✅ Convert driverId to number
-    const driverIdNum = Number(driverId);
+    const driverIdNum = Number(this.authService.getDriverId());
     if (isNaN(driverIdNum)) {
-      console.error('Invalid driver ID');
       this.presentToast('Invalid driver ID', 'danger');
       return;
     }
 
     try {
-      // Assuming you have an API method for marking all as read
-      // const response: any = await this.apiService.markAllNotificationsAsRead(driverIdNum).toPromise();
-    
+      await firstValueFrom(this.apiService.markAllDriverNotificationsAsRead(driverIdNum));
       this.notifications.forEach(n => n.is_read = true);
       this.unreadCount = 0;
+      this.apiService.driverUnreadCount$.next(0);
       this.presentToast('All notifications marked as read', 'success');
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
       this.presentToast('Error marking all notifications as read', 'danger');
     }
   }

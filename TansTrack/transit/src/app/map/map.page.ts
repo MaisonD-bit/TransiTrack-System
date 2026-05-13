@@ -21,6 +21,8 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  return_trip_status?: string;
+  has_return_trip?: boolean;
   boarding_passengers?: RouteMapBoardingPassenger[];
   route?: {
     id: number;
@@ -32,6 +34,7 @@ interface Schedule {
     geometry?: unknown;
     /** Normalized LineString from BusOperator API (lng, lat) */
     map_geometry?: { type: string; coordinates: number[][] };
+    return_geometry?: { type: string; coordinates: number[][] };
     stops?: RouteMapStop[];
   };
   bus?: {
@@ -57,6 +60,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
   isNearDestination = false;
+  isReturnTrip = false;
   private lastPositionPush = 0;
   private arrivalPromptShown = false;
   private manifestPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -307,13 +311,24 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         const upcomingSchedules: Schedule[] = response.schedules.upcoming || [];
         const pastSchedules: Schedule[] = response.schedules.past || [];
 
-        this.currentSchedule = this.pickCurrentSchedule(
-          todaySchedules,
-          upcomingSchedules,
-          pastSchedules,
-          todayStr,
-          now
+        const allSchedules = [...todaySchedules, ...upcomingSchedules, ...pastSchedules];
+        const returnActiveSchedule = allSchedules.find(
+          (s: any) => s.has_return_trip && s.return_trip_status === 'active'
         );
+
+        if (returnActiveSchedule) {
+          this.currentSchedule = returnActiveSchedule;
+          this.isReturnTrip = true;
+        } else {
+          this.currentSchedule = this.pickCurrentSchedule(
+            todaySchedules,
+            upcomingSchedules,
+            pastSchedules,
+            todayStr,
+            now
+          );
+          this.isReturnTrip = false;
+        }
 
         this.allRoutes = [...todaySchedules, ...upcomingSchedules];
 
@@ -402,6 +417,31 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       return;
     }
 
+    if (this.isReturnTrip) {
+      // Use dedicated return geometry if available
+      if (this.isValidLineString(route.return_geometry)) {
+        this.mapRouteGeoJson = this.cloneLineString(route.return_geometry);
+        return;
+      }
+      // Reverse outbound geometry for return direction
+      if (this.isValidLineString(route.map_geometry)) {
+        this.mapRouteGeoJson = {
+          type: 'LineString',
+          coordinates: [...route.map_geometry.coordinates].reverse().map((c) => [Number(c[0]), Number(c[1])])
+        };
+        return;
+      }
+      // Swap start/end for Mapbox routing
+      const retStart = this.parseCoordPair(route.end_coordinates);
+      const retEnd = this.parseCoordPair(route.start_coordinates);
+      if (retStart && retEnd) {
+        await this.fetchRouteFromMapbox(retStart, retEnd);
+        return;
+      }
+      this.mapRouteGeoJson = null;
+      return;
+    }
+
     if (this.isValidLineString(route.map_geometry)) {
       this.mapRouteGeoJson = this.cloneLineString(route.map_geometry);
       return;
@@ -454,10 +494,16 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   }
 
   getScheduleRoute(schedule: Schedule): string {
+    if (this.isReturnTrip && schedule.route?.end_location && schedule.route?.start_location) {
+      return `${schedule.route.end_location} to ${schedule.route.start_location}`;
+    }
     return schedule.route?.name || '';
   }
 
   getScheduleDestination(schedule: Schedule): string {
+    if (this.isReturnTrip && schedule.route?.start_location) {
+      return schedule.route.start_location;
+    }
     return schedule.route?.end_location || '';
   }
 
@@ -629,10 +675,18 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   }
 
   startSchedule(schedule: Schedule) {
-    this.apiService.startSchedule(schedule.id).subscribe({
+    const call$ = this.isReturnTrip
+      ? this.apiService.startReturnTrip(schedule.id)
+      : this.apiService.startSchedule(schedule.id);
+
+    call$.subscribe({
       next: (response) => {
         if (response.success) {
-          schedule.status = 'active';
+          if (this.isReturnTrip) {
+            (schedule as any).return_trip_status = 'active';
+          } else {
+            schedule.status = 'active';
+          }
           this.loadDriverSchedules();
         }
       },
@@ -641,6 +695,27 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   }
 
   private doCompleteSchedule(schedule: Schedule) {
+    if (this.isReturnTrip) {
+      this.apiService.completeReturnTrip(schedule.id).subscribe({
+        next: async (response) => {
+          if (response.success) {
+            this.isReturnTrip = false;
+            this.loadDriverSchedules();
+            const toast = await this.toastController.create({
+              message: 'Return trip completed!',
+              duration: 3500,
+              color: 'success',
+              position: 'top',
+              icon: 'checkmark-circle-outline'
+            });
+            await toast.present();
+          }
+        },
+        error: () => this.loadDriverSchedules()
+      });
+      return;
+    }
+
     const doComplete = () => {
       this.apiService.completeSchedule(schedule.id).subscribe({
         next: async (response) => {

@@ -62,6 +62,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private boardingStopMarkers = new Map<string, { marker: any; lng: number; lat: number }>();
   private busMarker: any = null;
   private simulationSub: Subscription | null = null;
+  private currentBusLng = 0;
+  private currentBusLat = 0;
 
   ngAfterViewInit() {
     mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
@@ -189,8 +191,18 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       .setLngLat([coords[startIdx][0], coords[startIdx][1]])
       .addTo(this.map);
 
-    this.simulationSub = this.busSimulator.simulateAlongLine(coords, 400, startIdx).subscribe({
+    const stopsForSim = (this.routeStops || [])
+      .map(s => {
+        const lng = s.lng ?? s.longitude;
+        const lat = s.lat ?? s.latitude;
+        return (lng != null && lat != null) ? { lng: Number(lng), lat: Number(lat) } : null;
+      })
+      .filter((s): s is { lng: number; lat: number } => s !== null);
+
+    this.simulationSub = this.busSimulator.simulateAlongLine(coords, 400, startIdx, stopsForSim).subscribe({
       next: ({ lng, lat, index }) => {
+        this.currentBusLng = lng;
+        this.currentBusLat = lat;
         this.busMarker.setLngLat([lng, lat]);
         this.positionUpdate.emit({ lng, lat });
         sessionStorage.setItem(this.SIM_STEP_KEY, String(index));
@@ -333,6 +345,11 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
       this.boardingStopMarkers.set(key, { marker, lng, lat });
     });
+
+    // Immediately remove any markers the bus has already passed
+    if (this.currentBusLng !== 0 || this.currentBusLat !== 0) {
+      this.checkBusPastBoardingStops(this.currentBusLng, this.currentBusLat);
+    }
   }
 
   private clearBoardingMarkers() {
@@ -346,7 +363,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.boardingStopMarkers.forEach(({ marker, lng, lat }, key) => {
       const dx = busLng - lng;
       const dy = busLat - lat;
-      if (Math.sqrt(dx * dx + dy * dy) < 0.002) { // ~200 m
+      if (Math.sqrt(dx * dx + dy * dy) < 0.004) { // ~400 m
         try { marker.remove(); } catch {}
         toRemove.push(key);
       }

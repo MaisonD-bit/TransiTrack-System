@@ -84,7 +84,7 @@
           <ion-select-option
             *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
             [value]="i"
-            [disabled]="i <= fromStopIndex">
+            [disabled]="i === fromStopIndex">
             {{ s.name || ('Stop ' + (i + 1)) }}
           </ion-select-option>
         </ion-select>
@@ -199,7 +199,8 @@
           [endCoord]="selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
           [liveBusMarkers]="liveBusMapPins"
-          [disableSimulator]="true">
+          [disableSimulator]="true"
+          [commuterBoardingPin]="commuterBoardingPinForMap">
         </app-route-map>
       </div>
 

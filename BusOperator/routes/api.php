@@ -61,7 +61,13 @@ Route::prefix('v1')->group(function () {
         Route::put('/{id}/decline', [ScheduleController::class, 'declineSchedule']);
         Route::put('/{id}/start', [ScheduleController::class, 'startSchedule']);
         Route::put('/{id}/complete', [ScheduleController::class, 'completeSchedule']);
+        Route::put('/{id}/cancel', [ScheduleController::class, 'cancelSchedule']);
         Route::put('/{id}/update-position', [ScheduleController::class, 'updatePosition']);
+        Route::put('/{id}/return/accept', [ScheduleController::class, 'acceptReturnTrip']);
+        Route::put('/{id}/return/decline', [ScheduleController::class, 'declineReturnTrip']);
+        Route::put('/{id}/return/start', [ScheduleController::class, 'startReturnTrip']);
+        Route::put('/{id}/return/complete', [ScheduleController::class, 'completeReturnTrip']);
+        Route::put('/{id}/end-day', [ScheduleController::class, 'endDay']);
 
         Route::post('/', [ScheduleController::class, 'assignToDriver']);
     });
@@ -91,6 +97,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/operator-send', [NotificationsController::class, 'sendToDriver'])
             ->middleware(['web', 'auth']);
         Route::patch('/{id}/read', [NotificationsController::class, 'markNotificationAsRead']);
+        Route::patch('/driver/{driverId}/mark-all-read', [NotificationsController::class, 'markAllDriverNotificationsAsRead']);
     });
 
     Route::get('drivers', [DriverController::class, 'index']);
@@ -178,6 +185,11 @@ Route::group(['middleware' => 'api'], function () {
     Route::put('schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation']);
     Route::put('schedules/{id}/approve-decline', [ScheduleController::class, 'approveDecline']);
     Route::put('schedules/{id}/reject-decline', [ScheduleController::class, 'rejectDecline']);
+    Route::put('schedules/{id}/return/accept', [ScheduleController::class, 'acceptReturnTrip']);
+    Route::put('schedules/{id}/return/decline', [ScheduleController::class, 'declineReturnTrip']);
+    Route::put('schedules/{id}/return/start', [ScheduleController::class, 'startReturnTrip']);
+    Route::put('schedules/{id}/return/complete', [ScheduleController::class, 'completeReturnTrip']);
+    Route::put('schedules/{id}/end-day', [ScheduleController::class, 'endDay']);
     
     // Other API endpoints
     Route::get('schedules', [ScheduleController::class, 'index']);

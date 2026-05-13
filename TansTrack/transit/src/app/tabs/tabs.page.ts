@@ -1,4 +1,5 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ApiService } from '../services/api.service';
 
 @Component({
@@ -10,20 +11,22 @@ import { ApiService } from '../services/api.service';
 export class TabsPage implements OnInit, OnDestroy {
   unreadCount: number = 0;
   private pollTimer?: ReturnType<typeof setInterval>;
+  private countSub?: Subscription;
 
   constructor(private apiService: ApiService) {}
 
   ngOnInit() {
+    this.countSub = this.apiService.driverUnreadCount$.subscribe(n => this.unreadCount = n);
     this.pollUnreadCount();
     this.pollTimer = setInterval(() => this.pollUnreadCount(), 15000);
   }
 
   ngOnDestroy() {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    this.countSub?.unsubscribe();
   }
 
   private pollUnreadCount() {
-    // sessionStorage is tab-isolated — each tab has its own logged-in driver
     const raw = sessionStorage.getItem('driverId');
     if (!raw) return;
     const driverId = parseInt(raw, 10);
@@ -32,10 +35,12 @@ export class TabsPage implements OnInit, OnDestroy {
     this.apiService.getDriverNotifications(driverId).subscribe({
       next: (res: any) => {
         if (res?.success && Array.isArray(res.notifications)) {
-          this.unreadCount = res.notifications.filter((n: any) => !n.is_read).length;
+          this.apiService.driverUnreadCount$.next(
+            res.notifications.filter((n: any) => !n.is_read).length
+          );
         }
       },
-      error: () => { /* ignore — badge just stays at 0 */ }
+      error: () => {}
     });
   }
 }

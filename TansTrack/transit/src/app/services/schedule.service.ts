@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, BehaviorSubject } from 'rxjs';
 import { map, catchError, tap } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
 
 export interface Schedule {
   id: number;
@@ -66,7 +67,7 @@ export interface SchedulesResponse {
   providedIn: 'root'
 })
 export class ScheduleService {
-  private baseUrl = '/api/v1';
+  private baseUrl = environment.apiUrl;
   private schedulesSubject = new BehaviorSubject<SchedulesResponse | null>(null);
   public schedules$ = this.schedulesSubject.asObservable();
   

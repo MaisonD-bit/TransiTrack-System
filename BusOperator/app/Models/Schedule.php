@@ -37,6 +37,9 @@ class Schedule extends Model
         'cancellation_status',
         'decline_reason',
         'decline_status',
+        'return_trip_status',
+        'trip_leg',
+        'leg_status',
     ];
 
     protected $casts = [
@@ -54,6 +57,7 @@ class Schedule extends Model
         'completed_at' => 'datetime',
         'current_lat' => 'float',
         'current_lng' => 'float',
+        'trip_leg' => 'integer',
     ];
 
     // Relationships

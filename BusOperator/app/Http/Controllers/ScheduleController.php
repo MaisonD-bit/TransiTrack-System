@@ -139,6 +139,7 @@ class ScheduleController extends Controller
             $this->assertScheduleTimeOrder($validated['date'], $validated['start_time'], $validated['end_time'], $endsNext);
 
             $this->assertScheduleStartNotInPast($validated['date'], $validated['start_time']);
+            $this->assertSingleDailyCycle((int) $validated['driver_id'], (string) $validated['date']);
 
             // Check for overlapping schedules
             $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -160,6 +161,20 @@ class ScheduleController extends Controller
                 }
 
                 return redirect()->back()->with('error', $msg)->withInput();
+            }
+
+            $exactDuplicate = Schedule::where('driver_id', $validated['driver_id'])
+                ->where('route_id', $validated['route_id'])
+                ->where('bus_id', $validated['bus_id'])
+                ->where('date', $validated['date'])
+                ->where('start_time', $validated['start_time'])
+                ->whereNotIn('status', ['cancelled', 'declined'])
+                ->exists();
+            if ($exactDuplicate) {
+                if ($request->expectsJson()) {
+                    return response()->json(['success' => false, 'message' => 'This schedule already exists for the selected driver, route, bus, date and time.'], 422);
+                }
+                return redirect()->back()->with('error', 'This schedule already exists for the selected driver, route, bus, date and time.')->withInput();
             }
 
             $this->ensureRouteApprovedForOperator((int) $validated['route_id'], (int) auth()->id());
@@ -199,6 +214,9 @@ class ScheduleController extends Controller
                 'status' => 'scheduled',
                 'fare_regular' => $fare_regular,
                 'fare_aircon' => $fare_aircon,
+                'trip_leg' => 1,
+                'leg_status' => 'pending',
+                'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
                 'created_at' => now(),
                 'updated_at' => now()
             ]);
@@ -293,6 +311,7 @@ class ScheduleController extends Controller
             if ($validated['date'] >= $todayStr) {
                 $this->assertScheduleStartNotInPast($validated['date'], $validated['start_time']);
             }
+            $this->assertSingleDailyCycle((int) $validated['driver_id'], (string) $validated['date'], (int) $schedule->id);
 
             // Check for overlapping schedules (exclude current schedule)
             $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -506,6 +525,7 @@ class ScheduleController extends Controller
                 }
                 
                 $endsNextBulk = filter_var($scheduleData['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $this->assertSingleDailyCycle((int) $scheduleData['driver_id'], (string) $scheduleData['date']);
 
                 // Check for overlapping schedules
                 $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -533,6 +553,9 @@ class ScheduleController extends Controller
                     'status' => 'scheduled',
                     'fare_regular' => $fare_regular,
                     'fare_aircon' => $fare_aircon,
+                    'trip_leg' => 1,
+                    'leg_status' => 'pending',
+                    'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
                     // ✅ REMOVED: 'notes' => $scheduleData['notes'] ?? null,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -549,6 +572,7 @@ class ScheduleController extends Controller
                 $createdSchedules[] = $schedule;
             }
             DB::commit();
+
             return response()->json([
                 'success' => true,
                 'message' => count($createdSchedules) . ' schedule(s) created successfully!',
@@ -785,27 +809,42 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Accept a schedule (API)
+     * Accept a schedule or the next leg (API)
+     * Handles both: initial schedule acceptance (status=scheduled) and
+     * mid-day next-leg acceptance (status=active, leg_status=pending).
      */
     public function acceptSchedule(Request $request, $id)
     {
         try {
             $schedule = Schedule::findOrFail($id);
+            $legStatus = $schedule->leg_status ?? 'pending';
 
-            // Update the schedule status to 'accepted'
-            $schedule->status = 'accepted';
+            if ($schedule->status === 'scheduled' && $legStatus === 'pending') {
+                // Initial acceptance of the day's schedule
+                $schedule->status     = 'accepted';
+                $schedule->leg_status = 'accepted';
+            } elseif ($schedule->status === 'active' && $legStatus === 'pending') {
+                // Accepting the next leg in a vice-versa cycle
+                $schedule->leg_status = 'accepted';
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot accept schedule in its current state.',
+                ], 400);
+            }
+
             $schedule->save();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule accepted successfully.',
-                'schedule' => $schedule
+                'schedule' => $schedule,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to accept schedule.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -882,55 +921,57 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Start a schedule (API)
+     * Start the current leg (API)
+     * Works for any leg (outbound or return) — checks leg_status='accepted'.
      */
     public function startSchedule($scheduleId): JsonResponse
     {
         try {
             Log::info("Attempting to start schedule ID: {$scheduleId}");
 
-            $schedule = Schedule::find($scheduleId);
-
-            if (!$schedule) {
-                Log::error("Schedule not found: $scheduleId");
-                return response()->json(['error' => 'Schedule not found'], 404);
-            }
-
             $schedule = Schedule::with(['route', 'bus', 'driver'])->find($scheduleId);
 
             if (!$schedule) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule not found'
-                ], 404);
+                Log::error("Schedule not found: $scheduleId");
+                return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
             }
 
-            if ($schedule->status !== 'accepted') {
+            $legStatus = $schedule->leg_status ?? '';
+            $tripLeg   = $schedule->trip_leg  ?? 1;
+
+            if ($legStatus !== 'accepted') {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot start schedule. Current status: {$schedule->status}. Schedule must be accepted first."
+                    'message' => "Cannot start: leg must be accepted first. Current leg_status: {$legStatus}",
                 ], 400);
             }
 
-            $schedule->status = 'active';
-            $schedule->started_at = Carbon::now();
+            if ($schedule->status !== 'active') {
+                $schedule->status     = 'active';
+                $schedule->started_at = Carbon::now();
+            }
+            $schedule->leg_status = 'active';
+
+            if ($tripLeg % 2 === 0) {
+                $schedule->return_trip_status = 'active';
+            }
+
             $schedule->save();
 
-            Log::info("Schedule {$scheduleId} started by driver {$schedule->driver_id}");
+            Log::info("Schedule {$scheduleId} leg {$tripLeg} started by driver {$schedule->driver_id}");
 
             return response()->json([
                 'success' => true,
                 'message' => 'Trip started successfully',
                 'schedule' => $schedule,
-                'action' => 'started'
+                'action'  => 'started',
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error starting schedule {$scheduleId}: " . $e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error starting schedule: ' . $e->getMessage()
+                'message' => 'Error starting schedule: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -949,7 +990,9 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Complete a schedule (API)
+     * Complete the current active leg (API)
+     * For routes with return_geometry: advances to the next leg (vice-versa loop).
+     * For one-way routes: truly completes the schedule.
      */
     public function completeSchedule($scheduleId): JsonResponse
     {
@@ -957,46 +1000,145 @@ class ScheduleController extends Controller
             Log::info("Attempting to complete schedule ID: {$scheduleId}");
 
             $schedule = Schedule::with(['route', 'bus', 'driver'])->find($scheduleId);
-            
-            if (!$schedule) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule not found'
-                ], 404);
-            }
 
-            Log::info("DEBUG: Schedule date={$schedule->date}, Today=" . Carbon::now()->format('Y-m-d'));
+            if (!$schedule) {
+                return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
+            }
 
             if ($schedule->status === 'completed') {
                 return response()->json(['success' => true, 'message' => 'Schedule already completed']);
             }
 
-            if ($schedule->status !== 'active') {
+            $legStatus = $schedule->leg_status ?? '';
+            if ($legStatus !== 'active') {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot complete schedule. Current status: {$schedule->status}. Schedule must be active."
+                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}",
                 ], 400);
             }
 
-            $schedule->status = 'completed';
+            $route = Route::find($schedule->route_id);
+            $hasReturnGeometry = $route && !empty($route->return_geometry);
+
+            if ($hasReturnGeometry) {
+                // Advance to the next leg — vice-versa loop continues
+                $nextLeg = ($schedule->trip_leg ?? 1) + 1;
+                $schedule->trip_leg   = $nextLeg;
+                $schedule->leg_status = 'pending';
+                $schedule->return_trip_status = 'pending';
+                $msg = ($nextLeg % 2 === 0)
+                    ? 'Outbound leg completed. Accept the return trip to continue.'
+                    : 'Return leg completed. Accept the next outbound trip to continue.';
+
+                $schedule->save();
+
+                Notification::create([
+                    'type'        => 'schedule_update',
+                    'message'     => $msg,
+                    'sender_id'   => $schedule->user_id,
+                    'driver_id'   => $schedule->driver_id,
+                    'schedule_id' => $schedule->id,
+                    'is_read'     => false,
+                ]);
+
+                Log::info("Schedule {$scheduleId} leg completed, now at leg {$nextLeg}");
+
+                return response()->json([
+                    'success' => true,
+                    'message' => $msg,
+                    'schedule' => $schedule,
+                ]);
+            }
+
+            // No return geometry — truly complete the schedule for the day
+            $schedule->status       = 'completed';
             $schedule->completed_at = Carbon::now();
+            $schedule->leg_status   = 'completed';
             $schedule->save();
 
-            Log::info("Schedule {$scheduleId} completed by driver {$schedule->driver_id}");
+            Log::info("Schedule {$scheduleId} fully completed by driver {$schedule->driver_id}");
 
             return response()->json([
                 'success' => true,
                 'message' => 'Trip completed successfully',
                 'schedule' => $schedule,
-                'action' => 'completed'
+                'action'  => 'completed',
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error completing schedule {$scheduleId}: " . $e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error completing schedule: ' . $e->getMessage()
+                'message' => 'Error completing schedule: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function acceptReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::findOrFail($id);
+        if ($schedule->return_trip_status !== 'pending') {
+            return response()->json(['success' => false, 'message' => 'Return trip is not awaiting acceptance.'], 400);
+        }
+        $schedule->return_trip_status = 'accepted';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip accepted.', 'schedule' => $schedule]);
+    }
+
+    public function declineReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::findOrFail($id);
+        if (! in_array($schedule->return_trip_status, ['pending', 'accepted'])) {
+            return response()->json(['success' => false, 'message' => 'Return trip cannot be declined in its current state.'], 400);
+        }
+        $schedule->return_trip_status = 'declined';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip declined.']);
+    }
+
+    public function startReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::with('route')->findOrFail($id);
+        if ($schedule->return_trip_status !== 'accepted') {
+            return response()->json(['success' => false, 'message' => 'Return trip must be accepted before starting.'], 400);
+        }
+        $schedule->return_trip_status = 'active';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip started.', 'schedule' => $schedule]);
+    }
+
+    public function completeReturnTrip($id): JsonResponse
+    {
+        // In the vice-versa system completing a return leg = completing any leg.
+        return $this->completeSchedule($id);
+    }
+
+    /**
+     * Driver ends their day — truly completes the schedule regardless of current leg.
+     */
+    public function endDay($id): JsonResponse
+    {
+        try {
+            $schedule = Schedule::findOrFail($id);
+
+            if ($schedule->status === 'completed') {
+                return response()->json(['success' => true, 'message' => 'Schedule already completed.']);
+            }
+
+            $schedule->status       = 'completed';
+            $schedule->completed_at = Carbon::now();
+            $schedule->leg_status   = 'completed';
+            $schedule->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Day ended. Schedule marked as completed.',
+                'schedule' => $schedule,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error ending day: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -1103,6 +1245,7 @@ class ScheduleController extends Controller
             ]);
 
             $endsNextAssign = filter_var($request->input('ends_next_day'), FILTER_VALIDATE_BOOLEAN);
+            $this->assertSingleDailyCycle((int) $request->driver_id, Carbon::parse($request->date)->format('Y-m-d'));
             $this->assertScheduleTimeOrder(
                 Carbon::parse($request->date)->format('Y-m-d'),
                 $request->start_time,
@@ -1143,7 +1286,10 @@ class ScheduleController extends Controller
                 'status' => 'scheduled',
                 'fare_regular' => $request->fare_regular,
                 'fare_aircon' => $request->fare_aircon ?? $request->fare_regular,
-                'notes' => $request->notes
+                'notes' => $request->notes,
+                'trip_leg' => 1,
+                'leg_status' => 'pending',
+                'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
             ]);
 
             Log::info("New schedule created and assigned to driver {$request->driver_id}");
@@ -1244,6 +1390,7 @@ class ScheduleController extends Controller
     private function bulkDriverSchedulesOverlapInBatch(array $schedules): ?string
     {
         $byDriver = [];
+        $byDriverDay = [];
 
         foreach ($schedules as $idx => $row) {
             if (! is_array($row)) {
@@ -1268,12 +1415,23 @@ class ScheduleController extends Controller
             if (! isset($byDriver[$driverId])) {
                 $byDriver[$driverId] = [];
             }
+            $dayKey = $driverId.'|'.$date;
+            if (! isset($byDriverDay[$dayKey])) {
+                $byDriverDay[$dayKey] = [];
+            }
+            $byDriverDay[$dayKey][] = (int) $idx + 1;
 
             $byDriver[$driverId][] = [
                 'label' => (int) $idx + 1,
                 's' => $sAt,
                 'e' => $eAt,
             ];
+        }
+
+        foreach ($byDriverDay as $labels) {
+            if (count($labels) > 1) {
+                return 'Only one schedule cycle is allowed per driver per day. Conflicting rows: '.implode(', ', $labels).'.';
+            }
         }
 
         foreach ($byDriver as $items) {
@@ -1288,6 +1446,24 @@ class ScheduleController extends Controller
         }
 
         return null;
+    }
+
+    private function assertSingleDailyCycle(int $driverId, string $date, ?int $excludeScheduleId = null): void
+    {
+        $query = Schedule::query()
+            ->where('driver_id', $driverId)
+            ->whereDate('date', $date)
+            ->whereNotIn('status', ['cancelled', 'declined']);
+
+        if ($excludeScheduleId !== null) {
+            $query->where('id', '!=', $excludeScheduleId);
+        }
+
+        if ($query->exists()) {
+            throw ValidationException::withMessages([
+                'driver_id' => ['Only one schedule cycle per driver per day is allowed.'],
+            ]);
+        }
     }
 
     private function assertScheduleStartNotInPast(string $date, string $startTime): void
@@ -1334,6 +1510,14 @@ class ScheduleController extends Controller
             $data['route'] = $this->formatRouteForDriverResponse($schedule->route, (int) $schedule->user_id);
         }
 
+        $tripLeg   = $schedule->trip_leg  ?? 1;
+        $legStatus = $schedule->leg_status ?? 'pending';
+        $data['trip_leg']          = $tripLeg;
+        $data['leg_status']        = $legStatus;
+        $data['leg_direction']     = ($tripLeg % 2 === 1) ? 'outbound' : 'return';
+        $data['has_return_trip']   = ! empty($schedule->route?->return_geometry);
+        $data['return_trip_status'] = $schedule->return_trip_status;
+
         $stillAboard = $schedule->tickets->filter(fn ($t) => $t->alighted_at === null);
 
         $data['boarding_passengers'] = $stillAboard->map(function ($t) {
@@ -1361,6 +1545,30 @@ class ScheduleController extends Controller
         $line = $this->routeGeometryAsLineString($route);
         $base['map_geometry'] = $line;
         $base['stops'] = $this->approvedStopsForOperatorRoute($operatorUserId, (int) $route->id);
+
+        if (! empty($route->return_geometry)) {
+            $rg = $route->return_geometry;
+            if (is_string($rg)) {
+                $rg = json_decode($rg, true);
+            }
+            if (is_array($rg)) {
+                if (($rg['type'] ?? null) === 'Feature' && isset($rg['geometry'])) {
+                    $rg = $rg['geometry'];
+                }
+                if (($rg['type'] ?? null) === 'LineString' && isset($rg['coordinates'])) {
+                    $coords = [];
+                    foreach ($rg['coordinates'] as $c) {
+                        if (is_array($c) && count($c) >= 2) {
+                            $coords[] = [(float) $c[0], (float) $c[1]];
+                        }
+                    }
+                    if (count($coords) >= 2) {
+                        $base['return_map_geometry'] = ['type' => 'LineString', 'coordinates' => $coords];
+                    }
+                }
+            }
+            $base['return_stops'] = $route->return_stops_data ?? [];
+        }
 
         return $base;
     }

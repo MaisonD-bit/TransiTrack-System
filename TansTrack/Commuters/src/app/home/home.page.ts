@@ -202,6 +202,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   stopEtas: { name: string; distKm: number; etaMin: number; isPassed: boolean }[] = [];
   etaToMyStop: number | null = null;
 
+  get commuterBoardingPinForMap(): { lng: number; lat: number; label?: string } | null {
+    const pin = this.stopPinsForMap[this.fromStopIndex];
+    if (!pin || isNaN(pin.lng) || isNaN(pin.lat)) return null;
+    return { lng: pin.lng, lat: pin.lat, label: pin.label };
+  }
+
   private syncStopPinsForMap(): void {
     const stops = this.selectedRoute?.stops;
     if (!stops?.length) {
@@ -456,9 +462,14 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (!this.selectedRoute?.stops?.length) return;
     const max = this.selectedRoute.stops.length - 1;
     if (this.fromStopIndex < 0) this.fromStopIndex = 0;
+    if (this.fromStopIndex > max) this.fromStopIndex = max;
+    if (this.toStopIndex < 0) this.toStopIndex = 0;
     if (this.toStopIndex > max) this.toStopIndex = max;
-    if (this.fromStopIndex >= this.toStopIndex) {
-      this.toStopIndex = Math.min(max, this.fromStopIndex + 1);
+    // If same stop selected for both, pick the nearest valid neighbour
+    if (this.fromStopIndex === this.toStopIndex) {
+      this.toStopIndex = this.fromStopIndex > 0
+        ? this.fromStopIndex - 1
+        : Math.min(max, this.fromStopIndex + 1);
     }
     this.applySegmentFare();
     if (this.selectedScheduleId) {
@@ -468,11 +479,14 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private applySegmentFare() {
     if (!this.selectedRoute?.stops || this.selectedRoute.stops.length < 2) return;
+    // API always wants the lower index as from and higher as to (direction-agnostic fare calc)
+    const apiFrom = Math.min(this.fromStopIndex, this.toStopIndex);
+    const apiTo = Math.max(this.fromStopIndex, this.toStopIndex);
     this.commuterService
       .fareSegment({
         route_id: parseInt(this.selectedRoute.id, 10),
-        from_stop_index: this.fromStopIndex,
-        to_stop_index: this.toStopIndex,
+        from_stop_index: apiFrom,
+        to_stop_index: apiTo,
         approval_request_id: this.selectedRoute.approval_request_id,
       })
       .subscribe({
@@ -635,7 +649,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   private autoFlagForBoarding(): void {
     if (!this.selectedRoute || !this.selectedScheduleId) return;
     const stops = this.selectedRoute.stops;
-    if (stops && stops.length >= 2 && this.fromStopIndex >= this.toStopIndex) return;
+    if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) return;
 
     // If a request is still in-flight, mark that we need to retry when it settles.
     if (this.boardingReqInFlight) {
@@ -787,8 +801,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     const stops = this.selectedRoute.stops;
-    if (stops && stops.length >= 2 && this.fromStopIndex >= this.toStopIndex) {
-      void this.showToast('Boarding stop must come before your alighting stop.', 'warning');
+    if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) {
+      void this.showToast('Boarding stop and alighting stop cannot be the same.', 'warning');
       return;
     }
 
@@ -828,8 +842,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     const stops = this.selectedRoute.stops;
-    if (stops && stops.length >= 2 && this.fromStopIndex >= this.toStopIndex) {
-      void this.showToast('Boarding stop must come before your alighting stop.', 'warning');
+    if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) {
+      void this.showToast('Boarding stop and alighting stop cannot be the same.', 'warning');
       return;
     }
 

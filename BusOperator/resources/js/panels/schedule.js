@@ -748,11 +748,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const scheduleForm = document.getElementById('scheduleForm');
     if (scheduleForm) {
         scheduleForm.addEventListener('submit', function(e) {
+            e.preventDefault();
             const error = validateScheduleForm();
             if (error) {
-                e.preventDefault();
                 showScheduleFeedbackModal(error, 'error');
-                return false;
+                return;
             }
             submitScheduleForm(e);
         });
@@ -875,10 +875,10 @@ document.getElementById('driverSelectionForm')?.addEventListener('submit', funct
 
     // Clear any existing rows first
     document.getElementById('schedulesContainer').innerHTML = '';
-    
+
     // Add the first empty schedule row
     addScheduleRow();
-    
+
     scheduleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 

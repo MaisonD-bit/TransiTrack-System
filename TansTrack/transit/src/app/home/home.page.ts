@@ -17,6 +17,12 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  /** Current leg number (1=first outbound, 2=first return, 3=second outbound, …). */
+  trip_leg?: number;
+  /** Status of the current leg. */
+  leg_status?: string;
+  /** Direction of the current leg: 'outbound' | 'return'. */
+  leg_direction?: string;
   /** Passengers still on board (distinct commuters + guests, capped by capacity). */
   aboard_count?: number;
   /** Active ticket rows only (not yet alighted). */
@@ -33,6 +39,8 @@ interface Schedule {
     model: string;
     capacity?: number;
   };
+  return_trip_status?: string;
+  has_return_trip?: boolean;
 }
 
 interface Passenger {
@@ -88,6 +96,24 @@ export class HomePage implements OnInit, ViewWillEnter {
   private lastScheduleId: number | null = null;
   private lastScheduleRouteId: number | null = null;
   private lastScheduleStatus: string | null = null;
+
+  get tripLeg(): number { return this.currentSchedule?.trip_leg ?? 1; }
+  get legStatus(): string { return this.currentSchedule?.leg_status ?? 'pending'; }
+  get legDirection(): 'outbound' | 'return' { return this.tripLeg % 2 === 1 ? 'outbound' : 'return'; }
+  get nextLegDirection(): 'outbound' | 'return' { return this.legDirection === 'outbound' ? 'return' : 'outbound'; }
+  get hasReturnTrip(): boolean { return this.currentSchedule?.has_return_trip ?? false; }
+  get returnTripSchedule(): Schedule | null {
+    if (!this.currentSchedule || !this.hasReturnTrip) {
+      return null;
+    }
+    if (['completed', 'cancelled', 'declined'].includes(this.currentSchedule.status)) {
+      return null;
+    }
+    return {
+      ...this.currentSchedule,
+      return_trip_status: this.currentSchedule.return_trip_status ?? 'pending',
+    };
+  }
 
   /** Live passenger list for the current active schedule */
   passengers: Passenger[] = [];
@@ -446,6 +472,7 @@ export class HomePage implements OnInit, ViewWillEnter {
 
       this.currentSchedule = current;
       this.nextSchedule = next;
+
       this.applyPassengerCounts(current);
       this.detectScheduleChanges(current);
       this.loadPassengerManifest();
@@ -1035,6 +1062,44 @@ export class HomePage implements OnInit, ViewWillEnter {
     await toast.present();
   }
 
+  async acceptNextLeg() {
+    if (!this.currentSchedule) return;
+    try {
+      await firstValueFrom(this.apiService.acceptSchedule(this.currentSchedule.id));
+      const label = this.legDirection === 'outbound' ? 'Return trip accepted.' : 'Outbound trip accepted.';
+      await this.presentToast(label, 'success');
+      await this.loadDriverSchedules();
+    } catch (e: any) {
+      await this.presentToast(e?.error?.message || e?.message || 'Could not accept leg.', 'danger');
+    }
+  }
+
+  async endDayTrip() {
+    if (!this.currentSchedule) return;
+    const scheduleId = this.currentSchedule.id;
+    const alert = await this.alertController.create({
+      header: 'End Day',
+      message: 'Are you sure you want to end your day? The schedule will be marked as completed.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'End Day',
+          cssClass: 'alert-button-danger',
+          handler: async () => {
+            try {
+              await firstValueFrom(this.apiService.endDay(scheduleId));
+              await this.presentToast('Day ended. Schedule completed.', 'success');
+              await this.loadDriverSchedules();
+            } catch (e: any) {
+              await this.presentToast(e?.error?.message || e?.message || 'Could not end day.', 'danger');
+            }
+          }
+        }
+      ]
+    });
+    await alert.present();
+  }
+
   getScheduleRoute(schedule: Schedule | null): string {
     if (!schedule || !schedule.route) return 'N/A';
     return schedule.route.name || `${schedule.route.start_location} to ${schedule.route.end_location}`;
@@ -1043,6 +1108,68 @@ export class HomePage implements OnInit, ViewWillEnter {
   getScheduleDestination(schedule: Schedule | null): string {
     if (!schedule || !schedule.route) return 'N/A';
     return schedule.route.end_location || 'N/A';
+  }
+
+  /** Route label for the CURRENT active leg. */
+  getCurrentLegRoute(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    if (this.legDirection === 'return') {
+      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+    }
+    return r.name || `${r.start_location} to ${r.end_location}`;
+  }
+
+  /** Destination for the CURRENT active leg. */
+  getCurrentLegDestination(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    return this.legDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+  }
+
+  /** Route label for the NEXT upcoming leg. */
+  getNextLegRoute(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    if (this.nextLegDirection === 'return') {
+      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+    }
+    return r.name || `${r.start_location} to ${r.end_location}`;
+  }
+
+  /** Destination for the NEXT upcoming leg. */
+  getNextLegDestination(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    return this.nextLegDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+  }
+
+  getReturnTripRoute(schedule: Schedule | null): string {
+    const r = schedule?.route;
+    if (!r) return 'N/A';
+    return r.end_location && r.start_location
+      ? `${r.end_location} to ${r.start_location}`
+      : r.name;
+  }
+
+  getReturnTripDestination(schedule: Schedule | null): string {
+    return schedule?.route?.start_location || 'N/A';
+  }
+
+  async respondToReturnTrip(action: 'accept' | 'decline') {
+    if (action === 'accept') {
+      await this.acceptNextLeg();
+      return;
+    }
+    await this.presentToast('Declining return trip is not available from this screen.', 'warning');
+  }
+
+  async startReturnTripAction() {
+    await this.acceptNextLeg();
+  }
+
+  async completeReturnTripAction() {
+    await this.endDayTrip();
   }
 
   getScheduleTime(schedule: Schedule | null): string {

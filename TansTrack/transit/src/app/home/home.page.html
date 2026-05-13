@@ -35,10 +35,10 @@
       <ion-card-title>Current Schedule</ion-card-title>
       <ion-badge
         *ngIf="currentSchedule"
-        [color]="currentSchedule.status === 'active' ? 'success' : (currentSchedule.status === 'accepted' ? 'warning' : 'medium')"
+        [color]="legStatus === 'active' ? 'success' : (legStatus === 'accepted' ? 'warning' : 'medium')"
         class="status-badge"
       >
-        {{ currentSchedule.status.charAt(0).toUpperCase() + currentSchedule.status.slice(1) }}
+        {{ legStatus === 'active' ? 'En Route' : (legStatus === 'accepted' ? 'Ready' : (currentSchedule.status === 'scheduled' ? 'Pending' : 'Leg ' + tripLeg)) }}
       </ion-badge>
       <ion-badge *ngIf="!currentSchedule" color="medium" class="status-badge">None</ion-badge>
     </ion-card-header>
@@ -46,11 +46,11 @@
       <div *ngIf="currentSchedule; else noCurrent">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
-          <span>{{ getScheduleRoute(currentSchedule) }}</span>
+          <span>{{ hasReturnTrip ? getCurrentLegRoute() : getScheduleRoute(currentSchedule) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="location-outline"></ion-icon>
-          <span>{{ getScheduleDestination(currentSchedule) }}</span>
+          <span>{{ hasReturnTrip ? getCurrentLegDestination() : getScheduleDestination(currentSchedule) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="time-outline"></ion-icon>
@@ -65,7 +65,7 @@
           <ion-icon name="car-outline"></ion-icon>
           <span>{{ currentSchedule.bus.bus_number }} - {{ currentSchedule.bus.model }}</span>
         </div>
-        <!-- Accept / Decline -->
+        <!-- Initial Accept / Decline (leg 1, not yet accepted) -->
         <div *ngIf="currentSchedule.status === 'scheduled'" class="schedule-actions">
           <ion-button expand="block" color="success" (click)="respondToSchedule(currentSchedule.id, 'accept')">
             <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
@@ -74,6 +74,13 @@
           <ion-button expand="block" color="danger" fill="outline" (click)="respondToSchedule(currentSchedule.id, 'decline')">
             <ion-icon name="close-circle-outline" slot="start"></ion-icon>
             Decline
+          </ion-button>
+        </div>
+        <!-- End Day button (available while schedule is running) -->
+        <div *ngIf="currentSchedule.status === 'active'" class="schedule-actions" style="margin-top: 8px;">
+          <ion-button expand="block" fill="outline" color="medium" (click)="endDayTrip()">
+            <ion-icon name="flag-outline" slot="start"></ion-icon>
+            End Day
           </ion-button>
         </div>
       </div>
@@ -119,21 +126,40 @@
     </ion-card-content>
   </ion-card>
 
-  <!-- Next Schedule Card -->
+  <!-- Next Schedule Card (also shows return trip when active) -->
   <ion-card class="schedule-card">
     <ion-card-header>
       <ion-card-title>Next Schedule</ion-card-title>
-      <ion-badge
-        *ngIf="nextSchedule"
-        [color]="nextScheduleBadgeColor()"
-        class="status-badge"
-      >
-        {{ displayScheduleStatus(nextSchedule) }}
-      </ion-badge>
-      <ion-badge *ngIf="!nextSchedule" color="medium" class="status-badge">None</ion-badge>
+      <!-- Normal next schedule badge -->
+      <ng-container *ngIf="!returnTripSchedule">
+        <ion-badge *ngIf="nextSchedule" [color]="nextScheduleBadgeColor()" class="status-badge">
+          {{ displayScheduleStatus(nextSchedule) }}
+        </ion-badge>
+        <ion-badge *ngIf="!nextSchedule" color="medium" class="status-badge">None</ion-badge>
+      </ng-container>
     </ion-card-header>
     <ion-card-content>
-      <div *ngIf="nextSchedule; else noNext">
+      <!-- Return trip content -->
+      <div *ngIf="returnTripSchedule">
+        <div class="schedule-row">
+          <ion-icon name="bus-outline"></ion-icon>
+          <span>{{ getReturnTripRoute(returnTripSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="location-outline"></ion-icon>
+          <span>{{ getReturnTripDestination(returnTripSchedule) }}</span>
+        </div>
+        <div class="schedule-row">
+          <ion-icon name="time-outline"></ion-icon>
+          <span>{{ getScheduleTime(returnTripSchedule) }}</span>
+        </div>
+        <div class="schedule-row" *ngIf="returnTripSchedule.bus">
+          <ion-icon name="car-outline"></ion-icon>
+          <span>{{ returnTripSchedule.bus.bus_number }} - {{ returnTripSchedule.bus.model }}</span>
+        </div>
+      </div>
+      <!-- Normal next schedule -->
+      <div *ngIf="!returnTripSchedule && nextSchedule">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
           <span>{{ getScheduleRoute(nextSchedule) }}</span>
@@ -150,17 +176,25 @@
           <ion-icon name="calendar-outline"></ion-icon>
           <span>{{ getScheduleDate(nextSchedule) }}</span>
         </div>
-        <!-- Bus Info -->
         <div class="schedule-row" *ngIf="nextSchedule.bus">
           <ion-icon name="car-outline"></ion-icon>
           <span>{{ nextSchedule.bus.bus_number }} - {{ nextSchedule.bus.model }}</span>
         </div>
-      </div>
-      <ng-template #noNext>
-        <div class="schedule-row">
-          <span>No Upcoming Schedule</span>
+        <div *ngIf="nextSchedule.status === 'scheduled'" class="schedule-actions">
+          <ion-button expand="block" color="success" (click)="respondToSchedule(nextSchedule.id, 'accept')">
+            <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+            Accept
+          </ion-button>
+          <ion-button expand="block" color="danger" fill="outline" (click)="respondToSchedule(nextSchedule.id, 'decline')">
+            <ion-icon name="close-circle-outline" slot="start"></ion-icon>
+            Decline
+          </ion-button>
         </div>
-      </ng-template>
+      </div>
+      <!-- Nothing to show -->
+      <div *ngIf="!returnTripSchedule && !nextSchedule" class="schedule-row">
+        <span>No Upcoming Schedule</span>
+      </div>
     </ion-card-content>
   </ion-card>
 
