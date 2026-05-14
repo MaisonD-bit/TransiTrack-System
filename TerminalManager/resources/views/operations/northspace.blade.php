@@ -1,5 +1,5 @@
 @extends('layouts.app-sidebar')
-@section('title', 'Terminal Spaces')
+@section('title', 'North Terminal Spaces')
 @section('content')
 <style>
     .spaces-container {
@@ -540,7 +540,7 @@
         <div class="d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center">
                 <i class="fas fa-parking me-3 text-primary fs-4"></i>
-                <h2 class="mb-0 fw-bold">South Terminal Parking Management</h2>
+                <h2 class="mb-0 fw-bold">North Terminal Parking Management</h2>
             </div>
             <div class="d-flex gap-2">
                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshSpaces()">
@@ -555,7 +555,7 @@
         <!-- SVG Terminal -->
         <div class="svg-wrapper" id="svgWrapper">
             <h6 class="text-center mb-4" style="color: #666; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Terminal Layout</h6>
-            {!! file_get_contents(public_path('images/SouthBus_Layout.svg')) !!}
+            {!! file_get_contents(public_path('images/NorthBus_Layout.svg')) !!}
 
             <!-- Tooltip (Speech Bubble) -->
             <div class="tooltip-bubble" id="tooltip">
@@ -590,15 +590,6 @@
             <div class="panel-header">
                 <h3 class="panel-title">Space Details</h3>
                 <button class="panel-close" onclick="closePanel()">×</button>
-            </div>
-
-            <div id="extensionRequestBanner" class="alert alert-warning py-2 px-3 small" style="display: none; margin: 0 12px 12px;">
-                <div class="fw-semibold mb-1">Driver extension request</div>
-                <div>Extra time requested: <span id="pendingExtensionMins">—</span> minutes</div>
-                <div class="d-flex gap-2 mt-2 flex-wrap">
-                    <button type="button" class="btn btn-sm btn-success" onclick="approveExtensionRequest(event)">Approve</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="denyExtensionRequest(event)">Deny</button>
-                </div>
             </div>
 
             <div class="form-group">
@@ -675,19 +666,19 @@
                 <div class="history-filters">
                     <div style="display: flex; flex-direction: column; gap: 4px; width: 100%; flex-basis: 100%; margin-bottom: 12px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">Search</small>
-                        <input type="text" class="form-control" id="searchFilter" placeholder="" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <input type="text" id="searchFilter" class="form-control" onchange="loadHistoryFromDatabase()">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; max-width: 200px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">From</small>
-                        <input type="date" class="form-control" id="dateFromFilter" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <input type="date" id="dateFromFilter" class="form-control" onchange="loadHistoryFromDatabase()">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; max-width: 200px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">To</small>
-                        <input type="date" class="form-control" id="dateToFilter" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <input type="date" id="dateToFilter" class="form-control" onchange="loadHistoryFromDatabase()">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; max-width: 200px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">Status</small>
-                        <select class="form-control" id="statusFilter" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <select class="form-control" id="statusFilter" onchange="loadHistoryFromDatabase()">
                             <option value="">All Statuses</option>
                             <option value="occupied">Occupied</option>
                             <option value="released">Released</option>
@@ -697,13 +688,13 @@
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; max-width: 200px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">Driver</small>
-                        <select class="form-control" id="driverFilter" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <select class="form-control" id="driverFilter" onchange="loadHistoryFromDatabase()">
                             <option value="">All Drivers</option>
                         </select>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; max-width: 200px;">
                         <small style="color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase;">Route</small>
-                        <select class="form-control" id="routeFilter" style="width: 100%;" onchange="loadHistoryFromDatabase()">
+                        <select class="form-control" id="routeFilter" onchange="loadHistoryFromDatabase()">
                             <option value="">All Routes</option>
                         </select>
                     </div>
@@ -713,29 +704,28 @@
                         </button>
                     </div>
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle history-table">
+                        <table class="history-table" id="historyTable">
                             <thead>
                                 <tr>
                                     <th>Space ID</th>
-                                    <th>Route</th>
-                                    <th>Driver</th>
                                     <th>Action</th>
+                                    <th>Driver Name</th>
+                                    <th>Company</th>
+                                    <th>Route</th>
+                                    <th>Duration (mins)</th>
                                     <th>Time Occupied</th>
                                     <th>Time Released</th>
                                     <th>Details</th>
                                 </tr>
                             </thead>
                             <tbody id="historyTableBody">
-                                <!-- Dynamically populated -->
                             </tbody>
                         </table>
                     </div>
 
                     <!-- WORKING PAGINATION -->
                     <nav aria-label="Page navigation">
-                        <ul class="pagination pagination-sm justify-content-center" id="historyPagination">
-                            <!-- Dynamically populated -->
-                        </ul>
+                        <ul class="pagination" id="historyPagination"></ul>
                     </nav>
                 </div>
             </div>
@@ -759,5 +749,6 @@
         </div>
     </div>
 
-    <script src="{{ asset('js/space.js') }}"></script>
-    @endsection
+    <script src="{{ asset('js/northspace.js') }}"></script>
+</div>
+@endsection
