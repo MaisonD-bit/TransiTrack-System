@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
+use App\Models\SysadminUser;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -13,11 +13,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        SysadminUser::query()->updateOrCreate(
+            ['email' => 'admin@transitrack.com'],
+            [
+                'name' => 'Admin',
+                'password' => bcrypt('12345678'),
+            ]
+        );
     }
 }
