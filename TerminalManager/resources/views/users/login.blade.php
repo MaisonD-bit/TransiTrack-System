@@ -15,6 +15,18 @@
         <div class="alert alert-success small">{{ session('success') }}</div>
     @endif
 
+    @if ($errors->any())
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <ul class="mb-0">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+
     <form action="{{ route('authenticate') }}" method="post">
         @csrf
         <div class="form-group mb-3">

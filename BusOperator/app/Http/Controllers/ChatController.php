@@ -168,7 +168,10 @@ class ChatController extends Controller
 
             // Get users from database with fallback
             try {
-                $managerUsers = User::whereIn('id', $memberIds)->get();
+                $managerUsers = User::whereIn('id', $memberIds)
+                    ->where('role', 'terminalManager')
+                    ->where('status', 'active')
+                    ->get();
             } catch (\Throwable $e) {
                 Log::error('Error fetching manager users', ['error' => $e->getMessage()]);
                 $managerUsers = collect([]);
@@ -264,6 +267,8 @@ class ChatController extends Controller
             $busOperators = [];
             $operatorRows = DB::table('users')
                 ->where('role', 'bus_operator')
+                ->where('status', 'active')
+                ->where('id', '!=', $currentUser->id)
                 ->select(['id', 'name', 'photo_url', 'role', 'company_name'])
                 ->get();
 
@@ -278,9 +283,11 @@ class ChatController extends Controller
                 ];
             }
 
-            // Get managers
+            // Get terminal managers
             $managers = [];
-            $managerRows = User::where('id', '!=', $currentUser->id)
+            $managerRows = User::where('role', 'terminalManager')
+                ->where('status', 'active')
+                ->where('id', '!=', $currentUser->id)
                 ->select(['id', 'name', 'photo_url', 'role', 'terminal'])
                 ->get();
 
@@ -290,7 +297,7 @@ class ChatController extends Controller
                     'name' => $user->name,
                     'photo_url' => $user->photo_url,
                     'role' => $user->role,
-                    'formatted_role' => isset($user->formatted_role) ? $user->formatted_role : 'Manager',
+                    'formatted_role' => 'Terminal Manager',
                     'source' => 'manager',
                 ];
             }
@@ -330,7 +337,10 @@ class ChatController extends Controller
 
         try {
             try {
-                $managerUsers = User::whereIn('id', $request->user_ids)->get();
+                $managerUsers = User::whereIn('id', $request->user_ids)
+                    ->where('role', 'terminalManager')
+                    ->where('status', 'active')
+                    ->get();
             } catch (\Throwable $e) {
                 Log::error('Error fetching manager users for registration', ['error' => $e->getMessage()]);
                 $managerUsers = collect([]);

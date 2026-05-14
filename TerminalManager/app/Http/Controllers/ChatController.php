@@ -29,6 +29,7 @@ class ChatController extends Controller
     {
         /** @var User */
         $user = Auth::user();
+        $streamUserId = $this->streamUserIdForManager($user);
 
         $streamApiKey = (string) env('STREAM_API_KEY', '');
         $streamToken = '';
@@ -38,8 +39,8 @@ class ChatController extends Controller
             $streamUnavailable = true;
         } else {
             try {
-                $this->streamClient->upsertUser($user->getStreamUserData());
-                $streamToken = $user->getStreamToken();
+                $this->streamClient->upsertUser($this->streamUserDataForManager($user));
+                $streamToken = $this->streamClient->createToken($streamUserId);
             } catch (\Throwable $e) {
                 Log::warning('Stream chat unavailable in ChatController@index', [
                     'user_id' => $user->id,
@@ -53,7 +54,7 @@ class ChatController extends Controller
         return view('operations.chat', [
             'streamApiKey' => $streamApiKey,
             'streamToken' => $streamToken,
-            'userId' => (string)$user->id,
+            'userId' => $streamUserId,
             'userName' => $user->name,
             'streamUnavailable' => $streamUnavailable,
         ]);
@@ -76,14 +77,19 @@ class ChatController extends Controller
         }
 
         try {
-            $currentUserId = (string)Auth::id();
+            $currentUser = Auth::user();
+            $currentUserId = $this->streamUserIdForManager($currentUser);
             $memberIds = collect($request->members)
                 ->map(fn($memberId) => (string) $memberId)
                 ->push($currentUserId)
                 ->unique()
                 ->values();
 
-            $managerUsers = User::whereIn('id', $memberIds)->get();
+            $managerUsers = User::whereIn('user_id', $memberIds)
+                ->orWhere(function ($query) use ($memberIds) {
+                    $query->whereNull('user_id')->whereIn('id', $memberIds);
+                })
+                ->get();
             $operatorUsers = DB::table('users')
                 ->whereIn('id', $memberIds)
                 ->where('role', 'bus_operator')
@@ -92,7 +98,7 @@ class ChatController extends Controller
             $streamUsers = [];
 
             foreach ($managerUsers as $user) {
-                $streamUsers[] = $user->getStreamUserData();
+                $streamUsers[] = $this->streamUserDataForManager($user);
             }
 
             foreach ($operatorUsers as $user) {
@@ -140,7 +146,24 @@ class ChatController extends Controller
     {
         $currentUser = Auth::user();
 
-        $managerQuery = User::where('id', '!=', Auth::id());
+        $currentStreamUserId = $this->streamUserIdForManager($currentUser);
+        $managerQuery = User::where('role', 'terminalManager')
+            ->where('status', 'active')
+            ->whereExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('users')
+                    ->where('users.role', 'terminalManager')
+                    ->where('users.status', 'active')
+                    ->where(function ($inner) {
+                        $inner->whereColumn('users.id', 'managers.user_id')
+                            ->orWhereColumn('users.email', 'managers.email');
+                    });
+            })
+            ->where(function ($query) use ($currentStreamUserId) {
+                $query->where('user_id', '!=', $currentStreamUserId)
+                    ->orWhereNull('user_id');
+            })
+            ->where('id', '!=', Auth::id());
 
         // Prefer same-terminal managers, but fall back to all managers when none are available.
         if ($currentUser && $currentUser->terminal) {
@@ -149,11 +172,11 @@ class ChatController extends Controller
         }
 
         $managers = $managerQuery
-            ->select(['id', 'first_name', 'last_name', 'photo_url', 'role', 'terminal'])
+            ->select(['id', 'user_id', 'first_name', 'last_name', 'photo_url', 'role', 'terminal'])
             ->get()
             ->map(function ($user) {
                 return [
-                    'id' => $user->id,
+                    'id' => $this->streamUserIdForManager($user),
                     'name' => $user->name,
                     'photo_url' => $user->photo_url,
                     'role' => $user->role,
@@ -181,7 +204,9 @@ class ChatController extends Controller
                 ];
             });
 
-        $users = $managers->merge($busOperators)->values();
+        $users = collect($managers->all())
+            ->concat($busOperators->all())
+            ->values();
 
         return response()->json($users);
     }
@@ -200,16 +225,22 @@ class ChatController extends Controller
         }
 
         try {
-            $managerUsers = User::whereIn('id', $request->user_ids)->get();
+            $memberIds = collect($request->user_ids)->map(fn ($id) => (string) $id)->values();
+
+            $managerUsers = User::whereIn('user_id', $memberIds)
+                ->orWhere(function ($query) use ($memberIds) {
+                    $query->whereNull('user_id')->whereIn('id', $memberIds);
+                })
+                ->get();
             $operatorUsers = DB::table('users')
-                ->whereIn('id', $request->user_ids)
+                ->whereIn('id', $memberIds)
                 ->where('role', 'bus_operator')
                 ->get();
 
             $streamUsers = [];
 
             foreach ($managerUsers as $user) {
-                $streamUsers[] = $user->getStreamUserData();
+                $streamUsers[] = $this->streamUserDataForManager($user);
             }
 
             foreach ($operatorUsers as $user) {
@@ -234,5 +265,20 @@ class ChatController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function streamUserIdForManager(User $user): string
+    {
+        return (string) ($user->user_id ?: $user->id);
+    }
+
+    private function streamUserDataForManager(User $user): array
+    {
+        return [
+            'id' => $this->streamUserIdForManager($user),
+            'name' => $user->name,
+            'role' => 'user',
+            'image' => $user->photo_url ?? null,
+        ];
     }
 }

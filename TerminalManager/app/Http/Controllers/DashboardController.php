@@ -4,11 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Bus;
-use App\Models\Message;
 use App\Models\Space;
 use App\Models\TerminalSpace;
+use App\Models\NorthTerminalSpace;
 use App\Models\Schedule;
-use Illuminate\Http\Request;
+use App\Models\TerminalOccupancyHistory;
+use App\Models\NorthTerminalOccupancyHistory;
 use Illuminate\Support\Facades\Auth;
 use GetStream\StreamChat\Client as StreamChat;
 
@@ -55,13 +56,20 @@ class DashboardController extends Controller
             });
         }
 
-        // Get terminal spaces (updated occupancy tracking)
-        $spaceQuery = TerminalSpace::query();
-        $available = $spaceQuery->where('is_occupied', false)->count();
-        $total = $spaceQuery->count();
+        // Get terminal spaces (updated occupancy tracking) - filtered by manager's terminal
+        $available = 0;
+        $total = 0;
 
-        // If terminal spaces don't exist, fallback to regular spaces
-        if ($total === 0) {
+        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
+            // North Terminal spaces
+            $available = NorthTerminalSpace::where('is_occupied', false)->count();
+            $total = NorthTerminalSpace::count();
+        } elseif ($user && ($user->role === 'southBusManager' || $user->terminal === 'south')) {
+            // South Terminal spaces
+            $available = TerminalSpace::where('is_occupied', false)->count();
+            $total = TerminalSpace::count();
+        } else {
+            // Default fallback if no terminal specified
             $available = Space::where('is_occupied', false)->count();
             $total = Space::count();
         }
@@ -122,8 +130,8 @@ class DashboardController extends Controller
             : 0;
 
         // Get space utilization
-        $spaceUtilizationPercent = $total > 0 
-            ? round((($total - $available) / $total) * 100, 1) 
+        $spaceUtilizationPercent = $total > 0
+            ? round((($total - $available) / $total) * 100, 1)
             : 0;
 
         $stats = [
@@ -143,9 +151,40 @@ class DashboardController extends Controller
             'total_spaces' => $total,
             'occupied_spaces' => $total - $available,
             'available_spaces' => $available,
+            'occupancy_by_hour' => $this->getOccupancyByHour($user),
         ];
 
         return view('operations.dashboard', compact('stats', 'busSchedules', 'drivers', 'statuses', 'analytics'));
+    }
+
+    /**
+     * Get occupancy data grouped by hour of day
+     * Returns the count of occupied spaces for each hour
+     */
+    private function getOccupancyByHour($user)
+    {
+        // Use appropriate history table based on terminal
+        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
+            $query = NorthTerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
+                ->groupBy('hour')
+                ->whereNotNull('time_occupied')
+                ->orderBy('hour');
+        } else {
+            $query = TerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
+                ->groupBy('hour')
+                ->whereNotNull('time_occupied')
+                ->orderBy('hour');
+        }
+
+        $occupancyData = $query->get();
+
+        // Create array for all 24 hours
+        $hoursData = array_fill(0, 24, 0);
+        foreach ($occupancyData as $data) {
+            $hoursData[$data->hour] = $data->occupancy_count;
+        }
+
+        return $hoursData;
     }
 
     /**
@@ -154,12 +193,21 @@ class DashboardController extends Controller
      */
     public function getAvailableSpaces()
     {
-        $spaceQuery = TerminalSpace::query();
-        $available = $spaceQuery->where('is_occupied', false)->count();
-        $total = $spaceQuery->count();
+        $user = Auth::user();
+        $available = 0;
+        $total = 0;
 
-        // If terminal spaces don't exist, fallback to regular spaces
-        if ($total === 0) {
+        // Get spaces for the manager's terminal
+        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
+            // North Terminal spaces
+            $available = NorthTerminalSpace::where('is_occupied', false)->count();
+            $total = NorthTerminalSpace::count();
+        } elseif ($user && ($user->role === 'southBusManager' || $user->terminal === 'south')) {
+            // South Terminal spaces
+            $available = TerminalSpace::where('is_occupied', false)->count();
+            $total = TerminalSpace::count();
+        } else {
+            // Default fallback if no terminal specified
             $available = Space::where('is_occupied', false)->count();
             $total = Space::count();
         }
