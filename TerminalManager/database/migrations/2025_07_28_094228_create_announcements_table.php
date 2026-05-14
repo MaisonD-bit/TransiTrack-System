@@ -6,30 +6,32 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('messages', function (Blueprint $table) {
+        if (Schema::hasTable('announcements')) {
+            return;
+        }
+
+        if (Schema::hasTable('messages')) {
+            Schema::rename('messages', 'announcements');
+            return;
+        }
+
+        Schema::create('announcements', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('sender_id'); // foreign key to users
+            $table->unsignedBigInteger('sender_id');
             $table->unsignedBigInteger('recipient_id')->nullable();
             $table->string('subject');
             $table->text('body');
-            $table->enum('status', ['unread','read'])
-                  ->default('unread');
             $table->timestamps();
+
             $table->foreign('sender_id')->references('id')->on('users')->onDelete('cascade');
             $table->foreign('recipient_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::dropIfExists('messages');
+        Schema::dropIfExists('announcements');
     }
 };

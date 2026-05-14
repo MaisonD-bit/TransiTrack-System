@@ -28,6 +28,9 @@ class User extends Authenticatable
         'routes_served',
         'photo_url',
         'status',
+        'status_reason',
+        'status_reason_action',
+        'status_reason_at',
     ];
 
     protected $hidden = [
@@ -37,6 +40,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'status_reason_at' => 'datetime',
         'password' => 'hashed',
     ];
 

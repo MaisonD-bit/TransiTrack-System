@@ -45,6 +45,19 @@ class AuthController extends Controller
                 Auth::logout();
                 return back()->withErrors(['email' => 'Access denied. Bus operators only.'])->withInput();
             }
+
+            if ($user->status !== 'active') {
+                Auth::logout();
+                $statusMessage = $user->status === 'inactive'
+                    ? 'Your account is inactive. Please wait for a terminal manager to activate it.'
+                    : 'Your account has been suspended. Please contact support.';
+
+                if ($user->status === 'inactive' && ! empty($user->status_reason)) {
+                    $statusMessage .= ' Reason: ' . $user->status_reason;
+                }
+
+                return back()->withErrors(['status_message' => $statusMessage])->withInput();
+            }
             
             return redirect()->intended(route('operator.panel'));
         }

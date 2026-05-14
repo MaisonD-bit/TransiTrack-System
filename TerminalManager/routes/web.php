@@ -6,11 +6,12 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\PasswordRecoveryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\BusSchedulesController;
-use App\Http\Controllers\MessageController;
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\NotificationController;
-use App\Http\Controllers\Crud\SpaceCrudController;
 use App\Http\Controllers\TerminalSpaceController;
+use App\Http\Controllers\NorthTerminalSpaceController;
+use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\TerminalRouteStopsController;
 
 // Register and Login Routes
@@ -37,18 +38,23 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/route-stops/{routeApprovalRequest}/stops', [TerminalRouteStopsController::class, 'updateStops'])->name('terminal.route-stops.update');
     Route::post('/route-stops/{routeApprovalRequest}/submit-sysadmin', [TerminalRouteStopsController::class, 'submitToSysadmin'])->name('terminal.route-stops.submit');
 
-    // Messages Routes
-    Route::get('/messages', [MessageController::class, 'index'])->name('messages');
-    Route::post('/messages', [MessageController::class, 'store'])->name('messages.store');
-    Route::get('/messages/{id}', [MessageController::class, 'show'])->name('messages.show');
+    // Announcements Routes
+    Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');
+    Route::post('/announcements', [AnnouncementController::class, 'store'])->name('announcements.store');
+    Route::get('/announcements/{id}', [AnnouncementController::class, 'show'])->name('announcements.show');
 
     Route::get('/spaces', [TerminalSpaceController::class, 'index'])->name('spaces.index');
-    Route::get('/spaces/create', [SpaceCrudController::class, 'create'])->name('spaces.create');
-    Route::post('/spaces', [SpaceCrudController::class, 'store'])->name('spaces.store');
-    Route::get('/spaces/{id}/edit', [SpaceCrudController::class, 'edit'])->name('spaces.edit');
-    Route::get('/spaces/{id}', [SpaceCrudController::class, 'show'])->name('spaces.show');
-    Route::put('/spaces/{id}', [SpaceCrudController::class, 'update'])->name('spaces.update');
-    Route::delete('/spaces/{id}', [SpaceCrudController::class, 'destroy'])->name('spaces.destroy');
+
+    Route::get('/north-spaces', [NorthTerminalSpaceController::class, 'index'])->name('north-spaces.index');
+
+    Route::get('/approvals', [ApprovalController::class, 'index'])->name('approval');
+
+    Route::prefix('api/approvals')->group(function () {
+        Route::get('/operators', [ApprovalController::class, 'getOperators']);
+        Route::post('/approve/{id}', [ApprovalController::class, 'approve']);
+        Route::post('/pending/{id}', [ApprovalController::class, 'pending']);
+        Route::get('/stats', [ApprovalController::class, 'getStats']);
+    });
 
     Route::prefix('api/terminal')->group(function () {
         Route::get('/drivers', [TerminalSpaceController::class, 'getDrivers']);
@@ -67,6 +73,23 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/driver-routes/{driverId}', [TerminalSpaceController::class, 'getDriverRoutes']);
         Route::get('/history-detail/{id}', [TerminalSpaceController::class, 'getHistoryDetail']);
         Route::post('/check-expired', [TerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
+    });
+
+    Route::prefix('api/north-terminal')->group(function () {
+        Route::get('/drivers', [NorthTerminalSpaceController::class, 'getDrivers']);
+        Route::post('/occupy', [NorthTerminalSpaceController::class, 'occupy']);
+        Route::post('/release', [NorthTerminalSpaceController::class, 'release']);
+        Route::post('/add-time', [NorthTerminalSpaceController::class, 'addTime']);
+        Route::post('/cancel', [NorthTerminalSpaceController::class, 'cancel']);
+        Route::post('/update-space', [NorthTerminalSpaceController::class, 'updateSpace']);
+        Route::get('/history/{spaceId}', [NorthTerminalSpaceController::class, 'getHistory']);
+        Route::get('/history-all', [NorthTerminalSpaceController::class, 'getAllHistory']);
+        Route::get('/check-expired', [NorthTerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
+        Route::get('/spaces', [NorthTerminalSpaceController::class, 'getSpaces']);
+        Route::get('/routes', [NorthTerminalSpaceController::class, 'getRoutes']);
+        Route::get('/driver-routes/{driverId}', [NorthTerminalSpaceController::class, 'getDriverRoutes']);
+        Route::get('/history-detail/{id}', [NorthTerminalSpaceController::class, 'getHistoryDetail']);
+        Route::post('/check-expired', [NorthTerminalSpaceController::class, 'checkAndReleaseExpiredSpaces']);
     });
 
     // Chat Routes

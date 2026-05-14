@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Notification;
-use App\Models\User; 
+use App\Models\User;
 use App\Models\Driver;
 use App\Models\Schedule;
 use App\Models\Bus;
@@ -40,10 +40,19 @@ class NotificationsController extends Controller
             return redirect()->route('login')->with('error', 'Unauthorized');
         }
 
-        // ✅ FIXED: Get RECEIVED notifications (from drivers to me, where sender_id is NULL and I'm the recipient)
+        // ✅ FIXED: Get RECEIVED notifications
+        // This includes:
+        // 1. Driver incidents/reports (sender_id is NULL, recipient_id is me)
+        // 2. Manager announcements (sender_id is set, recipient_id is me, type = manager_announcement)
         $receivedQuery = Notification::with(['sender', 'driver', 'schedule.route', 'bus', 'routeApprovalRequest'])
-            ->where('recipient_id', $user->id)
-            ->whereNull('sender_id') // Only notifications FROM drivers (sender_id is null)
+            ->where(function ($query) use ($user) {
+                $query->where('recipient_id', $user->id)
+                    ->where(function ($q) {
+                        // Driver notifications: sender_id is NULL
+                        $q->whereNull('sender_id')
+                            ->orWhere('type', 'manager_announcement'); // Manager announcements
+                    });
+            })
             ->orderBy('created_at', 'desc');
         $receivedQuery = $this->scopeHideWeatherIncidents($receivedQuery);
 
@@ -71,9 +80,12 @@ class NotificationsController extends Controller
             return response()->json(['count' => 0]);
         }
 
-        // ✅ Only count received notifications (from drivers)
+        // ✅ Count received notifications (from drivers and manager announcements)
         $countQuery = Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id') // Only from drivers
+            ->where(function ($q) {
+                $q->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            })
             ->where('is_read', false);
         $countQuery = $this->scopeHideWeatherIncidents($countQuery);
         $count = $countQuery->count();
@@ -88,10 +100,13 @@ class NotificationsController extends Controller
             return response()->json(['notifications' => []]);
         }
 
-        // Received: driver alerts and system types (e.g. route_approval) both use sender_id = null
+        // Received: driver alerts, manager announcements, and system types
         $query = Notification::with(['driver', 'sender', 'schedule', 'bus'])
             ->where('recipient_id', $user->id)
-            ->whereNull('sender_id')
+            ->where(function ($q) {
+                $q->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            })
             ->orderBy('created_at', 'desc');
         $query = $this->scopeHideWeatherIncidents($query);
         $notifications = $query->limit(5)->get()
@@ -103,7 +118,7 @@ class NotificationsController extends Controller
                     'from_label' => $this->receivedNotificationFromLabel($notification),
                     'is_read' => $notification->is_read,
                     'created_at' => $notification->created_at->diffForHumans(),
-                    'short_message' => substr($notification->message, 0, 60).(strlen($notification->message) > 60 ? '...' : ''),
+                    'short_message' => substr($notification->message, 0, 60) . (strlen($notification->message) > 60 ? '...' : ''),
                 ];
             });
 
@@ -130,9 +145,12 @@ class NotificationsController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        // ✅ Only mark received notifications (from drivers) as read
+        // ✅ Mark received notifications (from drivers and manager announcements) as read
         $q = Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id')
+            ->where(function ($query) {
+                $query->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            })
             ->where('is_read', false);
         $q = $this->scopeHideWeatherIncidents($q);
         $q->update(['is_read' => true, 'read_at' => now()]);
@@ -147,9 +165,12 @@ class NotificationsController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        // ✅ Only clear received notifications (from drivers)
+        // ✅ Clear received notifications (from drivers and manager announcements)
         $q = Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id')
+            ->where(function ($query) {
+                $query->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            })
             ->where(function ($inner) {
                 $inner->where('type', '!=', 'incident')
                     ->orWhereNull('incident_type')
@@ -179,7 +200,7 @@ class NotificationsController extends Controller
             }
 
             $driver = Driver::find($request->driver_id);
-            
+
             if (!$driver) {
                 Log::error('Driver not found', ['driver_id' => $request->driver_id]);
                 return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
@@ -225,18 +246,17 @@ class NotificationsController extends Controller
             Log::info('Notification created successfully', ['notification_id' => $notification->id]);
 
             return response()->json([
-                'success' => true, 
-                'message' => 'Notification sent successfully', 
+                'success' => true,
+                'message' => 'Notification sent successfully',
                 'notification' => $notification
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error sending notification from driver", [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'An internal server error occurred: ' . $e->getMessage()
             ], 500);
         }
@@ -294,24 +314,24 @@ class NotificationsController extends Controller
                 : sprintf('%.5f°, %.5f°', (float) $request->latitude, (float) $request->longitude);
 
             $at = Carbon::now(config('app.timezone'));
-            $message = "{$typeLabel} at {$loc} at ".$at->format('M j Y').' on '.$at->format('g:i A');
+            $message = "{$typeLabel} at {$loc} at " . $at->format('M j Y') . ' on ' . $at->format('g:i A');
             if ($request->filled('notes')) {
-                $message .= '. '.trim((string) $request->notes);
+                $message .= '. ' . trim((string) $request->notes);
             }
 
-            $ctx = ['Driver: '.$driver->name];
+            $ctx = ['Driver: ' . $driver->name];
             if ($schedule) {
                 if ($schedule->route) {
-                    $ctx[] = 'Route: '.$schedule->route->name;
+                    $ctx[] = 'Route: ' . $schedule->route->name;
                 }
                 if ($schedule->bus) {
                     $bn = $schedule->bus->bus_number ?? '';
                     $ctx[] = $schedule->bus->model
-                        ? 'Bus: '.$bn.' — '.$schedule->bus->model
-                        : 'Bus: '.$bn;
+                        ? 'Bus: ' . $bn . ' — ' . $schedule->bus->model
+                        : 'Bus: ' . $bn;
                 }
             }
-            $message .= ' · '.implode(' · ', $ctx);
+            $message .= ' · ' . implode(' · ', $ctx);
 
             $notification = Notification::create([
                 'type' => 'incident',
@@ -337,7 +357,7 @@ class NotificationsController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Could not submit incident: '.$e->getMessage(),
+                'message' => 'Could not submit incident: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -348,7 +368,7 @@ class NotificationsController extends Controller
             Log::info('Notification from operator - Request received', $request->all());
 
             $operatorId = Auth::id();
-            
+
             if (!$operatorId) {
                 Log::error('No authenticated operator found');
                 return response()->json(['success' => false, 'message' => 'Unauthorized - Please log in'], 401);
@@ -376,7 +396,7 @@ class NotificationsController extends Controller
 
             foreach ($driverIds as $driverId) {
                 $driver = Driver::find($driverId);
-                
+
                 if (!$driver) {
                     $failedDrivers[] = $driverId;
                     continue;
@@ -422,19 +442,18 @@ class NotificationsController extends Controller
             }
 
             return response()->json([
-                'success' => true, 
+                'success' => true,
                 'message' => "Notification sent successfully to {$sentCount} driver(s)",
                 'sent_count' => $sentCount,
                 'failed_count' => count($failedDrivers)
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error sending notification to driver", [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'An internal server error occurred: ' . $e->getMessage()
             ], 500);
         }
@@ -462,7 +481,7 @@ class NotificationsController extends Controller
             $row['assigned_route_label'] = null;
             if ($n->schedule && $n->schedule->relationLoaded('route') && $n->schedule->route) {
                 $r = $n->schedule->route;
-                $row['assigned_route_label'] = ($r->name ?? 'Route').' · '.$r->start_location.' → '.$r->end_location;
+                $row['assigned_route_label'] = ($r->name ?? 'Route') . ' · ' . $r->start_location . ' → ' . $r->end_location;
             }
             if ($n->schedule) {
                 $row['schedule_date'] = $n->schedule->date instanceof \Carbon\CarbonInterface
@@ -483,7 +502,7 @@ class NotificationsController extends Controller
     {
         try {
             $notification = Notification::find($id);
-            
+
             if (!$notification) {
                 Log::error('Notification not found', ['notification_id' => $id]);
                 return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
@@ -506,17 +525,16 @@ class NotificationsController extends Controller
             ]);
 
             return response()->json([
-                'success' => true, 
+                'success' => true,
                 'message' => 'Notification marked as read'
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error marking notification as read", [
                 'notification_id' => $id,
                 'error' => $e->getMessage()
             ]);
             return response()->json([
-                'success' => false, 
+                'success' => false,
                 'message' => 'Error marking notification as read'
             ], 500);
         }
@@ -530,8 +548,11 @@ class NotificationsController extends Controller
         if ($notification->type === 'route_approval') {
             return 'TransiTrack Sysadmin';
         }
+        if ($notification->type === 'manager_announcement') {
+            return 'TransiTrack Terminal Manager';
+        }
         if ($notification->driver) {
-            return $notification->driver->name.' (Driver)';
+            return $notification->driver->name . ' (Driver)';
         }
         if ($notification->sender) {
             return $notification->sender->name;
