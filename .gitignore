@@ -13,10 +13,9 @@
 **/public/build/
 **/public/hot/
 
-# Laravel / storage
+# Laravel (each sub-app has its own)
 **/storage/*.key
 **/bootstrap/cache/*
-/storage/pail
 
 # Logs & caches
 *.log
@@ -39,7 +38,6 @@ Thumbs.db
 .phpunit.result.cache
 /.fleet
 /auth.json
-/public/storage
 
 # Project backups
 TansTrack/Commuters_BACKUP_*/
