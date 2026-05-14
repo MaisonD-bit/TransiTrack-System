@@ -37,7 +37,7 @@
                                 </small>
                             </div>
                             <div class="text-end">
-                                <small class="text-muted d-block">{{ $announcement->created_at->format('M d, Y H:i') }}</small>
+                                <small class="text-muted d-block">{{ $announcement->created_at->timezone('Asia/Manila')->format('M d, Y h:i A') }}</small>
                                 <a href="{{ route('announcements.show', $announcement->id) }}"
                                     class="btn btn-sm btn-outline-primary mt-2">
                                     <i class="bi bi-eye"></i> View

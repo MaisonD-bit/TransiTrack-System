@@ -11,7 +11,7 @@ use App\Models\Schedule;
 use App\Models\TerminalOccupancyHistory;
 use App\Models\NorthTerminalOccupancyHistory;
 use Illuminate\Support\Facades\Auth;
-use GetStream\StreamChat\Client as StreamChat;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -74,26 +74,19 @@ class DashboardController extends Controller
             $total = Space::count();
         }
 
-        // Get unread messages count from Stream
-        $unreadCount = 0;
-        try {
-            $streamClient = new StreamChat(
-                env('STREAM_API_KEY'),
-                env('STREAM_API_SECRET')
-            );
+        $pendingApprovalsQuery = DB::table('users')
+            ->where('role', 'bus_operator')
+            ->where('status', 'inactive')
+            ->where(function ($query) {
+                $query->whereNull('status_reason_action')
+                    ->orWhere('status_reason_action', '!=', 'deactivate');
+            });
 
-            $channels = $streamClient->queryChannels(
-                ['members' => ['$in' => [(string)$user->id]]],
-                [],
-                ['state' => true]
-            );
-
-            foreach ($channels['channels'] as $channel) {
-                $unreadCount += $channel['channel']['read'][(string)$user->id]['unread_messages'] ?? 0;
-            }
-        } catch (\Exception $e) {
-            $unreadCount = 0;
+        if ($user && $user->terminal) {
+            $pendingApprovalsQuery->where('terminal', $user->terminal);
         }
+
+        $pendingApprovals = $pendingApprovalsQuery->count();
 
         // Get schedule status breakdown for analytics
         $scheduleAnalytics = Schedule::query();
@@ -139,7 +132,7 @@ class DashboardController extends Controller
             'available_spaces' => $available,
             'total_spaces' => $total,
             'total_schedules' => $scheduleQuery->count(),
-            'new_messages' => $unreadCount,
+            'pending_approvals' => $pendingApprovals,
         ];
 
         $analytics = [

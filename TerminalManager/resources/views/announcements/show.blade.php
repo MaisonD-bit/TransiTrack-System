@@ -38,7 +38,7 @@
                 @endif
             </p>
 
-            <p><strong>Sent At:</strong> {{ $announcement->created_at->format('M d, Y h:i A') }}</p>
+            <p><strong>Sent At:</strong> {{ $announcement->created_at->timezone('Asia/Manila')->format('M d, Y h:i A') }}</p>
 
             <hr>
 
