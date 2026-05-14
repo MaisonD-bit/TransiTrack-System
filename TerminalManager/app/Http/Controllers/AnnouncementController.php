@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Announcement;
 use App\Models\OperatorUser;
-use App\Notifications\NewAnnouncement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -78,11 +77,11 @@ class AnnouncementController extends Controller
                 'recipient_type' => 'operators',
             ]);
 
-            $recipients = OperatorUser::where('role', 'bus_operator')->get();
+            $recipients = OperatorUser::where('role', 'bus_operator')
+                ->where('status', 'active')
+                ->get();
 
             foreach ($recipients as $recipient) {
-                $recipient->notify(new NewAnnouncement($announcement));
-
                 try {
                     DB::table('notifications')->insert([
                         'type' => 'manager_announcement',
