@@ -14,7 +14,15 @@ class AnnouncementController extends Controller
 {
     public function index()
     {
-        $announcements = Announcement::whereNull('recipient_id')
+        $senderUserId = $this->managerSenderUserId();
+
+        if (!$senderUserId) {
+            return view('operations.announcement', ['announcements' => collect()]);
+        }
+
+        $announcements = Announcement::query()
+            ->where('sender_id', $senderUserId)
+            ->whereNull('recipient_id')
             ->where('recipient_type', 'operators')
             ->latest()
             ->get();
@@ -117,28 +125,26 @@ class AnnouncementController extends Controller
 
     public function show($id)
     {
-        $announcement = Announcement::findOrFail($id);
-        $currentUser = Auth::user();
-        $senderUserId = $currentUser?->user_id
-            ?: DB::table('users')->where('email', $currentUser?->email)->value('id');
+        $senderUserId = $this->managerSenderUserId();
 
-        if ((int) $announcement->sender_id !== (int) $senderUserId) {
-            $userRole = Auth::user()->role;
-            $canView = false;
-
-            if ($announcement->recipient_type === 'operators' && $userRole === 'bus_operator') {
-                $canView = true;
-            } elseif ($announcement->recipient_type === 'managers' && $userRole === 'terminalManager') {
-                $canView = true;
-            } elseif ($announcement->recipient_type === 'all' && in_array($userRole, ['bus_operator', 'terminalManager'], true)) {
-                $canView = true;
-            }
-
-            if (!$canView) {
-                abort(403, 'You are not authorized to view this announcement.');
-            }
+        if (!$senderUserId) {
+            abort(403, 'You are not authorized to view this announcement.');
         }
 
+        $announcement = Announcement::where('sender_id', $senderUserId)->findOrFail($id);
+
         return view('announcements.show', compact('announcement'));
+    }
+
+    private function managerSenderUserId(): ?int
+    {
+        $currentUser = Auth::user();
+
+        if (!$currentUser) {
+            return null;
+        }
+
+        return $currentUser->user_id
+            ?: DB::table('users')->where('email', $currentUser->email)->value('id');
     }
 }
