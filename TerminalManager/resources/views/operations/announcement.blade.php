@@ -55,7 +55,7 @@
         <div class="col-md-5">
             <div class="card shadow-sm">
                 <div class="card-header bg-primary text-white">
-                    <i class="bi bi-megaphone-fill"></i> Create Announcement
+                Create Announcement
                 </div>
                 <div class="card-body">
                     <form action="{{ route('announcements.store') }}" method="POST">
