@@ -10,8 +10,6 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
-import { MapService } from '../services/map.service';
-import { Subscription } from 'rxjs';
 
 interface Schedule {
   id: number;
@@ -19,6 +17,12 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  /** Current leg number (1=first outbound, 2=first return, 3=second outbound, …). */
+  trip_leg?: number;
+  /** Status of the current leg. */
+  leg_status?: string;
+  /** Direction of the current leg: 'outbound' | 'return'. */
+  leg_direction?: string;
   /** Passengers still on board (distinct commuters + guests, capped by capacity). */
   aboard_count?: number;
   /** Active ticket rows only (not yet alighted). */
@@ -35,6 +39,18 @@ interface Schedule {
     model: string;
     capacity?: number;
   };
+  return_trip_status?: string;
+  has_return_trip?: boolean;
+}
+
+interface Passenger {
+  ticket_id: string;
+  commuter_name: string;
+  fare: number;
+  payment_method: string | null;
+  payment_status: 'pending' | 'paid';
+  boarded_at: string | null;
+  alighted: boolean;
 }
 
 // ✅ UPDATE THIS INTERFACE TO MATCH API RESPONSE
@@ -71,20 +87,47 @@ export class HomePage implements OnInit, ViewWillEnter {
   greeting: string = 'Good Morning';
   /** Bus seating capacity for the current schedule */
   expectedCapacity: number = 0;
-  private lastFullToastScheduleId: number | null = null;
   userName: string = 'Driver';
   currentSchedule: Schedule | null = null;
   nextSchedule: Schedule | null = null;
   recentNotifications: Notification[] = []; 
   unreadNotificationsCount: number = 0;
   private schedulePoll?: ReturnType<typeof setInterval>;
-  private liveTrackSub?: Subscription;
-  private liveTrackLastSentAt = 0;
+  private lastScheduleId: number | null = null;
+  private lastScheduleRouteId: number | null = null;
+  private lastScheduleStatus: string | null = null;
 
-  driverContactNumber: string | null = null;
-  emergencyName: string | null = null;
-  emergencyRelation: string | null = null;
-  emergencyContact: string | null = null;
+  get tripLeg(): number { return this.currentSchedule?.trip_leg ?? 1; }
+  get legStatus(): string { return this.currentSchedule?.leg_status ?? 'pending'; }
+  get legDirection(): 'outbound' | 'return' {
+    const fromApi = this.currentSchedule?.leg_direction;
+    if (fromApi === 'outbound' || fromApi === 'return') {
+      return fromApi;
+    }
+    return this.tripLeg % 2 === 1 ? 'outbound' : 'return';
+  }
+  get nextLegDirection(): 'outbound' | 'return' {
+    return this.legDirection === 'outbound' ? 'return' : 'outbound';
+  }
+  get hasReturnTrip(): boolean { return this.currentSchedule?.has_return_trip ?? false; }
+  get returnTripSchedule(): Schedule | null {
+    if (!this.currentSchedule || !this.hasReturnTrip) {
+      return null;
+    }
+    if (['completed', 'cancelled', 'declined'].includes(this.currentSchedule.status)) {
+      return null;
+    }
+    return {
+      ...this.currentSchedule,
+      return_trip_status: this.currentSchedule.return_trip_status ?? 'pending',
+    };
+  }
+
+  /** Live passenger list for the current active schedule */
+  passengers: Passenger[] = [];
+  manifestPaidCount = 0;
+  manifestOnBoardCount = 0;
+  showManifest = false;
 
   /** Live terminal bay countdown when the driver is assigned a space from Terminal Manager */
   terminalParking: {
@@ -99,7 +142,6 @@ export class HomePage implements OnInit, ViewWillEnter {
   constructor(
     private authService: AuthService,
     private apiService: ApiService,
-    private mapService: MapService,
     private router: Router,
     private alertController: AlertController,
     private toastController: ToastController,
@@ -121,9 +163,14 @@ export class HomePage implements OnInit, ViewWillEnter {
 
     this.loadTerminalParking();
     setInterval(() => this.loadTerminalParking(), 15000);
+    setInterval(() => this.loadPassengerManifest(), 20000);
   }
 
   ionViewWillEnter() {
+    // Reset change-tracking so navigation back doesn't trigger false alerts
+    this.lastScheduleId = null;
+    this.lastScheduleRouteId = null;
+    this.lastScheduleStatus = null;
     this.loadDriverSchedules();
     this.loadTerminalParking();
   }
@@ -268,66 +315,68 @@ export class HomePage implements OnInit, ViewWillEnter {
   }
 
   loadDriverProfile() {
-    const user = this.authService.getCurrentUser();
-    if (user && user.name) {
-      this.userName = user.name;
-    } else {
-      console.warn('User profile not found in AuthService, using default name.');
+    const name = this.authService.getDriverName() ?? this.authService.getCurrentUser()?.name;
+    if (name) {
+      this.userName = name;
     }
+  }
 
-    // Pull the full driver profile (includes emergency contact fields)
-    const driverId = this.authService.getDriverId();
-    const driverIdNum = driverId ? Number(driverId) : NaN;
-    if (!driverId || Number.isNaN(driverIdNum)) {
+  async respondToSchedule(scheduleId: number, action: 'accept' | 'decline') {
+    if (action === 'decline') {
+      const alert = await this.alertController.create({
+        header: 'Decline Schedule',
+        message: 'Please provide a reason. The operator will review your request.',
+        inputs: [{ name: 'reason', type: 'textarea', placeholder: 'Enter your reason here…', attributes: { maxlength: 500 } }],
+        buttons: [
+          { text: 'Cancel', role: 'cancel' },
+          {
+            text: 'Submit Decline',
+            handler: async (data) => {
+              const reason = (data.reason || '').trim();
+              if (reason.length < 5) {
+                const t = await this.toastController.create({ message: 'Please provide a valid reason (at least 5 characters).', duration: 2000, color: 'warning' });
+                await t.present();
+                return false;
+              }
+              await this.submitDecline(scheduleId, reason);
+              return true;
+            }
+          }
+        ]
+      });
+      await alert.present();
       return;
     }
 
-    this.apiService.getDriverProfile(driverIdNum).subscribe({
-      next: (profile: any) => {
-        // DriverController@show returns driver fields directly (not wrapped in {success:...})
-        this.driverContactNumber = profile?.contact_number ?? null;
-        this.emergencyName = profile?.emergency_name ?? null;
-        this.emergencyRelation = profile?.emergency_relation ?? null;
-        this.emergencyContact = profile?.emergency_contact ?? null;
-      },
-      error: (err) => {
-        console.warn('Failed to load driver profile:', err);
+    try {
+      const response: any = await this.apiService.acceptSchedule(scheduleId).toPromise();
+      if (response?.success) {
+        const toast = await this.toastController.create({ message: 'Schedule accepted.', duration: 2000, color: 'success' });
+        await toast.present();
+        await this.loadDriverSchedules();
+      } else {
+        throw new Error(response?.message || 'Failed');
       }
-    });
+    } catch (error: any) {
+      const toast = await this.toastController.create({ message: error.message || 'Could not accept schedule.', duration: 2500, color: 'danger' });
+      await toast.present();
+    }
   }
 
-  callEmergencyContact() {
-    const num = (this.emergencyContact || '').trim();
-    if (!num) {
-      this.presentToast('No emergency contact number found for your account.', 'warning');
-      return;
+  private async submitDecline(scheduleId: number, reason: string) {
+    try {
+      const response: any = await this.apiService.declineSchedule(scheduleId, reason).toPromise();
+      if (response?.success) {
+        const toast = await this.toastController.create({ message: 'Decline request submitted. Awaiting operator approval.', duration: 2500, color: 'warning' });
+        await toast.present();
+        await this.loadDriverSchedules();
+      } else {
+        throw new Error(response?.message || 'Failed');
+      }
+    } catch (error: any) {
+      const toast = await this.toastController.create({ message: error.message || 'Could not submit decline request.', duration: 2500, color: 'danger' });
+      await toast.present();
     }
-    window.location.href = `tel:${encodeURIComponent(num)}`;
-  }
-
-  async showEmergencyContactDetails() {
-    const name = (this.emergencyName || '').trim();
-    const rel = (this.emergencyRelation || '').trim();
-    const num = (this.emergencyContact || '').trim();
-
-    if (!num) {
-      this.presentToast('No emergency contact number found for your account.', 'warning');
-      return;
-    }
-
-    const alert = await this.alertController.create({
-      header: 'Emergency Contact',
-      subHeader: name || 'Emergency contact',
-      message: `Relation: ${rel || 'N/A'}\nPhone: ${num}`,
-      buttons: [
-        { text: 'Close', role: 'cancel' },
-        {
-          text: 'Call',
-          handler: () => this.callEmergencyContact(),
-        },
-      ],
-    });
-    await alert.present();
   }
 
   async logout() {
@@ -391,7 +440,13 @@ export class HomePage implements OnInit, ViewWillEnter {
       const usable = (s: Schedule) =>
         ['accepted', 'scheduled', 'active'].includes(s.status);
 
-      const merged = [...todayList, ...upcomingList].filter(usable);
+      // Also include recent active schedules from pastSchedules (trips that ran
+      // past midnight or whose window just expired — driver may still need to complete)
+      const recentActive = (response.schedules.past || []).filter(
+        (s: Schedule) => s.status === 'active'
+      );
+
+      const merged = [...todayList, ...upcomingList, ...recentActive].filter(usable);
       merged.sort((a, b) => this.scheduleSortKey(a) - this.scheduleSortKey(b));
 
       const now = new Date();
@@ -406,7 +461,7 @@ export class HomePage implements OnInit, ViewWillEnter {
 
       if (!current) {
         current =
-          merged.find((s) => this.scheduleStartDate(s)! > now) ?? null;
+          merged.find((s) => { const d = this.scheduleStartDate(s); return d !== null && d > now; }) ?? null;
       }
 
       if (!current) {
@@ -425,73 +480,23 @@ export class HomePage implements OnInit, ViewWillEnter {
 
       this.currentSchedule = current;
       this.nextSchedule = next;
+
       this.applyPassengerCounts(current);
-      this.syncLiveTracking(current);
+      this.detectScheduleChanges(current);
+      this.loadPassengerManifest();
     } catch (error) {
       console.error('Error loading driver schedules:', error);
       this.presentToast('Error loading schedules.', 'danger');
       this.currentSchedule = null;
       this.nextSchedule = null;
       this.applyPassengerCounts(null);
-      this.syncLiveTracking(null);
     }
-  }
-
-  private syncLiveTracking(current: Schedule | null) {
-    const st = (current?.status || '').toLowerCase();
-    // Treat accepted as "in service" for GPS publishing so operator/commuter can see the bus
-    // while the driver is en route to the terminal / starting point.
-    const isActive = !!current && (st === 'active' || st === 'accepted');
-    if (!isActive) {
-      this.mapService.stopGpsTracking();
-      this.liveTrackSub?.unsubscribe();
-      this.liveTrackSub = undefined;
-      return;
-    }
-
-    if (this.liveTrackSub) {
-      return; // already tracking
-    }
-
-    const driverId = this.authService.getDriverId();
-    const driverIdNum = driverId ? Number(driverId) : NaN;
-    if (!driverId || Number.isNaN(driverIdNum)) {
-      return;
-    }
-
-    this.liveTrackSub = this.mapService.startGpsTracking(true).subscribe({
-      next: (pos) => {
-        if (!pos) return;
-        const now = Date.now();
-        // Throttle pings to ~10 seconds to avoid spamming the backend.
-        if (now - this.liveTrackLastSentAt < 10000) return;
-        this.liveTrackLastSentAt = now;
-
-        this.apiService.postDriverLocation(driverIdNum, {
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracy_m: pos.accuracy,
-          speed_mps: pos.speed,
-          heading_deg: pos.heading,
-          schedule_id: current?.id,
-          recorded_at: new Date(pos.timestamp).toISOString(),
-        }).subscribe({
-          error: () => {
-            // Ignore transient errors; next ping will retry.
-          }
-        });
-      },
-      error: () => {
-        // ignore
-      }
-    });
   }
 
   private applyPassengerCounts(current: Schedule | null) {
     if (!current) {
       this.currentPassengers = 0;
       this.expectedCapacity = 0;
-      this.lastFullToastScheduleId = null;
       return;
     }
     if (typeof current.aboard_count === 'number' && !Number.isNaN(current.aboard_count)) {
@@ -504,21 +509,68 @@ export class HomePage implements OnInit, ViewWillEnter {
     const cap = current.bus?.capacity;
     this.expectedCapacity =
       typeof cap === 'number' && !isNaN(cap) && cap > 0 ? cap : 0;
+  }
 
-    if (
-      this.expectedCapacity > 0 &&
-      this.currentPassengers >= this.expectedCapacity &&
-      this.lastFullToastScheduleId !== current.id
-    ) {
-      this.lastFullToastScheduleId = current.id;
-      void this.toastController
-        .create({
-          message: `Bus is full (${this.currentPassengers}/${this.expectedCapacity}).`,
-          duration: 3500,
-          color: 'warning',
-        })
-        .then((t) => t.present());
+  loadPassengerManifest() {
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId || this.currentSchedule?.status !== 'active') {
+      this.passengers = [];
+      this.manifestPaidCount = 0;
+      this.manifestOnBoardCount = 0;
+      return;
     }
+    this.apiService.getPassengerManifest(scheduleId).subscribe({
+      next: (res: any) => {
+        if (res?.success) {
+          this.passengers = res.passengers || [];
+          this.manifestPaidCount = res.paid ?? 0;
+          this.manifestOnBoardCount = res.on_board ?? 0;
+        }
+      },
+      error: () => { /* silently ignore */ }
+    });
+  }
+
+  getPaymentMethodLabel(method: string | null): string {
+    const map: Record<string, string> = { cash: 'Cash', gcash: 'GCash', paymaya: 'PayMaya', card: 'Card' };
+    return method ? (map[method] ?? method) : '—';
+  }
+
+  private detectScheduleChanges(current: Schedule | null) {
+    const newId = current?.id ?? null;
+    const newRouteId = current?.route?.id ?? null;
+    const newStatus = current?.status ?? null;
+
+    // Skip on very first load (no previous state yet)
+    if (this.lastScheduleId === null && newId !== null) {
+      this.lastScheduleId = newId;
+      this.lastScheduleRouteId = newRouteId;
+      this.lastScheduleStatus = newStatus;
+      return;
+    }
+
+    if (newId !== null && newId !== this.lastScheduleId) {
+      void this.presentToast(
+        `Your schedule has been updated. New trip: ${current?.route?.name ?? 'see schedule'}.`,
+        'warning'
+      );
+    } else if (newId === this.lastScheduleId && newRouteId !== this.lastScheduleRouteId) {
+      void this.presentToast(
+        `Route changed to: ${current?.route?.name ?? 'check schedule'}.`,
+        'warning'
+      );
+    } else if (newId === this.lastScheduleId && newStatus !== this.lastScheduleStatus) {
+      if (newStatus === 'declined' || newStatus === 'cancelled') {
+        void this.presentToast(
+          `Schedule ${newStatus}. Please check with your operator.`,
+          'danger'
+        );
+      }
+    }
+
+    this.lastScheduleId = newId;
+    this.lastScheduleRouteId = newRouteId;
+    this.lastScheduleStatus = newStatus;
   }
 
   private scheduleDateKey(s: Schedule): string {
@@ -709,6 +761,12 @@ export class HomePage implements OnInit, ViewWillEnter {
         {
           name: 'issueType',
           type: 'radio',
+          label: 'Weather',
+          value: 'weather',
+        },
+        {
+          name: 'issueType',
+          type: 'radio',
           label: 'Other',
           value: 'other',
         },
@@ -745,6 +803,7 @@ export class HomePage implements OnInit, ViewWillEnter {
       'mechanical',
       'accident',
       'medical',
+      'weather',
       'other',
     ]);
     if (legacy[key]) {
@@ -785,6 +844,7 @@ export class HomePage implements OnInit, ViewWillEnter {
       mechanical: 'Mechanical problem',
       accident: 'Accident',
       medical: 'Medical',
+      weather: 'Weather',
       other: 'Other',
       traffic: 'Road blockage / delay',
     };
@@ -1010,6 +1070,44 @@ export class HomePage implements OnInit, ViewWillEnter {
     await toast.present();
   }
 
+  async acceptNextLeg() {
+    if (!this.currentSchedule) return;
+    try {
+      await firstValueFrom(this.apiService.acceptSchedule(this.currentSchedule.id));
+      const label = this.legDirection === 'outbound' ? 'Return trip accepted.' : 'Outbound trip accepted.';
+      await this.presentToast(label, 'success');
+      await this.loadDriverSchedules();
+    } catch (e: any) {
+      await this.presentToast(e?.error?.message || e?.message || 'Could not accept leg.', 'danger');
+    }
+  }
+
+  async endDayTrip() {
+    if (!this.currentSchedule) return;
+    const scheduleId = this.currentSchedule.id;
+    const alert = await this.alertController.create({
+      header: 'End Day',
+      message: 'Are you sure you want to end your day? The schedule will be marked as completed.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'End Day',
+          cssClass: 'alert-button-danger',
+          handler: async () => {
+            try {
+              await firstValueFrom(this.apiService.endDay(scheduleId));
+              await this.presentToast('Day ended. Schedule completed.', 'success');
+              await this.loadDriverSchedules();
+            } catch (e: any) {
+              await this.presentToast(e?.error?.message || e?.message || 'Could not end day.', 'danger');
+            }
+          }
+        }
+      ]
+    });
+    await alert.present();
+  }
+
   getScheduleRoute(schedule: Schedule | null): string {
     if (!schedule || !schedule.route) return 'N/A';
     return schedule.route.name || `${schedule.route.start_location} to ${schedule.route.end_location}`;
@@ -1018,6 +1116,75 @@ export class HomePage implements OnInit, ViewWillEnter {
   getScheduleDestination(schedule: Schedule | null): string {
     if (!schedule || !schedule.route) return 'N/A';
     return schedule.route.end_location || 'N/A';
+  }
+
+  /** Route label for the CURRENT active leg. */
+  getCurrentLegRoute(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    if (this.legDirection === 'return') {
+      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+    }
+    return r.name || `${r.start_location} to ${r.end_location}`;
+  }
+
+  /** Destination for the CURRENT active leg. */
+  getCurrentLegDestination(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    return this.legDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+  }
+
+  /** Route label for the NEXT upcoming leg. */
+  getNextLegRoute(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    if (this.nextLegDirection === 'return') {
+      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+    }
+    return r.name || `${r.start_location} to ${r.end_location}`;
+  }
+
+  /** Destination for the NEXT upcoming leg. */
+  getNextLegDestination(): string {
+    const r = this.currentSchedule?.route;
+    if (!r) return 'N/A';
+    return this.nextLegDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+  }
+
+  getReturnTripRoute(schedule: Schedule | null): string {
+    const r = schedule?.route;
+    if (!r) return 'N/A';
+    return r.end_location && r.start_location
+      ? `${r.end_location} to ${r.start_location}`
+      : r.name;
+  }
+
+  getReturnTripDestination(schedule: Schedule | null): string {
+    return schedule?.route?.start_location || 'N/A';
+  }
+
+  async respondToReturnTrip(action: 'accept' | 'decline') {
+    if (action === 'accept') {
+      await this.acceptNextLeg();
+      return;
+    }
+    if (!this.currentSchedule) return;
+    try {
+      await firstValueFrom(this.apiService.declineReturnTrip(this.currentSchedule.id));
+      await this.presentToast('Return trip declined.', 'warning');
+      await this.loadDriverSchedules();
+    } catch (e: any) {
+      await this.presentToast(e?.error?.message || e?.message || 'Could not decline return trip.', 'danger');
+    }
+  }
+
+  async startReturnTripAction() {
+    await this.acceptNextLeg();
+  }
+
+  async completeReturnTripAction() {
+    await this.endDayTrip();
   }
 
   getScheduleTime(schedule: Schedule | null): string {

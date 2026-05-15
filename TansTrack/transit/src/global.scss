@@ -41,3 +41,14 @@
 /* @import "@ionic/angular/css/palettes/dark.always.css"; */
 /* @import "@ionic/angular/css/palettes/dark.class.css"; */
 @import "@ionic/angular/css/palettes/dark.system.css";
+
+/* Avoid a solid black viewport before Ionic paints (common on dark-mode WebViews). */
+html,
+body {
+  background-color: #1e3c72;
+}
+
+app-root {
+  display: block;
+  min-height: 100%;
+}

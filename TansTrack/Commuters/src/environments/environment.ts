@@ -9,15 +9,9 @@ export const environment = {
    * `http://192.168.x.x:8000/api/v1`. To hit the tunnel from a device, paste the current Forwarding URL:
    * `https://xxxx.ngrok-free.app/api/v1` (expect ngrok browser-warning quirks on OPTIONS unless using a paid/reserved domain).
    */
-  apiUrl: 'https://5b6f-113-19-183-130.ngrok-free.app/api/v1',
+  apiUrl: 'https://exodus-jury-unripe.ngrok-free.dev/api/v1',
   ocrApiKey: 'K87693276688957',
 
-  messaging: {  
-     streamApiKey: 'em2gqhhmgvng',
-  streamApiSecret: '9qnnvs84t9anmvet63envwj46qc6yrp7kkg99adawv3sdrkhsshhnjc43ve6k9hu',
-
-  },
- 
   mapbox: {
     accessToken: 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA'
   },
@@ -27,10 +21,8 @@ export const environment = {
   commuterBusTypeDefault: 'regular' as 'regular' | 'aircon',
   
   payment: {
-    paymango: {
-      publicKey: 'pk_test_m1kdK8iC26wkPEBdGTgHjGJZ',
-      // Note: Secret key should be handled server-side only
-      baseUrl: 'https://pg-sandbox.paymango.com' // Sandbox for testing
+    stripe: {
+      publicKey: 'pk_test_51TVByVJ12vxXiUyWP32KQQEPwMnNs5W8HbmFgFAYjWrwR8vHWbDZWFTCW4ELCGANS6TI8a7V8R2jN5tofgeaCes900b2azGweU',
     }
   }
 

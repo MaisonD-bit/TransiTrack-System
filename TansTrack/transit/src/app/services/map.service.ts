@@ -1,4 +1,6 @@
 import { Injectable } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation, type Position } from '@capacitor/geolocation';
 import { environment } from '../../environments/environment';
 import { Observable, BehaviorSubject } from 'rxjs';
 import mapboxgl from 'mapbox-gl';
@@ -74,6 +76,7 @@ export class MapService {
   currentPosition$ = this.currentPositionSubject.asObservable();
   
   private watchId: number | null = null;
+  private capacitorWatchId: string | null = null;
   private trackingEnabled = false;
 
   // Cebu, Philippines coordinates and bounds
@@ -301,55 +304,118 @@ export class MapService {
   }
 
   /**
-   * Start GPS tracking using browser's geolocation API
-   * @param highAccuracy Whether to use high accuracy mode (uses more battery)
-   * @returns Observable of the current position
+   * Start GPS tracking (Capacitor on device — respects Fake GPS / mock location).
+   * Falls back to navigator.geolocation in the browser.
    */
   startGpsTracking(highAccuracy = true): Observable<GpsPosition | null> {
-    if (!this.trackingEnabled && navigator.geolocation) {
-      this.trackingEnabled = true;
-      
-      // Get initial position
-      navigator.geolocation.getCurrentPosition(
-        (position) => this.handlePositionUpdate(position),
-        (error) => this.handlePositionError(error),
-        {
-          enableHighAccuracy: highAccuracy,
-          maximumAge: 0,
-          timeout: 20000,
-        }
-      );
-      
-      // Start watching position
-      this.watchId = navigator.geolocation.watchPosition(
-        (position) => this.handlePositionUpdate(position),
-        (error) => this.handlePositionError(error),
-        { 
-          enableHighAccuracy: highAccuracy,
-          maximumAge: 0,          // Do not accept cached positions (important for mock GPS testing)
-          timeout: 20000          // Wait up to 20 seconds for a position
-        }
-      );
-      
-      console.log('GPS tracking started');
-    } else if (!navigator.geolocation) {
-      console.error('Geolocation is not supported by this browser');
+    if (this.trackingEnabled) {
+      return this.currentPosition$;
+    }
+
+    this.trackingEnabled = true;
+
+    if (Capacitor.isNativePlatform()) {
+      void this.startCapacitorGpsTracking(highAccuracy);
+    } else if (navigator.geolocation) {
+      this.startBrowserGpsTracking(highAccuracy);
+    } else {
+      console.error('Geolocation is not supported');
+      this.trackingEnabled = false;
       this.currentPositionSubject.next(null);
     }
-    
+
     return this.currentPosition$;
   }
-  
+
+  private async startCapacitorGpsTracking(highAccuracy: boolean): Promise<void> {
+    try {
+      const perm = await Geolocation.requestPermissions();
+      const granted =
+        perm.location === 'granted' ||
+        (perm as { coarseLocation?: string }).coarseLocation === 'granted';
+      if (!granted) {
+        console.error('Geolocation permission denied');
+        this.trackingEnabled = false;
+        return;
+      }
+
+      try {
+        const current = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: highAccuracy,
+          timeout: 15000,
+          maximumAge: 5000,
+        });
+        this.handleCapacitorPositionUpdate(current);
+      } catch (e) {
+        console.warn('Geolocation getCurrentPosition:', e);
+      }
+
+      this.capacitorWatchId = await Geolocation.watchPosition(
+        {
+          enableHighAccuracy: highAccuracy,
+          timeout: 15000,
+          maximumAge: 5000,
+        },
+        (position, err) => {
+          if (err) {
+            console.error('Geolocation watch error:', err);
+            return;
+          }
+          if (position) {
+            this.handleCapacitorPositionUpdate(position);
+          }
+        }
+      );
+      console.log('Capacitor GPS tracking started');
+    } catch (e) {
+      console.error('Capacitor geolocation failed, trying browser API:', e);
+      if (navigator.geolocation) {
+        this.startBrowserGpsTracking(highAccuracy);
+      } else {
+        this.trackingEnabled = false;
+      }
+    }
+  }
+
+  private startBrowserGpsTracking(highAccuracy: boolean): void {
+    navigator.geolocation.getCurrentPosition(
+      (position) => this.handlePositionUpdate(position),
+      (error) => this.handlePositionError(error),
+      { enableHighAccuracy: highAccuracy, maximumAge: 10000, timeout: 15000 }
+    );
+
+    this.watchId = navigator.geolocation.watchPosition(
+      (position) => this.handlePositionUpdate(position),
+      (error) => this.handlePositionError(error),
+      {
+        enableHighAccuracy: highAccuracy,
+        maximumAge: 10000,
+        timeout: 15000,
+      }
+    );
+    console.log('Browser GPS tracking started');
+  }
+
   /**
    * Stop GPS tracking
    */
   stopGpsTracking(): void {
-    if (this.trackingEnabled && this.watchId !== null && navigator.geolocation) {
+    if (!this.trackingEnabled) {
+      return;
+    }
+
+    if (this.capacitorWatchId != null) {
+      void Geolocation.clearWatch({ id: this.capacitorWatchId }).catch(() => {});
+      this.capacitorWatchId = null;
+    }
+
+    if (this.watchId !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
-      this.trackingEnabled = false;
-      console.log('GPS tracking stopped');
     }
+
+    this.trackingEnabled = false;
+    console.log('GPS tracking stopped');
   }
   
   /**
@@ -372,6 +438,18 @@ export class MapService {
    * Handle position updates from the geolocation API
    * @param position The position object from the geolocation API
    */
+  private handleCapacitorPositionUpdate(position: Position): void {
+    const gpsPosition: GpsPosition = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy ?? 0,
+      heading: position.coords.heading ?? undefined,
+      speed: position.coords.speed ?? undefined,
+      timestamp: position.timestamp ?? Date.now(),
+    };
+    this.currentPositionSubject.next(gpsPosition);
+  }
+
   private handlePositionUpdate(position: GeolocationPosition): void {
     const gpsPosition: GpsPosition = {
       latitude: position.coords.latitude,

@@ -7,6 +7,7 @@ let selectedSpaceElement = null;
 let expirationCheckInterval = null;
 let tooltipCountdownTimer = null;
 let currentHistoryPage = 1; // Track current history page for smooth updates
+let originalSpaceRouteName = null; // Store original space route name to prevent overwriting
 const occupiedSpaces = new Map();
 const spaceExpirationTimes = new Map(); // Track expiration times for each space
 const historyRecords = [];
@@ -460,25 +461,34 @@ function fillCompanyOperator() {
         fetch(`/api/terminal/driver-routes/${driverId}`)
             .then(response => response.json())
             .then(data => {
+                // PRESERVE the original space route name instead of overwriting it
+                // Only update if no original route name was set
                 if (data.success && data.routes.length > 0) {
-                    // Set the first route as the selected route
                     const selectedRoute = data.routes[0];
-                    document.getElementById('panelRouteName').value = selectedRoute.name;
+                    if (!originalSpaceRouteName) {
+                        document.getElementById('panelRouteName').value = selectedRoute.name;
+                    }
                     window.selectedDriverRoute = selectedRoute.name;
                 } else {
-                    document.getElementById('panelRouteName').value = '';
+                    if (!originalSpaceRouteName) {
+                        document.getElementById('panelRouteName').value = '';
+                    }
                     window.selectedDriverRoute = null;
                 }
             })
             .catch(error => {
                 console.error('Error fetching driver routes:', error);
-                document.getElementById('panelRouteName').value = '';
+                if (!originalSpaceRouteName) {
+                    document.getElementById('panelRouteName').value = '';
+                }
                 window.selectedDriverRoute = null;
             });
     } else {
         document.getElementById('panelOperator').innerHTML = '<option value="">-- Select Operator --</option>';
         document.getElementById('panelCompany').value = '';
-        document.getElementById('panelRouteName').value = '';
+        if (!originalSpaceRouteName) {
+            document.getElementById('panelRouteName').value = '';
+        }
         window.selectedDriverRoute = null;
     }
 }
@@ -675,10 +685,12 @@ function occupySpace(e) {
         return;
     }
 
-    routeNameEl.value = selectedSpaceElement.getAttribute('data-route') || '';
+    // Store and preserve the original space route name
+    originalSpaceRouteName = selectedSpaceElement.getAttribute('data-route') || '';
+    routeNameEl.value = originalSpaceRouteName;
     spaceIdEl.value = spaceId;
 
-    document.getElementById('panelRouteName').value = selectedSpaceElement.getAttribute('data-route') || '';
+    document.getElementById('panelRouteName').value = originalSpaceRouteName;
     document.getElementById('panelSpaceId').value = spaceId;
     document.getElementById('panelDriver').value = '';
     document.getElementById('panelCompany').value = '';
@@ -739,6 +751,7 @@ function closePanel() {
     currentSpace = null;
     selectedSpaceElement = null;
     isEditMode = false;
+    originalSpaceRouteName = null;
     closeTooltip();
 }
 
@@ -902,7 +915,7 @@ function saveSpaceOccupancy() {
             driver_id: parseInt(driverId),
             operator_id: parseInt(operatorId),
             duration_minutes: mins,
-            route_name: window.selectedDriverRoute || null,
+            route_name: document.getElementById('panelRouteName').value || null,
             accommodation_type: document.getElementById('panelAccommodationType').value || null
         };
 

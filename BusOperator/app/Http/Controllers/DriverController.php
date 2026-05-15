@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Driver;
+use App\Models\DriverLocation;
 use App\Models\Schedule;
 use App\Models\Route as BusRoute;
 use App\Models\Bus;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -186,6 +188,7 @@ class DriverController extends Controller
             'emergency_relation' => $driver->emergency_relation,
             'emergency_contact' => $driver->emergency_contact,
             'status' => $driver->status,
+            'suspended_until' => $driver->suspended_until ? $driver->suspended_until->toIso8601String() : null,
             'photo_url' => $driver->photo_url,
             'notes' => $driver->notes,
             'app_registered' => $driver->app_registered,
@@ -227,7 +230,8 @@ class DriverController extends Controller
             'emergency_name' => 'string|max:255|nullable',
             'emergency_relation' => 'string|max:100|nullable',
             'emergency_contact' => 'string|max:20|nullable',
-            'status' => 'required|string|in:active,inactive,pending,suspended',
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
+            'suspension_days' => 'nullable|integer|min:1|max:365',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
@@ -238,12 +242,51 @@ class DriverController extends Controller
             ], 422);
         }
 
+        if ($request->input('status') === 'suspended') {
+            $sd = (int) $request->input('suspension_days', 0);
+            // Allow edits that keep an active suspension end date; otherwise require valid days.
+            $keepingExistingSuspension = $driver->status === 'suspended'
+                && $driver->suspended_until
+                && ! $request->filled('suspension_days');
+
+            if (! $keepingExistingSuspension && ($sd < 1 || $sd > 365)) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => ['suspension_days' => ['Enter suspension length between 1 and 365 days when suspending a driver.']],
+                ], 422);
+            }
+        }
+
         try {
             $updateData = $request->only([
                 'name', 'email', 'contact_number', 'date_of_birth', 'gender',
                 'address', 'license_number', 'license_expiry', 'emergency_name',
                 'emergency_relation', 'emergency_contact', 'status', 'notes'
             ]);
+
+            if (($updateData['status'] ?? '') === 'suspended') {
+                $days = (int) $request->input('suspension_days', 0);
+                if ($days >= 1 && $days <= 365) {
+                    $until = Carbon::now()->addDays($days);
+                    $updateData['suspended_until'] = $until;
+                    Notification::create([
+                        'type' => 'account_update',
+                        'message' => 'Your operator has suspended your account for '.$days.' day(s), until '.$until->format('M j, Y g:i A').'.',
+                        'sender_id' => auth()->id(),
+                        'driver_id' => $driver->id,
+                        'is_read' => false,
+                    ]);
+                } elseif ($driver->status === 'suspended' && $driver->suspended_until) {
+                    $updateData['suspended_until'] = $driver->suspended_until;
+                } else {
+                    return response()->json([
+                        'success' => false,
+                        'errors' => ['suspension_days' => ['Enter suspension length between 1 and 365 days when suspending a driver.']],
+                    ], 422);
+                }
+            } else {
+                $updateData['suspended_until'] = null;
+            }
 
             // Handle photo upload
             if ($request->hasFile('photo')) {
@@ -292,7 +335,7 @@ class DriverController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'status' => 'required|string|in:active,inactive,pending,suspended'
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave'
         ]);
 
         if ($validator->fails()) {
@@ -304,7 +347,11 @@ class DriverController extends Controller
 
         try {
             $driver = Driver::findOrFail($id);
-            $driver->update(['status' => $request->status]);
+            $updates = ['status' => $request->status];
+            if (in_array($request->status, ['active', 'inactive', 'pending'], true)) {
+                $updates['suspended_until'] = null;
+            }
+            $driver->update($updates);
 
             return response()->json([
                 'success' => true,
@@ -756,7 +803,19 @@ public function profile($id, Request $request)
 
         Log::info('  Password verified');
 
-        // Check if driver is active
+        $driver->liftSuspensionIfExpired();
+        $driver->refresh();
+
+        if ($driver->status === 'suspended' && $driver->suspended_until) {
+            $until = Carbon::parse($driver->suspended_until)->timezone(config('app.timezone'));
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is suspended until '.$until->format('M j, Y g:i A').'. Contact your bus operator if you need help.',
+                'suspended_until' => $until->toIso8601String(),
+            ], 403);
+        }
+
         if ($driver->status !== 'active') {
             Log::warning('❌ Driver not active', [
                 'email' => $driver->email,
@@ -1033,7 +1092,6 @@ public function profile($id, Request $request)
             return response()->json([
                 'success' => true,
                 'message' => 'Password reset successfully',
-                'new_password' => $newPassword
             ]);
 
         } catch (\Exception $e) {
@@ -1043,5 +1101,116 @@ public function profile($id, Request $request)
                 'message' => 'Failed to reset password'
             ], 500);
         }
+    }
+
+    /** Driver performance KPIs for the mobile app */
+    public function performance(int $driverId)
+    {
+        $driver = Driver::find($driverId);
+        if (! $driver) {
+            return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
+        }
+
+        $schedules = Schedule::where('driver_id', $driverId)->get();
+
+        $total      = $schedules->count();
+        $completed  = $schedules->where('status', 'completed')->count();
+        $active     = $schedules->where('status', 'active')->count();
+        $accepted   = $schedules->where('status', 'accepted')->count();
+        $declined   = $schedules->where('status', 'declined')->count();
+        $cancelled  = $schedules->where('status', 'cancelled')->count();
+
+        $completionRate  = $total > 0 ? round(($completed / $total) * 100, 1) : 0;
+        $acceptanceRate  = ($accepted + $completed + $active) > 0
+            ? round((($accepted + $completed + $active) / $total) * 100, 1)
+            : 0;
+
+        // Incident count from notifications table
+        $incidents = DB::table('notifications')
+            ->where('driver_id', $driverId)
+            ->where('type', 'incident')
+            ->count();
+
+        // Average rating from feedbacks
+        $avgRating = DB::table('feedbacks')
+            ->where('driver_id', $driverId)
+            ->whereNotNull('overall_rating')
+            ->avg('overall_rating');
+
+        $totalReviews = DB::table('feedbacks')
+            ->where('driver_id', $driverId)
+            ->count();
+
+        // Trips this month
+        $thisMonth = $schedules->filter(function ($s) {
+            return Carbon::parse($s->date)->isCurrentMonth();
+        });
+        $monthTotal     = $thisMonth->count();
+        $monthCompleted = $thisMonth->where('status', 'completed')->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'driver'          => ['id' => $driver->id, 'name' => $driver->name],
+                'total_trips'     => $total,
+                'completed_trips' => $completed,
+                'active_trips'    => $active,
+                'declined_trips'  => $declined,
+                'cancelled_trips' => $cancelled,
+                'completion_rate' => $completionRate,
+                'acceptance_rate' => $acceptanceRate,
+                'incident_count'  => $incidents,
+                'average_rating'  => $avgRating ? round($avgRating, 2) : null,
+                'total_reviews'   => $totalReviews,
+                'this_month' => [
+                    'total'     => $monthTotal,
+                    'completed' => $monthCompleted,
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Driver app: live GPS ping (Fake GPS / device location).
+     */
+    public function postLocation(Request $request, $driverId)
+    {
+        $driver = Driver::findOrFail($driverId);
+        $data = $request->validate([
+            'latitude'    => ['required', 'numeric', 'between:-90,90'],
+            'longitude'   => ['required', 'numeric', 'between:-180,180'],
+            'accuracy_m'  => ['nullable', 'numeric', 'min:0', 'max:100000'],
+            'speed_mps'   => ['nullable', 'numeric', 'min:0', 'max:200'],
+            'heading_deg' => ['nullable', 'numeric', 'min:0', 'max:360'],
+            'schedule_id' => ['nullable', 'integer', 'exists:schedules,id'],
+            'recorded_at' => ['nullable', 'date'],
+        ]);
+
+        $now = isset($data['recorded_at']) ? Carbon::parse($data['recorded_at']) : now();
+
+        DriverLocation::create([
+            'driver_id'   => $driver->id,
+            'schedule_id' => $data['schedule_id'] ?? null,
+            'latitude'    => (float) $data['latitude'],
+            'longitude'   => (float) $data['longitude'],
+            'accuracy_m'  => isset($data['accuracy_m']) ? (float) $data['accuracy_m'] : null,
+            'speed_mps'   => isset($data['speed_mps']) ? (float) $data['speed_mps'] : null,
+            'heading_deg' => isset($data['heading_deg']) ? (float) $data['heading_deg'] : null,
+            'recorded_at' => $now,
+        ]);
+
+        if (! empty($data['schedule_id'])) {
+            $schedule = Schedule::query()
+                ->where('id', $data['schedule_id'])
+                ->where('driver_id', $driver->id)
+                ->first();
+            if ($schedule) {
+                $schedule->current_lat = (float) $data['latitude'];
+                $schedule->current_lng = (float) $data['longitude'];
+                $schedule->save();
+            }
+        }
+
+        return response()->json(['success' => true]);
     }
 }

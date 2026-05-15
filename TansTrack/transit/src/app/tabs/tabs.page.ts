@@ -1,16 +1,6 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { ApiService } from '../services/api.service';
-
-interface Route {
-  id: number;
-  name: string;
-  start_location: string;
-  end_location: string;
-  distance_km?: number;
-  estimated_duration?: string;
-  assigned_date: string;
-  schedule_id: number;
-}
 
 @Component({
   selector: 'app-tabs',
@@ -18,58 +8,39 @@ interface Route {
   styleUrls: ['tabs.page.scss'],
   standalone: false
 })
-export class TabsPage implements OnInit {
-  driverId: number | null = null;
-  assignedRoutes: Route[] = [];
+export class TabsPage implements OnInit, OnDestroy {
   unreadCount: number = 0;
+  private pollTimer?: ReturnType<typeof setInterval>;
+  private countSub?: Subscription;
 
   constructor(private apiService: ApiService) {}
 
   ngOnInit() {
-    this.loadDriverInfo();
+    this.countSub = this.apiService.driverUnreadCount$.subscribe(n => this.unreadCount = n);
+    this.pollUnreadCount();
+    this.pollTimer = setInterval(() => this.pollUnreadCount(), 15000);
   }
 
-  loadDriverInfo() {
-    try {
-      const driverId = localStorage.getItem('driverId');
-      if (driverId) {
-        this.driverId = parseInt(driverId);
-        this.loadAssignedRoutes();
-      }
-    } catch (error) {
-      console.error('Error loading driver info:', error);
-    }
+  ngOnDestroy() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.countSub?.unsubscribe();
   }
 
-  loadAssignedRoutes() {
-    if (!this.driverId) return;
+  private pollUnreadCount() {
+    const raw = sessionStorage.getItem('driverId');
+    if (!raw) return;
+    const driverId = parseInt(raw, 10);
+    if (isNaN(driverId)) return;
 
-    this.apiService.getDriverSchedules(this.driverId).subscribe({
-      next: (response) => {
-        if (response.success && response.schedules) {
-          this.assignedRoutes = this.extractUniqueRoutes(response.schedules);
+    this.apiService.getDriverNotifications(driverId).subscribe({
+      next: (res: any) => {
+        if (res?.success && Array.isArray(res.notifications)) {
+          this.apiService.driverUnreadCount$.next(
+            res.notifications.filter((n: any) => !n.is_read).length
+          );
         }
       },
-      error: (error) => {
-        console.error('Error loading assigned routes:', error);
-      }
+      error: () => {}
     });
-  }
-
-  private extractUniqueRoutes(schedules: any): any[] {
-    // The schedules parameter IS the schedules object, not wrapped in another schedules property
-    if (!schedules || !Array.isArray(schedules.all)) {
-      console.warn('No schedules.all array found:', schedules);
-      return [];
-    }
-    
-    const routeMap = new Map();
-    schedules.all.forEach((schedule: any) => {
-      if (schedule.route) {
-        routeMap.set(schedule.route.id, schedule.route);
-      }
-    });
-    
-    return Array.from(routeMap.values());
   }
 }

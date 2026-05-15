@@ -603,7 +603,7 @@
 
             <div class="form-group">
                 <label class="form-label">Route Name</label>
-                <input type="text" class="form-control" id="panelRouteName" readonly>
+                <input type="text" class="form-control" id="panelRouteName">
             </div>
 
             <div class="form-group">

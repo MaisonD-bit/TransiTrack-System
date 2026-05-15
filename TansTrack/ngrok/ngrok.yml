@@ -1,6 +1,6 @@
 # ngrok configuration file
 # Replace YOUR_AUTH_TOKEN with your actual ngrok auth token
-authtoken: 33CGYkfr36gIYGh5oitKPp9LBYE_NseT8Z5BZfZyHWC94WdR
+authtoken: 3CZsRQj4DtXEYMz9RetcK4qHJiW_7WMLhNfGZLtDTimaTAQ9R
 
 # Tunnel configurations
 tunnels:

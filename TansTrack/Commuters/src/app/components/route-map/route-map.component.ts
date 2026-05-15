@@ -20,25 +20,24 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() startCoord: [number, number] | null | undefined = null;
   @Input() endCoord: [number, number] | null | undefined = null;
   /** Terminal-manager stop pins (numbered) along the route */
-  @Input() stopPins: { lng: number; lat: number; label?: string }[] = [];
+  @Input() stopPins: { lng: number; lat: number; label?: string; etaMin?: number }[] = [];
   /** Live / estimated bus positions from operator schedules (commuter app). */
-  @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean }[] = [];
-  /**
-   * Distinct route lines per active bus (same geometry, different color/offset).
-   * Lets commuters visually distinguish multiple active buses on the same route.
-   */
-  @Input() routeLineVariants: { id: number; color: string; offsetPx: number; label: string; selected: boolean }[] = [];
+  @Input() liveBusMarkers: { lng: number; lat: number; label: string; color: string; scheduleId?: number; selected?: boolean; status?: string }[] = [];
   /** When true, skip the demo bus animation (use live markers instead). */
-  @Input() disableSimulator: boolean = true;
+  @Input() disableSimulator: boolean = false;
+  /** The stop where the commuter wants to board — renders a pulsing cyan marker. */
+  @Input() commuterBoardingPin: { lng: number; lat: number; label?: string } | null = null;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
   mapLoaded: boolean = false;
   routeMarkers: any[] = []; // Store markers for cleanup
   private stopPinMarkers: any[] = [];
-  private liveBusMapMarkers: any[] = [];
-  private variantLayerIds: string[] = [];
+  private liveBusMarkerIndex = new Map<string, any>();
+  private liveBusLerpSubs = new Map<string, Subscription>();
+  private liveBusSimSubs: Subscription[] = [];
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
+  private commuterBoardingMarker: any = null;
   
   constructor(private busSimulatorService: BusSimulatorService) {}
 
@@ -81,7 +80,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
     this.map.on('load', () => {
       this.mapLoaded = true;
-      this.drawRoute();
+      this.drawRoute().catch(e => console.warn('drawRoute error:', e));
     });
   }
 
@@ -94,7 +93,11 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       try { this.simulatedVehicleMarker.remove(); } catch (e) {}
       this.simulatedVehicleMarker = null;
     }
-    this.clearLiveBusMarkers();
+    if (this.commuterBoardingMarker) {
+      try { this.commuterBoardingMarker.remove(); } catch (e) {}
+      this.commuterBoardingMarker = null;
+    }
+    this.clearLiveBusMarkers(); // also unsubscribes liveBusSimSubs
   }
 
   ngOnChanges(changes: SimpleChanges) {
@@ -103,105 +106,128 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
     // Redrawing the full route restarts bus simulation + interpolation — only when geometry changes.
     if (changes['routeGeoJson']) {
-      this.drawRoute();
+      this.drawRoute().catch(e => console.warn('drawRoute error:', e));
       return;
     }
-    if (changes['stopPins']) {
+    if (changes['stopPins'] && !changes['routeGeoJson']) {
       this.drawStopPins();
     }
     if (changes['liveBusMarkers'] || changes['disableSimulator']) {
       this.refreshLiveBusMarkers();
-    }
-    if (changes['routeLineVariants']) {
-      this.refreshRouteLineVariants();
-    }
-  }
-
-  private clearRouteLineVariants(): void {
-    if (!this.mapLoaded || !this.map) return;
-    this.variantLayerIds.forEach((id) => {
-      try {
-        if (this.map.getLayer(id)) this.map.removeLayer(id);
-      } catch {}
-    });
-    this.variantLayerIds = [];
-  }
-
-  private refreshRouteLineVariants(): void {
-    if (!this.mapLoaded || !this.map) return;
-    if (!this.map.getSource('route')) return;
-
-    this.clearRouteLineVariants();
-    const variants = Array.isArray(this.routeLineVariants) ? this.routeLineVariants : [];
-    if (!variants.length) return;
-
-    variants.forEach((v) => {
-      const id = `route-line-variant-${v.id}`;
-      try {
-        this.map.addLayer({
-          id,
-          type: 'line',
-          source: 'route',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': v.color,
-            'line-width': v.selected ? 7 : 5,
-            'line-opacity': v.selected ? 0.95 : 0.55,
-            'line-translate': [v.offsetPx || 0, 0],
-            'line-translate-anchor': 'viewport',
-          },
-        });
-        this.variantLayerIds.push(id);
-      } catch {
-        // ignore
+      if (this.disableSimulator) {
+        if (this.busSimSub) {
+          this.busSimSub.unsubscribe();
+          this.busSimSub = null;
+        }
+        if (this.simulatedVehicleMarker) {
+          try { this.simulatedVehicleMarker.remove(); } catch (e) {}
+          this.simulatedVehicleMarker = null;
+        }
       }
-    });
+    }
+    if (changes['commuterBoardingPin']) {
+      this.renderCommuterBoardingMarker();
+    }
+  }
+
+  /** Fetch road-following geometry from Mapbox Directions API. Returns null on failure. */
+  private async fetchRoadGeometry(waypoints: [number, number][]): Promise<number[][] | null> {
+    const token = environment.mapbox?.accessToken;
+    if (!token || waypoints.length < 2) return null;
+    // Mapbox Directions supports up to 25 waypoints; clamp if needed
+    const pts = waypoints.slice(0, 25);
+    const coords = pts.map(([lng, lat]) => `${lng},${lat}`).join(';');
+    const url =
+      `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}` +
+      `?geometries=geojson&overview=full&access_token=${token}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.routes?.[0]?.geometry?.coordinates?.length >= 2) {
+        return data.routes[0].geometry.coordinates;
+      }
+    } catch (e) {
+      console.warn('Mapbox Directions fetch failed:', e);
+    }
+    return null;
   }
 
   private clearLiveBusMarkers(): void {
-    this.liveBusMapMarkers.forEach((m) => {
-      try { m.remove(); } catch (e) {}
-    });
-    this.liveBusMapMarkers = [];
+    this.liveBusSimSubs.forEach(s => s.unsubscribe());
+    this.liveBusSimSubs = [];
+    this.liveBusLerpSubs.forEach(s => s.unsubscribe());
+    this.liveBusLerpSubs.clear();
+    this.liveBusMarkerIndex.forEach((m: any) => { try { m.remove(); } catch (e) {} });
+    this.liveBusMarkerIndex.clear();
+  }
+
+  private findNearestCoordIndex(coords: number[][], lng: number, lat: number): number {
+    let nearest = 0, minDist = Infinity;
+    for (let i = 0; i < coords.length; i++) {
+      const dx = coords[i][0] - lng, dy = coords[i][1] - lat;
+      const d = dx * dx + dy * dy;
+      if (d < minDist) { minDist = d; nearest = i; }
+    }
+    return nearest;
   }
 
   private refreshLiveBusMarkers(): void {
-    if (!this.mapLoaded || !this.map) {
-      return;
-    }
-    this.clearLiveBusMarkers();
-    if (!this.liveBusMarkers?.length) {
-      return;
-    }
-    this.liveBusMarkers.forEach((b) => {
-      const el = document.createElement('div');
-      // Bus icon marker (instead of pin/dot).
-      const size = 30;
-      const ring = b.selected ? '0 0 0 4px rgba(251, 191, 36, 0.8)' : '0 0 0 2px rgba(255,255,255,.9)';
-      el.style.cssText = `width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;`;
-      el.innerHTML = `
-        <div style="
-          width:${size}px;height:${size}px;border-radius:999px;
-          background: ${b.color};
-          box-shadow: ${ring}, 0 6px 14px rgba(0,0,0,.22);
-          display:flex;align-items:center;justify-content:center;
-        ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M7 4h10a3 3 0 0 1 3 3v9a2 2 0 0 1-2 2h-1v1a1 1 0 1 1-2 0v-1H9v1a1 1 0 1 1-2 0v-1H6a2 2 0 0 1-2-2V7a3 3 0 0 1 3-3Z" fill="rgba(255,255,255,.95)"/>
-            <path d="M7 7h10v5H7V7Z" fill="rgba(0,0,0,.18)"/>
-            <circle cx="8" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
-            <circle cx="16" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
-          </svg>
-        </div>`;
-      const mk = new mapboxgl.Marker({ element: el })
-        .setLngLat([b.lng, b.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${b.label}</strong>`))
-        .addTo(this.map);
-      this.liveBusMapMarkers.push(mk);
+    if (!this.mapLoaded || !this.map) return;
+
+    // Build a map of incoming buses keyed by scheduleId (or label as fallback)
+    const incoming = new Map<string, typeof this.liveBusMarkers[number]>();
+    (this.liveBusMarkers || []).forEach(b => incoming.set(String(b.scheduleId ?? b.label), b));
+
+    // Remove markers for buses no longer in the list
+    const gone: string[] = [];
+    this.liveBusMarkerIndex.forEach((_: any, key: string) => { if (!incoming.has(key)) gone.push(key); });
+    gone.forEach(key => {
+      try { this.liveBusMarkerIndex.get(key)?.remove(); } catch (e) {}
+      this.liveBusMarkerIndex.delete(key);
     });
+
+    // Route coords for local simulation (may be null if no geometry yet)
+    const routeCoords: number[][] | null = (
+      this.routeGeoJson?.type === 'LineString' &&
+      Array.isArray(this.routeGeoJson?.coordinates) &&
+      this.routeGeoJson.coordinates.length >= 2
+    ) ? this.routeGeoJson.coordinates : null;
+
+    // Update existing markers or create new ones, then run a local simulation
+    // at the same speed as the driver (400ms/step) so both markers move identically
+    incoming.forEach((b, key) => {
+      // Cancel any existing simulation for this bus
+      const prevSub = this.liveBusLerpSubs.get(key);
+      if (prevSub) { prevSub.unsubscribe(); this.liveBusLerpSubs.delete(key); }
+
+      let marker = this.liveBusMarkerIndex.get(key);
+      if (!marker) {
+        marker = new mapboxgl.Marker({ color: b.color || '#0074D9', scale: b.selected ? 1.5 : 1.0 })
+          .setLngLat([b.lng, b.lat])
+          .setPopup(new mapboxgl.Popup({ offset: 30 }).setHTML(`<strong>${b.label}</strong>`))
+          .addTo(this.map);
+        this.liveBusMarkerIndex.set(key, marker);
+      } else {
+        // Snap to the freshly polled position
+        marker.setLngLat([b.lng, b.lat]);
+      }
+
+      // Only animate active buses — accepted buses stay fixed at route start
+      if (routeCoords && b.status === 'active' && !this.disableSimulator) {
+        const startIdx = this.findNearestCoordIndex(routeCoords, b.lng, b.lat);
+        const mk = marker;
+        const simSub = this.busSimulatorService.simulateAlongLine(routeCoords, 400, startIdx, this.stopPins).subscribe({
+          next: (pos: { lng: number; lat: number; index: number }) => {
+            try { mk.setLngLat([pos.lng, pos.lat]); } catch (e) {}
+          },
+        });
+        this.liveBusLerpSubs.set(key, simSub);
+      }
+    });
+
   }
 
-  drawRoute() {
+  async drawRoute() {
     if (!this.mapLoaded || !this.map) {
       return;
     }
@@ -209,7 +235,6 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (this.map.getLayer('route-line')) {
       this.map.removeLayer('route-line');
     }
-    this.clearRouteLineVariants();
     if (this.map.getSource('route')) {
       this.map.removeSource('route');
     }
@@ -225,9 +250,9 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.routeGeoJson.type === 'LineString' &&
     Array.isArray(this.routeGeoJson.coordinates) &&
     this.routeGeoJson.coordinates.length >= 2) {
-      
+
       // Normalize coordinates to numeric [lng, lat] pairs (DB sometimes stores as strings)
-      const numericCoords: number[][] = this.routeGeoJson.coordinates
+      let numericCoords: number[][] = this.routeGeoJson.coordinates
         .map((c: any) => {
           if (!c || c.length < 2) return null;
           const lng = typeof c[0] === 'string' ? parseFloat(c[0]) : c[0];
@@ -258,6 +283,24 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         return;
       }
 
+      // Sparse geometry (straight-line fallback from seeder) — upgrade to real road geometry.
+      // Dense Mapbox routes have hundreds of points; straight-line fallbacks have only the stop count.
+      if (numericCoords.length <= 20) {
+        // Build waypoints: prefer stop pins (they include intermediate stops), else start+end
+        let waypoints: [number, number][];
+        if (this.stopPins?.length >= 2) {
+          waypoints = this.stopPins.map(p => [p.lng, p.lat] as [number, number]);
+        } else if (this.startCoord && this.endCoord) {
+          waypoints = [this.startCoord, this.endCoord];
+        } else {
+          waypoints = numericCoords.map(c => [c[0], c[1]] as [number, number]);
+        }
+        const roadCoords = await this.fetchRoadGeometry(waypoints);
+        if (roadCoords && roadCoords.length >= 2) {
+          numericCoords = roadCoords;
+        }
+      }
+
       this.map.addSource('route', {
         type: 'geojson',
         data: {
@@ -275,13 +318,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           'line-cap': 'round'
         },
         paint: {
-          'line-color': '#1f2937',
-          'line-width': 4,
-          'line-opacity': 0.25
+          'line-color': '#0074D9',
+          'line-width': 6
         }
       });
-
-      this.refreshRouteLineVariants();
 
       const bounds = new mapboxgl.LngLatBounds();
       numericCoords.forEach((coord: number[]) => {
@@ -348,7 +388,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
             color: '#1E90FF',
           }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
 
-          this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800).subscribe((pos: { lng: number; lat: number; index: number }) => {
+          this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800, 0, this.stopPins).subscribe((pos: { lng: number; lat: number; index: number }) => {
             try {
               if (this.simulatedVehicleMarker) {
                 this.simulatedVehicleMarker.setLngLat([pos.lng, pos.lat] as [number, number]);
@@ -365,6 +405,59 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     } else {
       this.drawStopPins();
     }
+
+    this.renderCommuterBoardingMarker();
+  }
+
+  private renderCommuterBoardingMarker(): void {
+    if (this.commuterBoardingMarker) {
+      try { this.commuterBoardingMarker.remove(); } catch (e) {}
+      this.commuterBoardingMarker = null;
+    }
+    if (!this.mapLoaded || !this.map || !this.commuterBoardingPin) return;
+
+    this.ensureCommuterMarkerStyles();
+
+    const { lng, lat, label } = this.commuterBoardingPin;
+    const el = document.createElement('div');
+    el.className = 'commuter-boarding-pin';
+    el.innerHTML = `
+      <div class="cbp-pulse"></div>
+      <div class="cbp-dot">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="#fff">
+          <path d="M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2zm0 12c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z"/>
+        </svg>
+      </div>`;
+
+    const stopLabel = label || 'Your boarding stop';
+    this.commuterBoardingMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 22 }).setHTML(
+          `<div style="padding:6px 8px;"><strong style="color:#0891b2">📍 ${stopLabel}</strong><br><span style="font-size:12px;color:#555">Your boarding stop</span></div>`
+        )
+      )
+      .addTo(this.map);
+  }
+
+  private ensureCommuterMarkerStyles(): void {
+    if (document.getElementById('cbp-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'cbp-styles';
+    s.textContent = `
+      .commuter-boarding-pin { position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+      .cbp-pulse { position: absolute; inset: 0; border-radius: 50%; border: 3px solid #06b6d4; animation: cbp-ring 1.6s ease-out infinite; }
+      .cbp-dot { width: 28px; height: 28px; background: #0891b2; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+      @keyframes cbp-ring { 0% { transform: scale(0.6); opacity: 0.9; } 100% { transform: scale(1.8); opacity: 0; } }
+    `;
+    document.head.appendChild(s);
+  }
+
+  private formatEta(minutes: number): string {
+    if (minutes < 60) return `~${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m === 0 ? `~${h} hr` : `~${h} hr ${m} min`;
   }
 
   drawStopPins() {
@@ -375,14 +468,33 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       try { m.remove(); } catch (e) {}
     });
     this.stopPinMarkers = [];
+    const total = this.stopPins.length;
+    let stopNumber = 0;
     this.stopPins.forEach((p, i) => {
+      // First stop = terminal (green route marker), last = endpoint (red route marker) — skip both.
+      if (i === 0 || i === total - 1) return;
+      stopNumber++;
       const el = document.createElement('div');
-      el.style.cssText =
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
+
+      const circle = document.createElement('div');
+      circle.style.cssText =
         'background:#f97316;color:#fff;border-radius:50%;min-width:24px;height:24px;padding:0 6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)';
-      el.textContent = String(i + 1);
-      const mk = new mapboxgl.Marker({ element: el })
+      circle.textContent = String(stopNumber);
+      el.appendChild(circle);
+
+      if (p.etaMin != null) {
+        const etaTag = document.createElement('div');
+        etaTag.style.cssText =
+          'background:#fff;color:#f97316;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;border:1px solid #f97316;box-shadow:0 1px 3px rgba(0,0,0,.2);white-space:nowrap;line-height:1.4';
+        etaTag.textContent = this.formatEta(p.etaMin);
+        el.appendChild(etaTag);
+      }
+
+      const popupHtml = `<div style="padding:4px"><strong>${p.label || 'Stop ' + stopNumber}</strong>${p.etaMin != null ? `<br><span style="color:#f97316">ETA: ${this.formatEta(p.etaMin)}</span>` : ''}</div>`;
+      const mk = new mapboxgl.Marker({ element: el, anchor: 'top' })
         .setLngLat([p.lng, p.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${p.label || 'Stop ' + (i + 1)}</strong>`))
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(popupHtml))
         .addTo(this.map);
       this.stopPinMarkers.push(mk);
     });

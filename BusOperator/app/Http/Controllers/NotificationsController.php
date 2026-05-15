@@ -21,17 +21,9 @@ class NotificationsController extends Controller
         'mechanical' => 'Mechanical issue',
         'accident' => 'Accident',
         'medical' => 'Medical emergency',
+        'weather' => 'Weather',
         'other' => 'Other incident',
     ];
-
-    private function scopeHideWeatherIncidents($query)
-    {
-        return $query->where(function ($q) {
-            $q->where('type', '!=', 'incident')
-                ->orWhereNull('incident_type')
-                ->orWhere('incident_type', '!=', 'weather');
-        });
-    }
 
     public function index(Request $request)
     {
@@ -45,7 +37,6 @@ class NotificationsController extends Controller
             ->where('recipient_id', $user->id)
             ->whereNull('sender_id') // Only notifications FROM drivers (sender_id is null)
             ->orderBy('created_at', 'desc');
-        $receivedQuery = $this->scopeHideWeatherIncidents($receivedQuery);
 
         // ✅ FIXED: Get SENT notifications (from me to drivers, where I am the sender)
         $sentQuery = Notification::with(['driver', 'schedule.route', 'bus'])
@@ -72,11 +63,10 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only count received notifications (from drivers)
-        $countQuery = Notification::where('recipient_id', $user->id)
+        $count = Notification::where('recipient_id', $user->id)
             ->whereNull('sender_id') // Only from drivers
-            ->where('is_read', false);
-        $countQuery = $this->scopeHideWeatherIncidents($countQuery);
-        $count = $countQuery->count();
+            ->where('is_read', false)
+            ->count();
 
         return response()->json(['count' => $count]);
     }
@@ -89,12 +79,12 @@ class NotificationsController extends Controller
         }
 
         // Received: driver alerts and system types (e.g. route_approval) both use sender_id = null
-        $query = Notification::with(['driver', 'sender', 'schedule', 'bus'])
+        $notifications = Notification::with(['driver', 'sender', 'schedule', 'bus'])
             ->where('recipient_id', $user->id)
             ->whereNull('sender_id')
-            ->orderBy('created_at', 'desc');
-        $query = $this->scopeHideWeatherIncidents($query);
-        $notifications = $query->limit(5)->get()
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get()
             ->map(function ($notification) {
                 return [
                     'id' => $notification->id,
@@ -131,11 +121,10 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only mark received notifications (from drivers) as read
-        $q = Notification::where('recipient_id', $user->id)
+        Notification::where('recipient_id', $user->id)
             ->whereNull('sender_id')
-            ->where('is_read', false);
-        $q = $this->scopeHideWeatherIncidents($q);
-        $q->update(['is_read' => true, 'read_at' => now()]);
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
 
         return response()->json(['success' => true]);
     }
@@ -148,14 +137,9 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only clear received notifications (from drivers)
-        $q = Notification::where('recipient_id', $user->id)
+        Notification::where('recipient_id', $user->id)
             ->whereNull('sender_id')
-            ->where(function ($inner) {
-                $inner->where('type', '!=', 'incident')
-                    ->orWhereNull('incident_type')
-                    ->orWhere('incident_type', '!=', 'weather');
-            });
-        $q->delete();
+            ->delete();
 
         return response()->json(['success' => true]);
     }
@@ -250,7 +234,7 @@ class NotificationsController extends Controller
         try {
             $validator = \Validator::make($request->all(), [
                 'driver_id' => 'required|exists:drivers,id',
-                'incident_type' => 'required|in:flat_tire,road_blockage,mechanical,accident,medical,other',
+                'incident_type' => 'required|in:flat_tire,road_blockage,mechanical,accident,medical,weather,other',
                 'latitude' => 'required|numeric|between:-90,90',
                 'longitude' => 'required|numeric|between:-180,180',
                 'location_label' => 'nullable|string|max:512',
@@ -520,6 +504,32 @@ class NotificationsController extends Controller
                 'message' => 'Error marking notification as read'
             ], 500);
         }
+    }
+
+    /** Mark all notifications as read for a specific driver (driver app). */
+    public function markAllDriverNotificationsAsRead(int $driverId): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('driver_id', $driverId)
+            ->whereNotNull('sender_id')
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
+        return response()->json(['success' => true]);
+    }
+
+    /** Delete all notifications for a specific driver (driver app). */
+    public function clearForDriver(int $driverId): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('driver_id', $driverId)
+            ->whereNotNull('sender_id')
+            ->delete();
+        return response()->json(['success' => true]);
+    }
+
+    /** Delete a single notification by ID (driver app). */
+    public function deleteOne(int $id): \Illuminate\Http\JsonResponse
+    {
+        Notification::where('id', $id)->delete();
+        return response()->json(['success' => true]);
     }
 
     /**

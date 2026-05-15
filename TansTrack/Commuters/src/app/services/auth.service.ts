@@ -8,21 +8,31 @@ import { environment } from '../../environments/environment';
 })
 export class AuthService {  
   private apiUrl = `${environment.apiUrl}/commuters`;  // ✅ FIXED: /commuters not /auth
-  private baseApiUrl = environment.apiUrl;
   private currentUser: any = null;
 
   constructor(private http: HttpClient) {
     this.loadCurrentUser();
   }
 
+  private getHeaders(): HttpHeaders {
+    const headers: { [key: string]: string } = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
+    if (this.apiUrl.includes('ngrok-free')) {
+      headers['ngrok-skip-browser-warning'] = 'true';
+    }
+    return new HttpHeaders(headers);
+  }
+
   private async loadCurrentUser() {
-    const userData = localStorage.getItem('currentUser');
+    const userData = sessionStorage.getItem('currentUser');
     if (userData) {
       try {
         this.currentUser = JSON.parse(userData);
       } catch (error) {
         console.error('Error parsing user data:', error);
-        localStorage.removeItem('currentUser');
+        sessionStorage.removeItem('currentUser');
       }
     }
   }
@@ -37,7 +47,7 @@ export class AuthService {
   async login(email: string, password: string): Promise<any> {
     try {
       const response: any = await firstValueFrom(
-        this.http.post(`${this.apiUrl}/login`, { email, password })
+        this.http.post(`${this.apiUrl}/login`, { email, password }, { headers: this.getHeaders() })
       );
 
       const user = response.data || response.user || response.commuter || response;
@@ -45,9 +55,9 @@ export class AuthService {
       if (response.success && user) {
         this.currentUser = user;
         if (response.token) {
-          localStorage.setItem('authToken', response.token);
+          sessionStorage.setItem('authToken', response.token);
         }
-        localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+        sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
         return this.currentUser;
       } else {
         throw new Error(response.message || 'Login failed');
@@ -65,28 +75,27 @@ export class AuthService {
     first_name: string,
     last_name: string,
     email: string,
-    phone: string,
+    contact_number: string,
     password: string,
-    passwordConfirmation: string
+    passwordConfirmation: string,
+    options: { middle_name?: string; address?: string; gender?: string } = {}
   ): Promise<any> {
     try {
-      const headers = new HttpHeaders({
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      });
-
       const response: any = await firstValueFrom(
         this.http.post(
           `${this.apiUrl}/register`,
           {
             first_name,
             last_name,
+            middle_name: options.middle_name || null,
             email,
-            phone,
+            contact_number,
+            address: options.address || null,
+            gender: options.gender || null,
             password,
             password_confirmation: passwordConfirmation
           },
-          { headers }
+          { headers: this.getHeaders() }
         )
       );
 
@@ -94,14 +103,21 @@ export class AuthService {
 
       if (response.success && user) {
         this.currentUser = user;
-        localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+        sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
         return this.currentUser;
       } else {
         throw new Error(response.message || 'Registration failed');
       }
     } catch (error: any) {
       console.error('Register error:', error);
-      throw new Error(error.error?.message || 'Registration failed. Please try again.');
+      // Extract first validation error message if present
+      const errBody = error.error;
+      if (errBody?.errors) {
+        const firstField = Object.keys(errBody.errors)[0];
+        const firstMsg = errBody.errors[firstField]?.[0];
+        throw new Error(firstMsg || errBody.message || 'Registration failed. Please try again.');
+      }
+      throw new Error(errBody?.message || 'Registration failed. Please try again.');
     }
   }
 
@@ -128,7 +144,7 @@ export class AuthService {
             ...this.currentUser,
             ...profileData
           };
-          localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+          sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
           return true;
         }
       } catch (apiError) {
@@ -140,7 +156,7 @@ export class AuthService {
         ...this.currentUser,
         ...profileData
       };
-      localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+      sessionStorage.setItem('currentUser', JSON.stringify(this.currentUser));
       return true;
 
     } catch (error) {
@@ -152,7 +168,7 @@ export class AuthService {
   async logout(): Promise<void> {
     try {
       // Laravel: POST /api/v1/commuters/logout (no user id in path)
-      const token = localStorage.getItem('authToken');
+      const token = sessionStorage.getItem('authToken');
       const headers = token
         ? new HttpHeaders({
             'Content-Type': 'application/json',
@@ -161,36 +177,20 @@ export class AuthService {
           })
         : undefined;
       await firstValueFrom(
-        this.http.post(`${this.apiUrl}/logout`, {}, { headers })
+        this.http.post(`${this.apiUrl}/logout`, {}, { headers: headers ?? this.getHeaders() })
       ).catch(err => console.warn('API logout failed:', err));
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       this.currentUser = null;
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('currentUser');
+      sessionStorage.removeItem('authToken');
     }
   }
 
-  async requestPasswordReset(email: string): Promise<void> {
-    await firstValueFrom(
-      this.http.post(`${this.baseApiUrl}/v1/password/forgot`, { role: 'commuter', email })
-    );
-  }
-
-  async resetPassword(payload: {
-    email: string;
-    token: string;
-    password: string;
-    password_confirmation: string;
-  }): Promise<void> {
-    await firstValueFrom(
-      this.http.post(`${this.baseApiUrl}/v1/password/reset`, { role: 'commuter', ...payload })
-    );
-  }
-
   isLoggedIn(): boolean {
-    return !!this.currentUser;
+    if (this.currentUser) return true;
+    return !!sessionStorage.getItem('currentUser');
   }
 
   getUserId(): string | null {

@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   ActionSheetController,
@@ -6,18 +6,18 @@ import {
   LoadingController,
   ToastController,
   ViewWillEnter,
+  ViewDidLeave,
 } from '@ionic/angular';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { environment } from '../../environments/environment';
 import { MapService } from '../services/map.service';
+import { Subscription } from 'rxjs';
 import {
   RouteMapBoardingPassenger,
-  RouteMapStop
+  RouteMapStop,
+  RouteMapComponent,
 } from '../components/route-map/route-map.component';
-import { RouteMapComponent } from '../components/route-map/route-map.component';
-import { Subscription } from 'rxjs';
-import { BarcodeScanner, BarcodeFormat } from '@capacitor-mlkit/barcode-scanning';
 
 interface Schedule {
   id: number;
@@ -25,6 +25,11 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  trip_leg?: number;
+  leg_status?: string;
+  leg_direction?: 'outbound' | 'return';
+  return_trip_status?: string;
+  has_return_trip?: boolean;
   boarding_passengers?: RouteMapBoardingPassenger[];
   route?: {
     id: number;
@@ -36,6 +41,8 @@ interface Schedule {
     geometry?: unknown;
     /** Normalized LineString from BusOperator API (lng, lat) */
     map_geometry?: { type: string; coordinates: number[][] };
+    return_geometry?: { type: string; coordinates: number[][] };
+    return_map_geometry?: { type: string; coordinates: number[][] };
     stops?: RouteMapStop[];
   };
   bus?: {
@@ -50,7 +57,7 @@ interface Schedule {
   styleUrls: ['./map.page.scss'],
   standalone: false
 })
-export class MapPage implements OnInit, ViewWillEnter {
+export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
   @ViewChild('routeMap') routeMap?: RouteMapComponent;
 
   schedules: Schedule[] = [];
@@ -59,18 +66,14 @@ export class MapPage implements OnInit, ViewWillEnter {
   mapRouteGeoJson: { type: string; coordinates: number[][] } | null = null;
   mapRouteStops: RouteMapStop[] = [];
   mapBoardingPassengers: RouteMapBoardingPassenger[] = [];
-  nextStopLabel: string | null = null;
-  nextStopEtaLabel: string | null = null;
   selectedSegment: string = 'current';
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
+  isReturnTrip = false;
+  private manifestPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  emergencyName: string | null = null;
-  emergencyRelation: string | null = null;
-  emergencyContact: string | null = null;
-
-  /** Driver live position for map + off-route warnings */
-  driverLngLat: [number, number] | null = null; // [lng, lat]
+  /** Live device GPS [lng, lat] for map marker + API sync */
+  driverLngLat: [number, number] | null = null;
   private gpsSub?: Subscription;
   private gpsLastSentAt = 0;
   private lastOffRouteToastAt = 0;
@@ -89,6 +92,57 @@ export class MapPage implements OnInit, ViewWillEnter {
     private mapService: MapService
   ) {}
 
+  ngOnDestroy() {
+    this.stopManifestPoll();
+    this.stopGpsTracking();
+  }
+
+  private startManifestPoll(scheduleId: number): void {
+    this.stopManifestPoll();
+    this.loadManifest(scheduleId);
+    this.manifestPollTimer = setInterval(() => this.loadManifest(scheduleId), 15000);
+  }
+
+  private stopManifestPoll(): void {
+    if (this.manifestPollTimer) {
+      clearInterval(this.manifestPollTimer);
+      this.manifestPollTimer = null;
+    }
+  }
+
+  private loadManifest(scheduleId: number): void {
+    this.apiService.getPassengerManifest(scheduleId).subscribe({
+      next: (response) => {
+        if (response?.success && Array.isArray(response?.passengers)) {
+          this.mapBoardingPassengers = response.passengers.map((p: any) => ({
+            public_ticket_id: p.ticket_id,
+            fare: p.fare,
+            commuter_name: p.commuter_name,
+            commuter_email: p.commuter_email,
+            alighted: p.alighted,
+            boarding_lng: p.boarding_lng,
+            boarding_lat: p.boarding_lat,
+            boarding_stop_name: p.boarding_stop_name,
+            is_boarding_request: p.is_boarding_request === true,
+          }));
+          return;
+        }
+
+        // Safe fallback: treat non-success / no passengers as empty list.
+        this.mapBoardingPassengers = [];
+      },
+      error: (err) => {
+        const status = err?.status ?? err?.error?.status;
+
+        // If schedule is missing on the backend, stop polling to avoid spamming errors.
+        if (status === 404) {
+          this.stopManifestPoll();
+          this.mapBoardingPassengers = [];
+        }
+      },
+    });
+  }
+
   ngOnInit() {
     this.route.queryParams.subscribe((params) => {
       if (params['scheduleId']) {
@@ -100,12 +154,10 @@ export class MapPage implements OnInit, ViewWillEnter {
     });
 
     this.loadDriverSchedules();
-    this.loadDriverEmergencyContact();
   }
 
   ionViewWillEnter() {
     this.loadDriverSchedules();
-    this.loadDriverEmergencyContact();
     this.ensureGpsTracking();
   }
 
@@ -113,161 +165,97 @@ export class MapPage implements OnInit, ViewWillEnter {
     this.stopGpsTracking();
   }
 
-  private loadDriverEmergencyContact() {
-    const driverId = this.authService.getDriverId();
-    const driverIdNum = driverId ? Number(driverId) : NaN;
-    if (!driverId || Number.isNaN(driverIdNum)) {
+  private stopGpsTracking(): void {
+    this.gpsSub?.unsubscribe();
+    this.gpsSub = undefined;
+    this.mapService.stopGpsTracking();
+  }
+
+  /**
+   * Real GPS only (no route simulation). Publishes while trip is accepted/active.
+   */
+  private ensureGpsTracking(): void {
+    const st = String(this.currentSchedule?.status || '').toLowerCase();
+    const leg = String(this.currentSchedule?.leg_status || '').toLowerCase();
+    const returnSt = String(this.currentSchedule?.return_trip_status || '').toLowerCase();
+    const shouldTrack =
+      st === 'accepted' ||
+      st === 'active' ||
+      leg === 'accepted' ||
+      leg === 'active' ||
+      returnSt === 'accepted' ||
+      returnSt === 'active';
+
+    if (!shouldTrack) {
+      this.stopGpsTracking();
       return;
     }
-    this.apiService.getDriverProfile(driverIdNum).subscribe({
-      next: (profile: any) => {
-        this.emergencyName = profile?.emergency_name ?? null;
-        this.emergencyRelation = profile?.emergency_relation ?? null;
-        this.emergencyContact = profile?.emergency_contact ?? null;
+
+    const driverIdRaw = this.authService.getDriverId();
+    const driverIdNum = driverIdRaw ? Number(driverIdRaw) : NaN;
+    if (!driverIdRaw || Number.isNaN(driverIdNum)) {
+      return;
+    }
+
+    if (this.gpsSub) {
+      return;
+    }
+
+    this.gpsSub = this.mapService.startGpsTracking(true).subscribe({
+      next: (pos) => {
+        if (!pos) return;
+        this.driverLngLat = [pos.longitude, pos.latitude];
+
+        const now = Date.now();
+        if (now - this.gpsLastSentAt < 8000) return;
+        this.gpsLastSentAt = now;
+
+        const scheduleId = this.currentSchedule?.id;
+        this.apiService
+          .postDriverLocation(driverIdNum, {
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            accuracy_m: pos.accuracy,
+            speed_mps: pos.speed,
+            heading_deg: pos.heading,
+            schedule_id: scheduleId,
+            recorded_at: new Date(pos.timestamp).toISOString(),
+          })
+          .subscribe({ error: () => {} });
+
+        if (scheduleId) {
+          this.apiService
+            .updateSchedulePosition(scheduleId, pos.latitude, pos.longitude, {
+              accuracy_m: pos.accuracy,
+              speed_mps: pos.speed != null ? pos.speed : undefined,
+              heading_deg: pos.heading,
+            })
+            .subscribe({ error: () => {} });
+        }
       },
-      error: () => {
-        // ignore
-      },
+      error: () => {},
     });
-  }
-
-  zoomIn() {
-    this.routeMap?.zoomIn();
-  }
-
-  zoomOut() {
-    this.routeMap?.zoomOut();
   }
 
   fitRoute() {
     this.routeMap?.fitToRouteOrStops();
   }
 
-  async callEmergencyContact() {
-    const num = (this.emergencyContact || '').trim();
-    if (!num) {
-      const t = await this.toastController.create({
-        message: 'No emergency contact number found for your account.',
-        duration: 2500,
-        color: 'warning',
-      });
-      await t.present();
-      return;
-    }
-
-    const name = (this.emergencyName || 'Emergency contact').trim();
-    const rel = (this.emergencyRelation || 'N/A').trim();
-
-    const sheet = await this.actionSheetController.create({
-      header: 'Emergency Contact',
-      subHeader: `${name} (${rel})`,
-      buttons: [
-        {
-          text: `Call ${num}`,
-          icon: 'call-outline',
-          handler: () => {
-            window.location.href = `tel:${encodeURIComponent(num)}`;
-          },
-        },
-        { text: 'Cancel', role: 'cancel' },
-      ],
-    });
-
-    await sheet.present();
+  zoomOut() {
+    this.routeMap?.zoomOut();
   }
 
-  async scanTicket(): Promise<void> {
-    const driverIdRaw = this.authService.getDriverId();
-    const driverId = driverIdRaw ? Number(driverIdRaw) : NaN;
-    if (!driverIdRaw || Number.isNaN(driverId)) {
-      const t = await this.toastController.create({
-        message: 'Driver account not found. Please log in again.',
-        duration: 2500,
-        color: 'danger',
-      });
-      await t.present();
-      return;
-    }
-
-    try {
-      const perm = await BarcodeScanner.requestPermissions();
-      const granted = perm.camera === 'granted' || perm.camera === 'limited';
-      if (!granted) {
-        const t = await this.toastController.create({
-          message: 'Camera permission is required to scan tickets.',
-          duration: 2500,
-          color: 'warning',
-        });
-        await t.present();
-        return;
-      }
-
-      const result = await BarcodeScanner.scan({
-        formats: [BarcodeFormat.QrCode],
-      });
-
-      const raw = result.barcodes?.[0]?.rawValue || '';
-      if (!raw) {
-        return;
-      }
-
-      const loading = await this.loadingController.create({ message: 'Validating ticket…' });
-      await loading.present();
-
-      this.apiService
-        .post('v1/tickets/scan-validate', { driver_id: driverId, token: raw })
-        .subscribe({
-          next: async (res: any) => {
-            await loading.dismiss();
-            if (!res?.success) {
-              const a = await this.alertController.create({
-                header: 'Invalid Ticket',
-                message: res?.message || 'Ticket validation failed.',
-                buttons: ['OK'],
-              });
-              await a.present();
-              return;
-            }
-
-            const d = res?.data || {};
-            const status = String(d.status || '').trim();
-            const header =
-              status === 'already_boarded'
-                ? 'Already Boarded'
-                : status === 'already_alighted'
-                  ? 'Already Completed'
-                  : 'Valid Ticket';
-            const a = await this.alertController.create({
-              header,
-              message:
-                `Ticket ID: ${d.ticket_id || '—'}\n` +
-                `Route: ${d.route_name || '—'} (ID ${d.route_id ?? '—'})\n` +
-                `Operator: ${d.operator_company || '—'}\n` +
-                `Bus: ${d.bus_number || '—'}\n` +
-                `Fare: ₱${Number(d.fare ?? 0).toFixed(2)}\n` +
-                `Payment: ${String(d.payment_method || '').toUpperCase()} (${d.payment_status || '—'})`,
-              buttons: ['OK'],
-            });
-            await a.present();
-          },
-          error: async (e) => {
-            await loading.dismiss();
-            const a = await this.alertController.create({
-              header: 'Validation Error',
-              message: (e as any)?.message || 'Could not validate ticket.',
-              buttons: ['OK'],
-            });
-            await a.present();
-          },
-        });
-    } catch (e) {
-      const t = await this.toastController.create({
-        message: 'Scan cancelled or failed.',
-        duration: 2000,
-        color: 'medium',
-      });
-      await t.present();
-    }
+  async onOffRouteChanged(isOffRoute: boolean) {
+    if (!isOffRoute) return;
+    const now = Date.now();
+    if (now - this.lastOffRouteToastAt < 30000) return;
+    this.lastOffRouteToastAt = now;
+    const t = await this.toastController.create({
+      message: 'Warning: You appear to be off your assigned route.',
+      duration: 3500,
+      color: 'warning',
+    });
+    await t.present();
   }
 
   /** Local calendar day `Y-m-d` (avoid UTC drift from `toISOString()`). */
@@ -278,29 +266,22 @@ export class MapPage implements OnInit, ViewWillEnter {
     return `${y}-${m}-${day}`;
   }
 
-  /** Laravel date may be `Y-m-d` or ISO string */
   private scheduleDateKey(s: Schedule): string {
     const d = s.date as unknown;
-    if (d == null) {
-      return '';
-    }
+    if (d == null) return '';
     const str = typeof d === 'string' ? d : String(d);
     return str.split('T')[0];
   }
 
   private normalizeTime(raw: string | undefined): string | null {
-    if (!raw) {
-      return null;
-    }
+    if (!raw) return null;
     let timePart = raw.trim();
     if (timePart.includes('T')) {
       timePart = timePart.split('T')[1] || '';
     }
     timePart = timePart.replace(/Z$/i, '');
     const m = timePart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if (!m) {
-      return null;
-    }
+    if (!m) return null;
     const hh = m[1].padStart(2, '0');
     const mm = m[2];
     const ss = (m[3] ?? '00').padStart(2, '0');
@@ -310,29 +291,27 @@ export class MapPage implements OnInit, ViewWillEnter {
   private parseScheduleStart(schedule: Schedule): Date | null {
     const day = this.scheduleDateKey(schedule);
     const t = this.normalizeTime(schedule.start_time);
-    if (!day || !t) {
-      return null;
-    }
-    const iso = `${day}T${t}`;
-    const d = new Date(iso);
+    if (!day || !t) return null;
+    const d = new Date(`${day}T${t}`);
     return isNaN(d.getTime()) ? null : d;
   }
 
   private parseScheduleEnd(schedule: Schedule): Date | null {
     const day = this.scheduleDateKey(schedule);
     const t = this.normalizeTime(schedule.end_time);
-    if (!day || !t) {
-      return null;
-    }
+    if (!day || !t) return null;
     const d = new Date(`${day}T${t}`);
     return isNaN(d.getTime()) ? null : d;
   }
 
-  /**
-   * Choose the schedule to show on "Current Route".
-   * Previously required `now` inside [start, end), so trips accepted/active before start_time
-   * never appeared; `upcoming` from API is only future dates, so today's later trips had no fallback.
-   */
+  private isReturnLeg(schedule: Schedule | null): boolean {
+    const dir = schedule?.leg_direction;
+    if (dir === 'return') return true;
+    if (dir === 'outbound') return false;
+    const leg = schedule?.trip_leg;
+    return typeof leg === 'number' ? leg % 2 === 0 : false;
+  }
+
   private pickCurrentSchedule(
     todaySchedules: Schedule[],
     upcomingSchedules: Schedule[],
@@ -344,57 +323,34 @@ export class MapPage implements OnInit, ViewWillEnter {
 
     if (this.targetScheduleId) {
       const hit = combinedForLookup.find((s) => s.id === this.targetScheduleId);
-      if (hit) {
-        return hit;
-      }
+      if (hit) return hit;
     }
 
     if (this.targetRouteId) {
       const hit = combinedForLookup.find((s) => s.route?.id === this.targetRouteId);
-      if (hit) {
-        return hit;
-      }
+      if (hit) return hit;
     }
 
     const st = (s: Schedule) => String(s.status || '').toLowerCase();
 
-    // 1) In-progress today (operator/driver started trip — not tied to printed window)
     const activeToday = todaySchedules.find((s) => st(s) === 'active');
-    if (activeToday) {
-      return activeToday;
-    }
+    if (activeToday) return activeToday;
 
-    // 2) Today: accepted/active and current time within [start, end)
     const inWindow = todaySchedules.find((s) => {
-      if (this.scheduleDateKey(s) !== todayStr) {
-        return false;
-      }
+      if (this.scheduleDateKey(s) !== todayStr) return false;
       const start = this.parseScheduleStart(s);
       const end = this.parseScheduleEnd(s);
-      if (!start || !end) {
-        return false;
-      }
+      if (!start || !end) return false;
       const status = st(s);
-      return (
-        (status === 'accepted' || status === 'active') &&
-        now >= start &&
-        now < end
-      );
+      return (status === 'accepted' || status === 'active') && now >= start && now < end;
     });
-    if (inWindow) {
-      return inWindow;
-    }
+    if (inWindow) return inWindow;
 
-    // 3) Today: accepted (or active) before start_time — show map for prep; not after end
     const todayWorkable = todaySchedules
       .filter((s) => {
-        if (this.scheduleDateKey(s) !== todayStr) {
-          return false;
-        }
+        if (this.scheduleDateKey(s) !== todayStr) return false;
         const status = st(s);
-        if (status !== 'accepted' && status !== 'active') {
-          return false;
-        }
+        if (status !== 'accepted' && status !== 'active') return false;
         const end = this.parseScheduleEnd(s);
         return !end || now < end;
       })
@@ -412,7 +368,6 @@ export class MapPage implements OnInit, ViewWillEnter {
       return nextByStart || todayWorkable[0];
     }
 
-    // 4) Future calendar days only (API "upcoming")
     return (
       upcomingSchedules.find((s) => {
         const status = st(s);
@@ -423,21 +378,19 @@ export class MapPage implements OnInit, ViewWillEnter {
 
   loadDriverSchedules() {
     const driverId = Number(this.authService.getDriverId());
-    if (!driverId) {
-      return;
-    }
+    if (!driverId) return;
 
     this.apiService.getDriverSchedules(driverId).subscribe({
       next: (response) => {
-              this.mapRouteGeoJson = null;
+        this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
-        this.nextStopLabel = null;
-        this.nextStopEtaLabel = null;
 
-        if (!response.success || !response.schedules) {
+        if (!response?.success || !response?.schedules) {
           this.currentSchedule = null;
           this.allRoutes = [];
+          this.stopManifestPoll();
+          this.ensureGpsTracking();
           return;
         }
 
@@ -447,13 +400,24 @@ export class MapPage implements OnInit, ViewWillEnter {
         const upcomingSchedules: Schedule[] = response.schedules.upcoming || [];
         const pastSchedules: Schedule[] = response.schedules.past || [];
 
-        this.currentSchedule = this.pickCurrentSchedule(
-          todaySchedules,
-          upcomingSchedules,
-          pastSchedules,
-          todayStr,
-          now
+        const allSchedules = [...todaySchedules, ...upcomingSchedules, ...pastSchedules];
+        const returnActiveSchedule = allSchedules.find(
+          (s: any) => s.has_return_trip && s.return_trip_status === 'active'
         );
+
+        if (returnActiveSchedule) {
+          this.currentSchedule = returnActiveSchedule;
+        } else {
+          this.currentSchedule = this.pickCurrentSchedule(
+            todaySchedules,
+            upcomingSchedules,
+            pastSchedules,
+            todayStr,
+            now
+          );
+        }
+
+        this.isReturnTrip = this.isReturnLeg(this.currentSchedule);
 
         this.allRoutes = [...todaySchedules, ...upcomingSchedules];
 
@@ -464,8 +428,8 @@ export class MapPage implements OnInit, ViewWillEnter {
         }
 
         this.mapRouteStops = Array.isArray(route.stops) ? route.stops : [];
-        this.mapBoardingPassengers = this.currentSchedule.boarding_passengers ?? [];
-        this.updateNextStopEta();
+        this.mapBoardingPassengers = [];
+        this.startManifestPoll(this.currentSchedule.id);
 
         void this.buildRouteGeometry(this.currentSchedule);
         this.ensureGpsTracking();
@@ -476,111 +440,15 @@ export class MapPage implements OnInit, ViewWillEnter {
         this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
-        this.nextStopLabel = null;
-        this.nextStopEtaLabel = null;
         this.ensureGpsTracking();
       }
     });
   }
 
-  private updateNextStopEta(): void {
-    const stops: any[] = Array.isArray(this.mapRouteStops) ? (this.mapRouteStops as any[]) : [];
-    if (!stops.length) {
-      this.nextStopLabel = null;
-      this.nextStopEtaLabel = null;
-      return;
-    }
-
-    const next = stops.find((s) => s?.eta_minutes_from_start != null || s?.eta_time != null) || stops[0];
-    const name = (next?.name || next?.label || 'Next stop') as string;
-    const etaMin = next?.eta_minutes_from_start;
-    const etaTime = next?.eta_time;
-
-    this.nextStopLabel = name;
-    if (etaTime) {
-      this.nextStopEtaLabel = `ETA ${etaTime}`;
-    } else if (etaMin != null) {
-      this.nextStopEtaLabel = `ETA +${etaMin} min`;
-    } else {
-      this.nextStopEtaLabel = null;
-    }
-  }
-
-  private stopGpsTracking() {
-    this.gpsSub?.unsubscribe();
-    this.gpsSub = undefined;
-    this.mapService.stopGpsTracking();
-  }
-
-  /**
-   * Publish driver GPS while trip is accepted/active so Operator + Commuter apps can see movement.
-   * Also provides a live marker for this page.
-   */
-  private ensureGpsTracking() {
-    const st = (this.currentSchedule?.status || '').toLowerCase();
-    const shouldTrack = st === 'accepted' || st === 'active';
-    if (!shouldTrack) {
-      this.stopGpsTracking();
-      return;
-    }
-
-    const driverId = this.authService.getDriverId();
-    const driverIdNum = driverId ? Number(driverId) : NaN;
-    if (!driverId || Number.isNaN(driverIdNum)) {
-      return;
-    }
-
-    if (this.gpsSub) {
-      return;
-    }
-
-    this.gpsSub = this.mapService.startGpsTracking(true).subscribe({
-      next: (pos) => {
-        if (!pos) return;
-        this.driverLngLat = [pos.longitude, pos.latitude];
-
-        const now = Date.now();
-        if (now - this.gpsLastSentAt < 8000) return;
-        this.gpsLastSentAt = now;
-
-        this.apiService.postDriverLocation(driverIdNum, {
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracy_m: pos.accuracy,
-          speed_mps: pos.speed,
-          heading_deg: pos.heading,
-          schedule_id: this.currentSchedule?.id,
-          recorded_at: new Date(pos.timestamp).toISOString(),
-        }).subscribe({ error: () => {} });
-      },
-      error: () => {}
-    });
-  }
-
-  async onOffRouteChanged(isOffRoute: boolean) {
-    if (!isOffRoute) return;
-    const now = Date.now();
-    // Don't spam: max once every 30s
-    if (now - this.lastOffRouteToastAt < 30000) return;
-    this.lastOffRouteToastAt = now;
-    const t = await this.toastController.create({
-      message: 'Warning: You appear to be off your assigned route.',
-      duration: 3500,
-      color: 'warning',
-    });
-    await t.present();
-  }
-
   private isValidLineString(g: unknown): g is { type: string; coordinates: number[][] } {
-    if (!g || typeof g !== 'object') {
-      return false;
-    }
+    if (!g || typeof g !== 'object') return false;
     const o = g as { type?: string; coordinates?: unknown };
-    return (
-      o.type === 'LineString' &&
-      Array.isArray(o.coordinates) &&
-      o.coordinates.length >= 2
-    );
+    return o.type === 'LineString' && Array.isArray(o.coordinates) && o.coordinates.length >= 2;
   }
 
   private cloneLineString(g: { type: string; coordinates: number[][] }) {
@@ -591,21 +459,16 @@ export class MapPage implements OnInit, ViewWillEnter {
   }
 
   private parseCoordPair(raw: string | undefined): [number, number] | null {
-    if (!raw?.trim()) {
-      return null;
-    }
+    if (!raw?.trim()) return null;
     const parts = raw.split(',').map((x) => parseFloat(x.trim()));
-    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-      return [parts[0], parts[1]];
-    }
+    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return [parts[0], parts[1]];
     return null;
   }
 
   private normalizeGeometryFromApi(geometry: unknown): { type: string; coordinates: number[][] } | null {
     let g: any = geometry;
-    if (g == null) {
-      return null;
-    }
+    if (g == null) return null;
+
     if (typeof g === 'string') {
       try {
         let parsed: any = g;
@@ -619,12 +482,12 @@ export class MapPage implements OnInit, ViewWillEnter {
         return null;
       }
     }
+
     if (g?.type === 'Feature' && g.geometry) {
       g = g.geometry;
     }
-    if (!this.isValidLineString(g)) {
-      return null;
-    }
+
+    if (!this.isValidLineString(g)) return null;
     return this.cloneLineString(g);
   }
 
@@ -635,17 +498,45 @@ export class MapPage implements OnInit, ViewWillEnter {
       return;
     }
 
-    if (this.isValidLineString(route.map_geometry)) {
-      this.mapRouteGeoJson = this.cloneLineString(route.map_geometry);
+    if (this.isReturnTrip) {
+      const returnGeometry = this.normalizeGeometryFromApi(
+        (route as any).return_map_geometry ?? (route as any).return_geometry
+      );
+      if (returnGeometry) {
+        this.mapRouteGeoJson = returnGeometry;
+        return;
+      }
+
+      if (this.isValidLineString(route.map_geometry as any)) {
+        this.mapRouteGeoJson = {
+          type: 'LineString',
+          coordinates: [...(route.map_geometry as any).coordinates]
+            .reverse()
+            .map((c: any) => [Number(c[0]), Number(c[1])])
+        };
+        return;
+      }
+
+      const retStart = this.parseCoordPair(route.end_coordinates);
+      const retEnd = this.parseCoordPair(route.start_coordinates);
+      if (retStart && retEnd) {
+        await this.fetchRouteFromMapbox(retStart, retEnd);
+        return;
+      }
+
+      this.mapRouteGeoJson = null;
       return;
     }
 
-    const fromField = this.normalizeGeometryFromApi(route.geometry);
+    if (this.isValidLineString(route.map_geometry as any)) {
+      this.mapRouteGeoJson = this.cloneLineString(route.map_geometry as any);
+      return;
+    }
+
+    const fromField = this.normalizeGeometryFromApi((route as any).geometry);
     if (fromField) {
       if (fromField.coordinates.length <= 10) {
-        await this.fetchDrivingRouteFromWaypoints(
-          fromField.coordinates as [number, number][]
-        );
+        await this.fetchDrivingRouteFromWaypoints(fromField.coordinates as [number, number][]);
       } else {
         this.mapRouteGeoJson = fromField;
       }
@@ -672,10 +563,16 @@ export class MapPage implements OnInit, ViewWillEnter {
   }
 
   getScheduleRoute(schedule: Schedule): string {
+    if (this.isReturnTrip && schedule.route?.end_location && schedule.route?.start_location) {
+      return `${schedule.route.end_location} to ${schedule.route.start_location}`;
+    }
     return schedule.route?.name || '';
   }
 
   getScheduleDestination(schedule: Schedule): string {
+    if (this.isReturnTrip && schedule.route?.start_location) {
+      return schedule.route.start_location;
+    }
     return schedule.route?.end_location || '';
   }
 
@@ -699,42 +596,13 @@ export class MapPage implements OnInit, ViewWillEnter {
       header: 'Report incident',
       subHeader: 'Location is shared with your bus operator.',
       buttons: [
-        {
-          text: 'Flat tire',
-          handler: () => {
-            void this.submitIncident('flat_tire', driverId);
-          },
-        },
-        {
-          text: 'Road blockage',
-          handler: () => {
-            void this.submitIncident('road_blockage', driverId);
-          },
-        },
-        {
-          text: 'Mechanical issue',
-          handler: () => {
-            void this.submitIncident('mechanical', driverId);
-          },
-        },
-        {
-          text: 'Accident',
-          handler: () => {
-            void this.submitIncident('accident', driverId);
-          },
-        },
-        {
-          text: 'Medical emergency',
-          handler: () => {
-            void this.submitIncident('medical', driverId);
-          },
-        },
-        {
-          text: 'Other',
-          handler: () => {
-            void this.submitIncident('other', driverId);
-          },
-        },
+        { text: 'Flat tire', handler: () => void this.submitIncident('flat_tire', driverId) },
+        { text: 'Road blockage', handler: () => void this.submitIncident('road_blockage', driverId) },
+        { text: 'Mechanical issue', handler: () => void this.submitIncident('mechanical', driverId) },
+        { text: 'Accident', handler: () => void this.submitIncident('accident', driverId) },
+        { text: 'Medical emergency', handler: () => void this.submitIncident('medical', driverId) },
+        { text: 'Weather', handler: () => void this.submitIncident('weather', driverId) },
+        { text: 'Other', handler: () => void this.submitIncident('other', driverId) },
         { text: 'Cancel', role: 'cancel' },
       ],
     });
@@ -742,16 +610,11 @@ export class MapPage implements OnInit, ViewWillEnter {
   }
 
   private async submitIncident(incidentType: string, driverId: number): Promise<void> {
-    const loading = await this.loadingController.create({
-      message: 'Getting location…',
-    });
+    const loading = await this.loadingController.create({ message: 'Getting location…' });
     await loading.present();
 
     const pos = await new Promise<GeolocationPosition | null>((resolve) => {
-      if (typeof navigator === 'undefined' || !navigator.geolocation) {
-        resolve(null);
-        return;
-      }
+      if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (p) => resolve(p),
         () => resolve(null),
@@ -775,103 +638,116 @@ export class MapPage implements OnInit, ViewWillEnter {
     const locationLabel = await this.reverseGeocode(lng, lat);
     const scheduleId = this.currentSchedule?.id;
 
-    this.apiService
-      .reportIncident({
-        driver_id: driverId,
-        incident_type: incidentType,
-        latitude: lat,
-        longitude: lng,
-        location_label: locationLabel,
-        ...(scheduleId ? { schedule_id: scheduleId } : {}),
-      })
-      .subscribe({
-        next: async () => {
-          await loading.dismiss();
-          const t = await this.toastController.create({
-            message: 'Incident sent to your operator',
-            duration: 2500,
-            color: 'success',
-          });
-          await t.present();
-        },
-        error: async () => {
-          await loading.dismiss();
-          const t = await this.toastController.create({
-            message: 'Could not send incident. Check connection and try again.',
-            duration: 3500,
-            color: 'danger',
-          });
-          await t.present();
-        },
-      });
+    this.apiService.reportIncident({
+      driver_id: driverId,
+      incident_type: incidentType,
+      latitude: lat,
+      longitude: lng,
+      location_label: locationLabel,
+      ...(scheduleId ? { schedule_id: scheduleId } : {}),
+    }).subscribe({
+      next: async () => {
+        await loading.dismiss();
+        const t = await this.toastController.create({
+          message: 'Incident sent to your operator',
+          duration: 2500,
+          color: 'success',
+        });
+        await t.present();
+      },
+      error: async () => {
+        await loading.dismiss();
+        const t = await this.toastController.create({
+          message: 'Could not send incident. Check connection and try again.',
+          duration: 3500,
+          color: 'danger',
+        });
+        await t.present();
+      }
+    });
   }
 
   private async reverseGeocode(lng: number, lat: number): Promise<string> {
-    const token = environment.mapbox?.accessToken || this.mapboxToken;
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-      `${lng},${lat}`
-    )}.json?access_token=${encodeURIComponent(token)}&limit=1`;
+    const token = (environment as any).mapbox?.accessToken || this.mapboxToken;
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(`${lng},${lat}`)}.json?access_token=${encodeURIComponent(token)}&limit=1`;
     try {
       const response = await fetch(url);
       const data = await response.json();
       const name = data?.features?.[0]?.place_name;
-      if (typeof name === 'string' && name.length > 0) {
-        return name;
-      }
-    } catch {
-      /* fall through */
-    }
+      if (typeof name === 'string' && name.length > 0) return name;
+    } catch {}
     return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   }
 
   startSchedule(schedule: Schedule) {
-    this.apiService.startSchedule(schedule.id).subscribe({
+    const call$ = this.apiService.startSchedule(schedule.id);
+
+    call$.subscribe({
       next: (response) => {
         if (response.success) {
           schedule.status = 'active';
           this.loadDriverSchedules();
         }
       },
-      error: () => {}
+
+      error: () => this.loadDriverSchedules()
     });
   }
 
-  completeSchedule(schedule: Schedule) {
-    if (schedule.status === 'accepted') {
-      this.apiService.startSchedule(schedule.id).subscribe({
-        next: (startResponse) => {
-          if (startResponse.success) {
-            schedule.status = 'active';
-            this.apiService.completeSchedule(schedule.id).subscribe({
-              next: (completeResponse) => {
-                if (completeResponse.success) {
-                  schedule.status = 'completed';
-                  this.loadDriverSchedules();
-                }
-              },
-              error: () => {}
+  private doCompleteSchedule(schedule: Schedule) {
+    if (this.isReturnTrip) {
+      this.apiService.completeReturnTrip(schedule.id).subscribe({
+        next: async (response) => {
+          if (response.success) {
+            this.isReturnTrip = false;
+            this.loadDriverSchedules();
+            const toast = await this.toastController.create({
+              message: 'Return trip completed!',
+              duration: 3500,
+              color: 'success',
+              position: 'top',
+              icon: 'checkmark-circle-outline'
             });
+            await toast.present();
           }
         },
-        error: () => {}
+        error: () => this.loadDriverSchedules()
       });
-    } else {
+      return;
+    }
+
+    const doComplete = () => {
       this.apiService.completeSchedule(schedule.id).subscribe({
-        next: (response) => {
+        next: async (response) => {
           if (response.success) {
             schedule.status = 'completed';
             this.loadDriverSchedules();
+            const toast = await this.toastController.create({
+              message: 'Trip completed! Check your schedule for the return trip.',
+              duration: 3500,
+              color: 'success',
+              position: 'top',
+              icon: 'checkmark-circle-outline'
+            });
+            await toast.present();
           }
         },
-        error: () => {}
+        error: () => this.loadDriverSchedules()
       });
+    };
+
+    if (schedule.status === 'accepted') {
+      this.apiService.startSchedule(schedule.id).subscribe({
+        next: (res) => { if (res.success) { schedule.status = 'active'; doComplete(); } },
+        error: () => this.loadDriverSchedules()
+      });
+    } else {
+      doComplete();
     }
   }
 
   formatTime(timeString: string): string {
-    if (!timeString) {
-      return '';
-    }
+    if (!timeString) return '';
     const t = timeString.includes('T') ? timeString.split('T')[1] || timeString : timeString;
     const [hours, minutes] = t.split(':');
     const date = new Date();
@@ -883,14 +759,14 @@ export class MapPage implements OnInit, ViewWillEnter {
     });
   }
 
-  async fetchRouteFromMapbox(startCoords: [number, number], endCoords: [number, number]) {
+  private async fetchRouteFromMapbox(startCoords: [number, number], endCoords: [number, number]) {
     const coordsString = `${startCoords[0]},${startCoords[1]};${endCoords[0]},${endCoords[1]}`;
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsString}?geometries=geojson&overview=full&access_token=${this.mapboxToken}`;
-    
+
     try {
       const response = await fetch(url);
       const data = await response.json();
-      
+
       if (data.routes?.[0]?.geometry) {
         this.mapRouteGeoJson = data.routes[0].geometry;
       } else {
@@ -907,14 +783,14 @@ export class MapPage implements OnInit, ViewWillEnter {
     }
   }
 
-  async fetchDrivingRouteFromWaypoints(waypoints: [number, number][]) {
+  private async fetchDrivingRouteFromWaypoints(waypoints: [number, number][]) {
     const coordsString = waypoints.map((c) => `${c[0]},${c[1]}`).join(';');
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsString}?geometries=geojson&overview=full&access_token=${this.mapboxToken}`;
-    
+
     try {
       const response = await fetch(url);
       const data = await response.json();
-      
+
       if (data.routes?.[0]?.geometry) {
         this.mapRouteGeoJson = data.routes[0].geometry;
       } else {
@@ -931,3 +807,4 @@ export class MapPage implements OnInit, ViewWillEnter {
     }
   }
 }
+

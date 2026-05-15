@@ -6,7 +6,7 @@
   </ion-toolbar>
 </ion-header>
 
-<ion-content [fullscreen]="false">
+<ion-content [fullscreen]="true">
 
   <!-- Hero Banner -->
   <div class="hero-banner">
@@ -20,8 +20,8 @@
     <div class="hero-time">{{ currentTime }}</div>
   </div>
 
-  <!-- Route Selection -->
-  <div class="section-wrapper">
+  <!-- Route Selection (hidden during post-trip flow) -->
+  <div class="section-wrapper" *ngIf="!showTripComplete">
     <div class="section-label">
       <ion-icon name="map-outline"></ion-icon>
       <span>Choose a Route</span>
@@ -69,9 +69,6 @@
           interface="popover"
           label="Board at"
           labelPlacement="stacked">
-          <ion-select-option [value]="-1">
-            {{ commuterTerminal === 'south' ? 'South terminal' : 'North terminal' }}
-          </ion-select-option>
           <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
             {{ s.name || ('Stop ' + (i + 1)) }}
           </ion-select-option>
@@ -82,20 +79,13 @@
           [(ngModel)]="toStopIndex"
           (ionChange)="onSegmentStopsChange()"
           interface="popover"
-          label="Arrive at"
+          label="Alight at"
           labelPlacement="stacked">
           <ion-select-option
             *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
             [value]="i"
-            [disabled]="i <= effectiveFromStopIndex">
-            {{ (s.name || ('Stop ' + (i + 1))) + (s.eta_minutes_from_start != null ? (' · ETA +' + s.eta_minutes_from_start + 'm') : '') }}
-          </ion-select-option>
-          <!-- Destination option (separate from last stop: value is one past last index) -->
-          <ion-select-option
-            *ngIf="selectedRoute?.name && (selectedRoute?.stops?.length ?? 0) >= 2"
-            [value]="(selectedRoute?.stops?.length ?? 0)"
-            [disabled]="(selectedRoute?.stops?.length ?? 0) <= effectiveFromStopIndex">
-            {{ selectedRoute?.name ?? '' }}
+            [disabled]="i === fromStopIndex">
+            {{ s.name || ('Stop ' + (i + 1)) }}
           </ion-select-option>
         </ion-select>
       </ng-container>
@@ -122,36 +112,47 @@
         <p class="live-buses-hint" *ngIf="liveBuses.length === 0">
           No live trips right now. You can still purchase an e-ticket; when buses appear below, tap one to attach your trip.
         </p>
-        <ng-container *ngIf="liveBuses.length > 0">
-          <ion-select
-            class="route-select ion-margin-top"
-            interface="popover"
-            label="Select active bus"
-            labelPlacement="stacked"
-            [(ngModel)]="selectedBusScheduleId"
-            (ionChange)="onBusDropdownChange($event.detail.value)">
-            <ion-select-option [value]="null">Show all active buses</ion-select-option>
-            <ion-select-option *ngFor="let b of liveBuses" [value]="b.schedule_id" [disabled]="b.is_full">
-              {{ b.bus_number || 'Bus' }}{{ b.operator_company ? (' · ' + b.operator_company) : '' }} · {{ b.aboard }}/{{ b.capacity }}{{ b.is_full ? ' · FULL' : '' }}
-            </ion-select-option>
-          </ion-select>
-          <p class="live-buses-tap-hint ion-margin-top">
-            Selecting a bus will show <strong>only that bus</strong> on the map.
-          </p>
-          <div class="ion-text-center ion-margin-top" *ngIf="getSelectedBusCapacityLabel() as cap">
-            <ion-badge color="primary">Capacity: {{ cap }}</ion-badge>
-          </div>
-        </ng-container>
+        <p class="live-buses-tap-hint" *ngIf="liveBuses.length > 0">
+          Tap a bus to attach it to your e-ticket.
+        </p>
+        <ion-list class="live-buses-list" lines="full" *ngIf="liveBuses.length > 0">
+          <ion-item
+            *ngFor="let b of liveBuses"
+            button
+            detail="false"
+            (click)="selectLiveBus(b)"
+            [class.live-bus-selected]="selectedScheduleId === b.schedule_id && !b.is_full"
+            [class.live-bus-full]="b.is_full">
+            <ion-label>
+              <h3 class="live-bus-title">
+                {{ b.bus_number || 'Bus' }}
+                <span class="live-bus-operator" *ngIf="b.operator_company"> · {{ b.operator_company }}</span>
+              </h3>
+              <p class="live-bus-meta">
+                {{ b.driver_name || 'Driver' }} · {{ b.aboard }}/{{ b.capacity }} aboard ·
+                <span [style.color]="b.status === 'active' ? '#16a34a' : '#d97706'">
+                  {{ b.status === 'active' ? 'En route' : 'Pre-boarding' }}
+                </span>
+              </p>
+            </ion-label>
+            <ion-badge *ngIf="b.is_full" color="danger" slot="end">Full</ion-badge>
+            <ion-icon
+              *ngIf="selectedScheduleId === b.schedule_id && !b.is_full"
+              name="checkmark-outline"
+              color="success"
+              slot="end">
+            </ion-icon>
+          </ion-item>
+        </ion-list>
       </div>
 
-      <ion-button
-        expand="block"
-        class="track-btn"
-        (click)="onTrackRoute()"
-        [disabled]="!selectedRouteId">
-        <ion-icon name="navigate-outline" slot="start"></ion-icon>
-        Track Route
-      </ion-button>
+      <!-- Boarding request status (auto-created when board-at stop is selected) -->
+      <div class="ion-margin-top boarding-status-wrapper" *ngIf="boardingRequested">
+        <ion-chip color="warning">
+          <ion-icon name="time-outline"></ion-icon>
+          <ion-label>Waiting at {{ boardingRequestStopName }}…</ion-label>
+        </ion-chip>
+      </div>
 
       <!-- Route info chips -->
       <div class="route-chips" *ngIf="selectedRoute">
@@ -193,13 +194,13 @@
         <app-route-map
           [mapId]="'home-route-map'"
           [height]="'380px'"
-          [routeGeoJson]="selectedRoute.geometry"
+          [routeGeoJson]="mapRouteGeometry"
           [startCoord]="selectedRoute.startCoord"
           [endCoord]="selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
           [liveBusMarkers]="liveBusMapPins"
-          [routeLineVariants]="routeLineVariants"
-          [disableSimulator]="true">
+          [disableSimulator]="true"
+          [commuterBoardingPin]="commuterBoardingPinForMap">
         </app-route-map>
       </div>
 
@@ -210,79 +211,147 @@
     </div>
   </div>
 
-  <!-- Fare, payment & e-Ticket -->
-  <div class="section-wrapper" *ngIf="selectedRoute">
+  <!-- Fare & E-Ticket -->
+  <div class="section-wrapper" *ngIf="selectedRoute && !paymentCompleted && selectedScheduleId != null">
     <div class="routes-card">
-      <div class="checkout-block">
-        <div class="checkout-fare">
-          <p class="checkout-fare-label">Total fare</p>
-          <div class="checkout-fare-row">
-            <p class="checkout-fare-amount">₱{{ ticketFare || selectedRoute.basefare }}</p>
-            <span class="discount-badge" *ngIf="discountPercent > 0">{{ discountPercent }}% OFF</span>
-          </div>
+      <div class="checkout-fare" *ngIf="selectedRoute && !showTicket">
+        <p class="checkout-fare-label">Total Fare</p>
+        <div class="checkout-fare-row">
+          <p class="checkout-fare-amount">₱{{ ticketFare || selectedRoute.basefare }}</p>
+          <span class="discount-badge" *ngIf="discountPercent > 0 && commuterService.getPassengerType() !== 'Regular'">{{ discountPercent }}% OFF</span>
         </div>
-
-        <ion-select
-          *ngIf="!showTicket"
-          class="checkout-payment"
-          [(ngModel)]="paymentMethod"
-          interface="action-sheet"
-          label="Payment method"
-          labelPlacement="stacked"
-          fill="outline">
-          <ion-select-option value="cash">Cash on board</ion-select-option>
-          <ion-select-option value="paymaya">PayMaya</ion-select-option>
-          <ion-select-option value="gcash">GCash</ion-select-option>
-        </ion-select>
-        <p class="checkout-payment-hint" *ngIf="!showTicket && paymentMethod === 'cash'">
-          You’ll pay in cash when you board. No QR code on your ticket.
-        </p>
-        <p class="checkout-payment-hint" *ngIf="!showTicket && paymentMethod !== 'cash'">
-          A validation QR will appear on your ticket after purchase.
-        </p>
-
-        <ion-button
-          *ngIf="!showTicket"
-          class="checkout-cta"
-          expand="block"
-          size="large"
-          (click)="confirmBeforeGetETicket()"
-          color="success"
-          fill="solid">
-          <ion-icon name="ticket-outline" slot="start"></ion-icon>
-          Get e-Ticket
-        </ion-button>
       </div>
 
       <!-- E-Ticket -->
       <app-e-ticket
         [visible]="showTicket"
         [selectedRoute]="selectedRoute"
-        [routeId]="selectedRoute.id"
         [ticketID]="ticketId"
         [ticketFare]="ticketFare"
-        [discountPercent]="discountPercent"
-        [discountAmount]="discountAmount"
-        [passengerType]="commuterService.getPassengerType()"
+        [currentTime]="currentTime"
+        [(paymentMethod)]="paymentMethod"
         [operatorCompany]="ticketOperatorCompany"
         [busLabel]="ticketBusLabel"
-        [tripLabel]="ticketDestination"
-        [currentTime]="currentTime"
-        [paymentMethod]="paymentMethod"
-        [paymentStatus]="paymentStatus"
-        [qrToken]="qrToken"
+        [discountPercent]="discountPercent"
+        [passengerType]="commuterService.getPassengerType()"
         (close)="closeTicket()"
-        (share)="shareTicket()">
+        (share)="shareTicket()"
+        (scanToPay)="openQrScanner()">
       </app-e-ticket>
     </div>
   </div>
 
   <!-- Loading State -->
-  <div class="loading-wrapper" *ngIf="routes.length === 0">
+  <div class="loading-wrapper" *ngIf="routes.length === 0 && !showTripComplete">
     <div class="loading-card">
       <ion-spinner name="crescent" color="primary"></ion-spinner>
       <p>Loading available routes…</p>
     </div>
   </div>
 
+  <!-- Trip Complete Card -->
+  <div class="section-wrapper" *ngIf="showTripComplete">
+    <div class="route-card trip-complete-card">
+      <ion-icon name="checkmark-circle" color="success" class="trip-complete-icon"></ion-icon>
+      <h2 class="trip-complete-title">Trip Completed!</h2>
+      <p class="trip-complete-route">{{ completedTripInfo?.routeName }}</p>
+
+      <div class="trip-complete-details">
+        <div class="trip-detail-row" *ngIf="completedTripInfo?.boardStopName || completedTripInfo?.alightStopName">
+          <ion-icon name="navigate-outline" color="primary" class="trip-detail-icon"></ion-icon>
+          <div>
+            <small class="trip-detail-meta">Journey</small>
+            <strong>{{ completedTripInfo?.boardStopName || '—' }} → {{ completedTripInfo?.alightStopName || '—' }}</strong>
+          </div>
+        </div>
+        <div class="trip-detail-row">
+          <ion-icon name="cash-outline" color="success" class="trip-detail-icon"></ion-icon>
+          <div>
+            <small class="trip-detail-meta">Fare Paid</small>
+            <strong>₱{{ (completedTripInfo?.fare ?? 0) | number:'1.2-2' }}</strong>
+          </div>
+        </div>
+        <div class="trip-detail-row" *ngIf="completedTripInfo?.driverName">
+          <ion-icon name="person-outline" color="primary" class="trip-detail-icon"></ion-icon>
+          <div>
+            <small class="trip-detail-meta">Driver</small>
+            <strong>{{ completedTripInfo!.driverName }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <ion-button expand="block" color="primary" (click)="bookAnotherTrip()">
+        <ion-icon slot="start" name="bus-outline"></ion-icon>
+        Book Another Trip
+      </ion-button>
+    </div>
+  </div>
+
 </ion-content>
+
+<!-- Driver Rating Modal -->
+<ion-modal [isOpen]="showRatingModal" [backdropDismiss]="false">
+  <ng-template>
+    <ion-content class="ion-padding">
+      <div class="rating-modal-body">
+        <ion-icon name="checkmark-circle" color="success" class="rating-modal-icon"></ion-icon>
+        <h2 class="rating-modal-title">You've arrived!</h2>
+        <p class="rating-modal-subtitle">How was your ride?</p>
+        <p class="rating-modal-driver" *ngIf="completedTripInfo?.driverName">
+          with {{ completedTripInfo!.driverName }}
+        </p>
+
+        <!-- Star row -->
+        <div class="star-row">
+          <ion-icon
+            *ngFor="let s of [1,2,3,4,5]"
+            [name]="s <= selectedRating ? 'star' : 'star-outline'"
+            [style.color]="s <= selectedRating ? '#f59e0b' : '#d1d5db'"
+            class="star-icon"
+            (click)="setRating(s)">
+          </ion-icon>
+        </div>
+        <p class="rating-label">{{ getRatingLabel() }}</p>
+
+        <ion-textarea
+          [(ngModel)]="ratingComment"
+          placeholder="Share your experience (optional)..."
+          fill="outline"
+          rows="3"
+          class="rating-textarea">
+        </ion-textarea>
+
+        <ion-button expand="block" color="primary" (click)="submitRating()" [disabled]="selectedRating === 0">
+          Submit Rating
+        </ion-button>
+        <ion-button expand="block" fill="clear" color="medium" (click)="skipRating()" class="rating-skip-btn">
+          Skip for now
+        </ion-button>
+      </div>
+    </ion-content>
+  </ng-template>
+</ion-modal>
+
+<!-- Card Payment full-screen modal -->
+<ion-modal [isOpen]="showCardPayment" (ionModalDidDismiss)="showCardPayment = false; pendingPayment = null" [breakpoints]="[1]" [initialBreakpoint]="1">
+  <ng-template>
+    <app-card-payment
+      [fare]="pendingPayment?.fare ?? 0"
+      [routeName]="pendingPayment?.payment?.routeName ?? selectedRoute?.name ?? ''"
+      (paid)="onCardPaid($event)"
+      (cancel)="showCardPayment = false; pendingPayment = null">
+    </app-card-payment>
+  </ng-template>
+</ion-modal>
+
+<!-- QR Scanner full-screen modal -->
+<ion-modal [isOpen]="showQrScanner" (ionModalDidDismiss)="showQrScanner = false" [breakpoints]="[1]" [initialBreakpoint]="1">
+  <ng-template>
+    <app-qr-scanner
+      [eTicketPayload]="eTicketPayload"
+      [defaultMode]="'eticket'"
+      (scanned)="onPaymentScanned($event)"
+      (close)="showQrScanner = false">
+    </app-qr-scanner>
+  </ng-template>
+</ion-modal>

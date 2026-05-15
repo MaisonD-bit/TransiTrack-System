@@ -58,7 +58,7 @@ bootstrapApplication(AppComponent, {
   providers: [
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes, withHashLocation()),
-    provideIonicAngular(),
+    provideIonicAngular({ animated: false }),
     provideHttpClient(withInterceptors([ngrokSkipWarningInterceptor]))
   ]
 }).catch(err => console.error(err));

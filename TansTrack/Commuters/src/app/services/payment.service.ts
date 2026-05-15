@@ -3,163 +3,105 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 
-@Injectable({
-  providedIn: 'root'
-})
+export interface CardDetails {
+  cardNumber: string;
+  expMonth: number;
+  expYear: number;
+  cvc: string;
+  name: string;
+}
+
+export interface PaymentResult {
+  success: boolean;
+  paymentIntentId?: string;
+  status?: string;
+  nextActionUrl?: string;
+  error?: string;
+}
+
+@Injectable({ providedIn: 'root' })
 export class PaymentService {
-  private apiUrl = `${environment.apiUrl}/payments`;
+  private backendUrl = `${environment.apiUrl}/payments/stripe`;
 
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient) {}
 
-  /**
-   * Process payment via PayMaya
-   * @param paymentRequest - Payment request object with amount, token, metadata
-   * @returns Promise with payment result
-   */
-  async processPayMayaPayment(paymentRequest: any): Promise<any> {
-    try {
-      // Mock implementation for demo - replace with actual API call
-      console.log('Processing PayMaya payment:', paymentRequest);
-      
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock successful response
-      return {
-        success: true,
-        data: {
-          id: 'pay_' + Date.now(),
-          status: 'completed',
-          amount: paymentRequest.amount,
-          currency: paymentRequest.currency,
-          transactionId: 'txn_' + Date.now()
-        },
-        message: 'Payment processed successfully'
-      };
-      
-      // TODO: Replace with actual PayMaya API call
-      // const response = await firstValueFrom(
-      //   this.http.post(`${this.apiUrl}/paymaya`, paymentRequest)
-      // );
-      // return response;
-      
-    } catch (error) {
-      console.error('PayMaya payment failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Payment processing failed'
-      };
-    }
+  async getEWalletBalance(accountNumber: string): Promise<number> {
+    const res: any = await firstValueFrom(
+      this.http.get(`${environment.apiUrl}/payments/ewallet/balance/${encodeURIComponent(accountNumber)}`)
+    );
+    return res.balance;
   }
 
-  /**
-   * Create cash payment reservation
-   * @param reservationData - Reservation data with amount, userId, routeId, etc.
-   * @returns Promise with reservation result
-   */
-  async createCashReservation(reservationData: any): Promise<any> {
+  async processEWalletPayment(fare: number, accountNumber: string, method: string): Promise<PaymentResult> {
     try {
-      // Mock implementation for demo - replace with actual API call
-      console.log('Creating cash reservation:', reservationData);
-      
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Mock successful response
-      const reservationCode = 'RES-' + Math.random().toString(36).substr(2, 8).toUpperCase();
-      
-      return {
-        success: true,
-        data: {
-          id: 'res_' + Date.now(),
-          reservationCode: reservationCode,
-          status: 'reserved',
-          amount: reservationData.finalAmount,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
-        },
-        message: 'Reservation created successfully'
-      };
-      
-      // TODO: Replace with actual API call
-      // const response = await firstValueFrom(
-      //   this.http.post(`${this.apiUrl}/cash-reservation`, reservationData)
-      // );
-      // return response;
-      
-    } catch (error) {
-      console.error('Cash reservation failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Reservation failed'
-      };
-    }
-  }
-
-  /**
-   * Get payment status
-   * @param paymentId - Payment ID to check status
-   * @returns Promise with payment status
-   */
-  async getPaymentStatus(paymentId: string): Promise<any> {
-    try {
-      const response = await firstValueFrom(
-        this.http.get(`${this.apiUrl}/${paymentId}`)
+      const res: any = await firstValueFrom(
+        this.http.post(`${environment.apiUrl}/payments/ewallet/charge`, { fare, accountNumber, method })
       );
-      return response;
-    } catch (error) {
-      console.error('Failed to get payment status:', error);
-      throw error;
+      return { success: true, paymentIntentId: res.transactionId, status: 'succeeded' };
+    } catch (err: any) {
+      const detail = err?.error?.error ?? 'Payment failed.';
+      return { success: false, error: detail };
     }
   }
 
   /**
-   * List user payments
-   * @param userId - User ID
-   * @returns Promise with payments list
+   * Create a real Maya Checkout session.
+   * Returns the checkout URL to open in a popup.
    */
-  async getUserPayments(userId: string): Promise<any> {
+  async createMayaCheckout(payload: {
+    public_ticket_id?: string;
+    amount: number;
+    route_name?: string;
+    commuter_name?: string;
+  }): Promise<{ success: boolean; checkout_url?: string; message?: string }> {
     try {
-      const response = await firstValueFrom(
-        this.http.get(`${this.apiUrl}/user/${userId}`)
+      console.log('[PaymentService] Creating Maya checkout with payload:', payload);
+      const res: any = await firstValueFrom(
+        this.http.post(`${environment.apiUrl}/payments/maya/checkout`, payload)
       );
-      return response;
-    } catch (error) {
-      console.error('Failed to get user payments:', error);
-      throw error;
+      console.log('[PaymentService] Maya checkout response:', res);
+      return { success: true, checkout_url: res.checkout_url };
+    } catch (err: any) {
+      const msg = err?.error?.message ?? 'Could not start Maya payment.';
+      console.error('[PaymentService] Maya checkout error:', err, 'Message:', msg);
+      return { success: false, message: msg };
     }
   }
 
-  /**
-   * Apply discount code
-   * @param discountCode - Discount code
-   * @param amount - Base amount to apply discount to
-   * @returns Promise with discounted amount
-   */
-  async applyDiscount(discountCode: string, amount: number): Promise<any> {
-    try {
-      const response = await firstValueFrom(
-        this.http.post(`${this.apiUrl}/apply-discount`, { discountCode, amount })
-      );
-      return response;
-    } catch (error) {
-      console.error('Failed to apply discount:', error);
-      throw error;
-    }
+  async topUpEWallet(accountNumber: string, amount = 1000): Promise<number> {
+    const res: any = await firstValueFrom(
+      this.http.post(`${environment.apiUrl}/payments/ewallet/topup`, { accountNumber, amount })
+    );
+    return res.balance;
   }
 
-  /**
-   * Get available payment methods
-   * @returns Promise with payment methods list
-   */
-  async getPaymentMethods(): Promise<any> {
+  async processCardPayment(fare: number, card: CardDetails, description?: string): Promise<PaymentResult> {
     try {
-      const response = await firstValueFrom(
-        this.http.get(`${this.apiUrl}/methods`)
+      const res: any = await firstValueFrom(
+        this.http.post(`${this.backendUrl}/charge`, {
+          fare,
+          cardNumber: card.cardNumber.replace(/\s/g, ''),
+          expMonth:   card.expMonth,
+          expYear:    card.expYear,
+          cvc:        card.cvc,
+          cardName:   card.name,
+          description: description ?? 'Bus Fare Payment',
+        })
       );
-      return response;
-    } catch (error) {
-      console.error('Failed to get payment methods:', error);
-      throw error;
+
+      if (res.success) {
+        return { success: true, paymentIntentId: res.paymentIntentId, status: 'succeeded' };
+      }
+
+      if (res.status === 'requires_3ds') {
+        return { success: false, status: 'awaiting_3ds', nextActionUrl: res.nextActionUrl };
+      }
+
+      return { success: false, error: res.error ?? 'Payment was not completed.' };
+
+    } catch (err: any) {
+      const detail = err?.error?.error ?? err?.message ?? 'Payment failed. Please check your card details.';
+      return { success: false, error: detail };
     }
   }
 }

@@ -2,56 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BoardingRequest;
+use App\Models\DriverLocation;
 use App\Models\Route;
 use App\Models\RouteApprovalRequest;
 use App\Models\Schedule;
 use App\Models\Ticket;
-use App\Models\DriverLocation;
-use App\Models\Commuter;
-use App\Models\Notification;
 use App\Support\TicketBoarding;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class CommuterRoutesController extends Controller
 {
-    private function computeStopEtas(?Route $route, array $stops, ?Schedule $schedule = null): array
-    {
-        $fullKm = max((float) ($route?->distance_km ?? 0), 0.001);
-        $durationMin = (int) ($route?->estimated_duration ?? 0);
-
-        $start = null;
-        if ($schedule && $schedule->date && $schedule->start_time) {
-            try {
-                $day = $schedule->date instanceof \Carbon\CarbonInterface
-                    ? $schedule->date->format('Y-m-d')
-                    : \Carbon\Carbon::parse((string) $schedule->date)->format('Y-m-d');
-                $t = $schedule->start_time instanceof \Carbon\CarbonInterface
-                    ? $schedule->start_time->format('H:i:s')
-                    : \Carbon\Carbon::parse((string) $schedule->start_time)->format('H:i:s');
-                $start = \Carbon\Carbon::parse("{$day} {$t}");
-            } catch (\Throwable) {
-                $start = null;
-            }
-        }
-
-        $out = [];
-        foreach ($stops as $s) {
-            $dist = (float) ($s['distance_km_from_start'] ?? 0);
-            $ratio = min(1.0, max(0.0, $dist / $fullKm));
-            $etaMin = $durationMin > 0 ? (int) round($durationMin * $ratio) : null;
-            $etaTime = ($start && $etaMin !== null) ? $start->copy()->addMinutes($etaMin)->format('H:i') : null;
-
-            $s['eta_minutes_from_start'] = $etaMin;
-            $s['eta_time'] = $etaTime;
-            $out[] = $s;
-        }
-
-        return $out;
-    }
-
     /**
      * Approved routes with terminal-manager stops (public API for commuter app).
      */
@@ -99,13 +62,13 @@ class CommuterRoutesController extends Controller
                 if (is_string($geometry)) {
                     $geometry = json_decode($geometry, true);
                 }
+                $returnMap = null;
+                $returnCoords = $this->lineStringCoordinates($route->return_geometry);
+                if ($returnCoords && count($returnCoords) >= 2) {
+                    $returnMap = ['type' => 'LineString', 'coordinates' => $returnCoords];
+                }
 
                 $schedule = $this->findTodaysBookableScheduleForRoute((int) $route->id);
-
-                $stops = $block['stops'] ?? [];
-                if (is_array($stops) && count($stops) > 0) {
-                    $stops = $this->computeStopEtas($route, $stops, $schedule);
-                }
 
                 $routes[] = [
                     'approval_request_id' => $pkg->id,
@@ -115,11 +78,12 @@ class CommuterRoutesController extends Controller
                     'code' => $route->code,
                     'bus_type' => $route->bus_type,
                     'geometry' => $geometry,
+                    'return_map_geometry' => $returnMap,
+                    'return_stops' => $route->return_stops_data ?? null,
                     'distance_km' => (float) ($route->distance_km ?? 0),
-                    'estimated_duration' => (int) ($route->estimated_duration ?? 0),
                     'regular_price' => (float) ($route->regular_price ?? $route->route_fare ?? 0),
                     'aircon_price' => (float) ($route->aircon_price ?? $route->route_fare ?? 0),
-                    'stops' => $stops,
+                    'stops' => $this->withEndpointStop($this->withTerminalStop($block['stops'] ?? [], $terminal), $route),
                     'label' => $block['label'] ?? $route->name,
                 ];
             }
@@ -133,6 +97,155 @@ class CommuterRoutesController extends Controller
     }
 
     /**
+     * Register commuter intent to board at a stop (no payment required).
+     * Appears as a marker on the driver map so the driver knows someone is waiting.
+     */
+    public function requestBoarding(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'schedule_id'        => ['required', 'integer', 'exists:schedules,id'],
+            'route_id'           => ['nullable', 'integer'],
+            'from_stop_index'    => ['nullable', 'integer', 'min:0'],
+            'commuter_id'        => ['nullable', 'integer'],
+            'commuter_name'      => ['nullable', 'string', 'max:255'],
+            'commuter_email'     => ['nullable', 'email', 'max:255'],
+            'terminal'           => ['nullable', 'string', 'max:16'],
+            'approval_request_id'=> ['nullable', 'integer'],
+        ]);
+
+        $fromStopIndex = (int) ($data['from_stop_index'] ?? 0);
+        $terminal      = $data['terminal'] ?? 'north';
+        $routeId       = $data['route_id'] ?? null;
+
+        $boardingLng  = null;
+        $boardingLat  = null;
+        $boardingName = null;
+
+        $pkg = null;
+        if (! empty($data['approval_request_id'])) {
+            $pkg = RouteApprovalRequest::query()->where('status', 'approved')->find($data['approval_request_id']);
+        }
+        if (! $pkg && $routeId) {
+            $pkg = RouteApprovalRequest::query()
+                ->where('status', 'approved')
+                ->where('terminal', $terminal)
+                ->get()
+                ->first(fn ($p) => in_array((int) $routeId, array_map('intval', (array) ($p->route_ids ?? [])), true));
+        }
+
+        if ($pkg && is_array($pkg->stop_configuration) && $routeId) {
+            foreach ($pkg->stop_configuration as $block) {
+                if ((int) ($block['route_id'] ?? 0) === (int) $routeId) {
+                    $stops = $this->withTerminalStop($block['stops'] ?? [], $pkg->terminal ?? $terminal);
+                    $stop  = $stops[$fromStopIndex] ?? null;
+                    if ($stop) {
+                        $boardingLng  = (float) ($stop['lng'] ?? 0);
+                        $boardingLat  = (float) ($stop['lat'] ?? 0);
+                        $boardingName = $stop['name'] ?? null;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if ($boardingLng === null) {
+            $info = self::TERMINAL_STOPS[strtolower($terminal)] ?? null;
+            if ($info) {
+                $boardingLng  = $info['lng'];
+                $boardingLat  = $info['lat'];
+                $boardingName = $info['name'];
+            }
+        }
+
+        // Cancel any pre-existing waiting requests for this commuter+schedule
+        // so stop changes never leave orphaned markers on the driver map.
+        $commuterIdentifier = isset($data['commuter_id']) && (int) $data['commuter_id'] > 0
+            ? (int) $data['commuter_id'] : null;
+        $commuterEmail      = ! empty($data['commuter_email']) ? $data['commuter_email'] : null;
+        $commuterName       = ! empty($data['commuter_name']) ? $data['commuter_name'] : null;
+
+        $cancelBase = BoardingRequest::query()
+            ->where('schedule_id', $data['schedule_id'])
+            ->where('status', 'waiting');
+
+        if ($commuterIdentifier !== null) {
+            (clone $cancelBase)->where('commuter_id', $commuterIdentifier)->update(['status' => 'cancelled']);
+        } elseif ($commuterEmail !== null) {
+            (clone $cancelBase)->where('commuter_email', $commuterEmail)->update(['status' => 'cancelled']);
+        } elseif ($commuterName !== null) {
+            (clone $cancelBase)->where('commuter_name', $commuterName)->update(['status' => 'cancelled']);
+        }
+
+        $req = BoardingRequest::create([
+            'schedule_id'       => $data['schedule_id'],
+            'route_id'          => $routeId,
+            'from_stop_index'   => $fromStopIndex,
+            'boarding_lng'      => $boardingLng,
+            'boarding_lat'      => $boardingLat,
+            'boarding_stop_name'=> $boardingName,
+            'commuter_id'       => $data['commuter_id'] ?? null,
+            'commuter_name'     => $data['commuter_name'] ?? null,
+            'commuter_email'    => $data['commuter_email'] ?? null,
+            'status'            => 'waiting',
+        ]);
+
+        return response()->json([
+            'success'            => true,
+            'id'                 => $req->id,
+            'boarding_stop_name' => $boardingName,
+        ]);
+    }
+
+    /**
+     * Cancel a waiting boarding request (commuter changed their mind).
+     */
+    public function cancelBoardingRequest(int $id): \Illuminate\Http\JsonResponse
+    {
+        $req = BoardingRequest::query()->find($id);
+        if (! $req) {
+            return response()->json(['success' => false, 'message' => 'Request not found.'], 404);
+        }
+        $req->status = 'cancelled';
+        $req->save();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Cancel ALL waiting boarding requests for a commuter (called on app init to clear stale sessions).
+     */
+    public function cancelMyBoardingRequests(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'commuter_id'    => ['nullable', 'integer'],
+            'commuter_email' => ['nullable', 'email', 'max:255'],
+            'commuter_name'  => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $commuterIdentifier = isset($data['commuter_id']) && (int) $data['commuter_id'] > 0
+            ? (int) $data['commuter_id'] : null;
+        $commuterEmail = ! empty($data['commuter_email']) ? $data['commuter_email'] : null;
+        $commuterName  = ! empty($data['commuter_name'])  ? $data['commuter_name']  : null;
+
+        if ($commuterIdentifier === null && $commuterEmail === null && $commuterName === null) {
+            return response()->json(['success' => false, 'message' => 'No commuter identity provided.'], 422);
+        }
+
+        $q = BoardingRequest::query()->where('status', 'waiting');
+        if ($commuterIdentifier !== null) {
+            $q->where('commuter_id', $commuterIdentifier);
+        } elseif ($commuterEmail !== null) {
+            $q->where('commuter_email', $commuterEmail);
+        } else {
+            $q->where('commuter_name', $commuterName);
+        }
+
+        $cancelled = $q->update(['status' => 'cancelled']);
+
+        return response()->json(['success' => true, 'cancelled' => $cancelled]);
+    }
+
+    /**
      * Fare to pay when alighting at a specific stop (distance-proportional).
      */
     public function farePreview(Request $request)
@@ -142,7 +255,6 @@ class CommuterRoutesController extends Controller
             'bus_type' => ['required', 'in:regular,aircon'],
             'stop_index' => ['required', 'integer', 'min:0'],
             'approval_request_id' => ['nullable', 'integer', 'exists:route_approval_requests,id'],
-            'commuter_id' => ['nullable', 'integer', 'exists:commuters,id'],
         ]);
 
         $route = Route::query()->findOrFail($data['route_id']);
@@ -164,6 +276,9 @@ class CommuterRoutesController extends Controller
         }
 
         $fullKm = max((float) ($route->distance_km ?? 0), 0.001);
+        $fullFareRegular = (float) ($route->regular_price ?? $route->route_fare ?? 0);
+        $fullFareAircon = (float) ($route->aircon_price ?? $route->route_fare ?? 0);
+        $fullFare = $data['bus_type'] === 'aircon' ? $fullFareAircon : $fullFareRegular;
 
         $stopDist = $fullKm;
         $selectedStop = null;
@@ -173,7 +288,7 @@ class CommuterRoutesController extends Controller
                 if ((int) ($block['route_id'] ?? 0) !== (int) $data['route_id']) {
                     continue;
                 }
-                $stops = $block['stops'] ?? [];
+                $stops = $this->withEndpointStop($this->withTerminalStop($block['stops'] ?? [], $pkg->terminal ?? ''), $route);
                 $idx = $data['stop_index'];
                 if (! isset($stops[$idx])) {
                     continue;
@@ -184,19 +299,17 @@ class CommuterRoutesController extends Controller
             }
         }
 
-        $km = max(0.0, (float) $stopDist);
-        $type = $this->resolvePassengerType($data);
-        $isDiscounted = in_array($type, ['Student', 'Senior', 'PWD'], true);
-        $fare = $this->ltfrbFareForKm($data['bus_type'], $km, $isDiscounted);
+        $ratio = min(1, max(0, $stopDist / $fullKm));
+        $fare = round($fullFare * $ratio, 2);
 
         return response()->json([
             'success' => true,
             'data' => [
                 'fare' => $fare,
-                'km' => $km,
-                'passenger_type' => $type,
+                'ratio' => $ratio,
                 'distance_km_to_stop' => $stopDist,
                 'full_route_distance_km' => $fullKm,
+                'full_route_fare' => $fullFare,
                 'stop' => $selectedStop,
             ],
         ]);
@@ -209,8 +322,7 @@ class CommuterRoutesController extends Controller
     {
         $data = $request->validate([
             'route_id' => ['required', 'integer', 'exists:routes,id'],
-            'commuter_id' => ['nullable', 'integer', 'exists:commuters,id'],
-            'passenger_type' => ['nullable', 'string', 'max:32'], // fallback only
+            'passenger_type' => ['nullable', 'string', 'max:32'],
             'bus_type' => ['nullable', 'in:regular,aircon'],
         ]);
 
@@ -220,14 +332,22 @@ class CommuterRoutesController extends Controller
             $busType = 'regular';
         }
 
-        $km = max((float) ($route->distance_km ?? 0), 0.001);
+        $base = $busType === 'aircon'
+            ? (float) ($route->aircon_price ?? $route->regular_price ?? $route->route_fare ?? 0)
+            : (float) ($route->regular_price ?? $route->route_fare ?? 0);
 
-        $type = $this->resolvePassengerType($data);
-        $discountPercent = in_array($type, ['Student', 'Senior', 'PWD'], true) ? 20 : 0;
+        $type = ucfirst(strtolower(trim($data['passenger_type'] ?? 'Regular')));
+        if ($type === 'Pwd') {
+            $type = 'PWD';
+        }
 
-        $base = $this->ltfrbFareForKm($busType, $km, false);
-        $finalFare = $this->ltfrbFareForKm($busType, $km, $discountPercent > 0);
-        $discountAmount = $this->roundToQuarter(max(0.0, $base - $finalFare));
+        $discountPercent = 0;
+        if (in_array($type, ['Student', 'Senior', 'PWD'], true)) {
+            $discountPercent = 20;
+        }
+
+        $discountAmount = round($base * ($discountPercent / 100), 2);
+        $finalFare = round(max(0, $base - $discountAmount), 2);
 
         return response()->json([
             'success' => true,
@@ -237,7 +357,6 @@ class CommuterRoutesController extends Controller
                 'discount_percent' => $discountPercent,
                 'discount_amount' => $discountAmount,
                 'passenger_type' => $type,
-                'km' => $km,
             ],
         ]);
     }
@@ -254,9 +373,7 @@ class CommuterRoutesController extends Controller
             'schedule_id' => ['nullable', 'integer', 'exists:schedules,id'],
             'commuter_id' => ['nullable', 'integer', 'exists:commuters,id'],
             'payment_method' => ['nullable', 'string', 'max:32'],
-            // Alight target: either a stop index or destination.
-            'alight_stop_index' => ['nullable', 'integer', 'min:0'],
-            'alight_is_destination' => ['nullable', 'boolean'],
+            'from_stop_index' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $schedule = null;
@@ -268,16 +385,16 @@ class CommuterRoutesController extends Controller
                     'message' => 'This schedule does not match the selected route.',
                 ], 422);
             }
-            if ($this->scheduleDateYmd($schedule) !== $this->commuterLocalToday()) {
+            if (! $this->isScheduleWithinBookableWindow($schedule)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This schedule is not for today.',
+                    'message' => 'This schedule is not available for booking.',
                 ], 422);
             }
-            if (! in_array($schedule->status, ['scheduled', 'accepted', 'active'], true)) {
+            if (! in_array($schedule->status, ['active', 'accepted'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This trip is not open for ticketing.',
+                    'message' => 'The driver has not accepted this trip yet.',
                 ], 422);
             }
         } else {
@@ -287,7 +404,7 @@ class CommuterRoutesController extends Controller
         if (! $schedule) {
             return response()->json([
                 'success' => false,
-                'message' => 'No scheduled trip found for this route today. Your operator must add a schedule for this date in the operator panel.',
+                'message' => 'No driver is currently active on this route. Please wait for the driver to start the trip.',
             ], 404);
         }
 
@@ -304,37 +421,18 @@ class CommuterRoutesController extends Controller
         }
 
         try {
-            $beforeAboard = $capacity > 0 ? TicketBoarding::aboardCount($schedule->tickets, $capacity) : null;
-            $method = strtolower(trim((string) ($data['payment_method'] ?? '')));
-            if ($method === '') {
-                $method = 'cash';
-            }
-            $isCash = $method === 'cash';
-            $paymentStatus = $isCash ? 'unpaid' : 'pending';
-            $paymentRef = $isCash ? null : ('PAY-' . strtoupper(Str::random(10)) . '-' . strtoupper(Str::random(6)));
-
             $ticket = Ticket::create([
                 'public_ticket_id' => $data['public_ticket_id'],
                 'schedule_id' => $schedule->id,
-                'alight_stop_index' => ! empty($data['alight_is_destination']) ? null : ($data['alight_stop_index'] ?? null),
-                'alight_is_destination' => ! empty($data['alight_is_destination']),
                 'fare' => $data['fare'],
                 'commuter_id' => $data['commuter_id'] ?? null,
-                'payment_method' => $method,
-                'payment_status' => $paymentStatus,
-                'payment_ref' => $paymentRef,
-                // QR is only issued once paid (for online methods); cash tickets do not get a prepaid QR.
-                'qr_payload' => null,
+                'qr_payload' => ! empty($data['payment_method'])
+                    ? json_encode(['payment_method' => $data['payment_method']])
+                    : null,
+                'payment_method' => $data['payment_method'] ?? null,
+                'payment_status' => 'pending',
+                'from_stop_index' => $data['from_stop_index'] ?? null,
             ]);
-
-            // Capacity / overcrowding alert trigger (one-time per schedule when it becomes full).
-            if ($capacity > 0) {
-                $schedule->loadMissing(['tickets', 'bus']);
-                $afterAboard = TicketBoarding::aboardCount($schedule->tickets, $capacity);
-                if ($beforeAboard !== null && $beforeAboard < $capacity && $afterAboard >= $capacity) {
-                    $this->notifyBusFull($schedule, $afterAboard, $capacity);
-                }
-            }
         } catch (\Illuminate\Database\QueryException $e) {
             $msg = strtolower($e->getMessage());
             if (str_contains($msg, 'unique') || $e->getCode() === '23000') {
@@ -351,118 +449,23 @@ class CommuterRoutesController extends Controller
             ], 500);
         }
 
+        // Mark any pending boarding requests for this commuter/schedule as boarded
+        if (! empty($data['commuter_id'])) {
+            BoardingRequest::query()
+                ->where('schedule_id', $schedule->id)
+                ->where('commuter_id', $data['commuter_id'])
+                ->where('status', 'waiting')
+                ->update(['status' => 'boarded']);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'id' => $ticket->id,
                 'public_ticket_id' => $ticket->public_ticket_id,
                 'schedule_id' => $schedule->id,
-                'payment_method' => $ticket->payment_method,
-                'payment_status' => $ticket->payment_status,
-                'payment_ref' => $ticket->payment_ref,
-                'alight_stop_index' => $ticket->alight_stop_index,
-                'alight_is_destination' => (bool) $ticket->alight_is_destination,
             ],
         ]);
-    }
-
-    private function notifyBusFull(Schedule $schedule, int $aboard, int $capacity): void
-    {
-        try {
-            $operatorId = (int) ($schedule->user_id ?? 0);
-            $driverId = (int) ($schedule->driver_id ?? 0);
-            $busId = (int) ($schedule->bus_id ?? 0);
-
-            $msg = "Bus is full ({$aboard}/{$capacity}). Booking should be blocked until passengers alight.";
-
-            // Operator inbox (received notifications use sender_id = null)
-            if ($operatorId > 0) {
-                $exists = Notification::query()
-                    ->where('type', 'capacity_alert')
-                    ->where('schedule_id', $schedule->id)
-                    ->where('recipient_id', $operatorId)
-                    ->whereNull('sender_id')
-                    ->exists();
-
-                if (! $exists) {
-                    Notification::create([
-                        'type' => 'capacity_alert',
-                        'message' => $msg,
-                        'sender_id' => null,
-                        'recipient_id' => $operatorId,
-                        'driver_id' => $driverId > 0 ? $driverId : null,
-                        'schedule_id' => $schedule->id,
-                        'bus_id' => $busId > 0 ? $busId : null,
-                        'is_read' => false,
-                    ]);
-                }
-            }
-
-            // Driver inbox (driver app fetches where sender_id is NOT null)
-            if ($operatorId > 0 && $driverId > 0) {
-                $exists = Notification::query()
-                    ->where('type', 'capacity_alert')
-                    ->where('schedule_id', $schedule->id)
-                    ->where('driver_id', $driverId)
-                    ->where('sender_id', $operatorId)
-                    ->exists();
-
-                if (! $exists) {
-                    Notification::create([
-                        'type' => 'capacity_alert',
-                        'message' => $msg,
-                        'sender_id' => $operatorId,
-                        'recipient_id' => null,
-                        'driver_id' => $driverId,
-                        'schedule_id' => $schedule->id,
-                        'bus_id' => $busId > 0 ? $busId : null,
-                        'is_read' => false,
-                    ]);
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('notifyBusFull failed: '.$e->getMessage());
-        }
-    }
-
-    /**
-     * Driver reached a stop/destination: mark matching tickets as alighted (passenger count drops).
-     * Body: { schedule_id, stop_index?: int, is_destination?: bool }
-     */
-    public function driverArrived(Request $request, int $driverId)
-    {
-        $data = $request->validate([
-            'schedule_id' => ['required', 'integer', 'exists:schedules,id'],
-            'stop_index' => ['nullable', 'integer', 'min:0'],
-            'is_destination' => ['nullable', 'boolean'],
-        ]);
-
-        $schedule = Schedule::query()->findOrFail((int) $data['schedule_id']);
-        if ((int) $schedule->driver_id !== (int) $driverId) {
-            return response()->json(['success' => false, 'message' => 'Schedule does not belong to this driver.'], 403);
-        }
-
-        $now = now();
-        $isDest = ! empty($data['is_destination']);
-
-        $q = Ticket::query()
-            ->where('schedule_id', $schedule->id)
-            ->whereNull('alighted_at');
-
-        if ($isDest) {
-            $q->where('alight_is_destination', true);
-        } else {
-            $stopIndex = (int) ($data['stop_index'] ?? -1);
-            if ($stopIndex < 0) {
-                return response()->json(['success' => false, 'message' => 'stop_index is required unless is_destination=true'], 422);
-            }
-            $q->where('alight_is_destination', false)
-                ->where('alight_stop_index', $stopIndex);
-        }
-
-        $updated = $q->update(['alighted_at' => $now]);
-
-        return response()->json(['success' => true, 'updated' => $updated]);
     }
 
     /**
@@ -527,18 +530,25 @@ class CommuterRoutesController extends Controller
         }
 
         $today = $this->commuterLocalToday();
+        $yesterday = Carbon::now('Asia/Manila')->subDay()->toDateString();
+        $now = Carbon::now('Asia/Manila');
 
         $schedules = Schedule::query()
             ->with(['bus', 'driver', 'user', 'tickets', 'route'])
             ->where('route_id', $route->id)
-            ->whereDate('date', $today)
-            ->whereIn('status', ['scheduled', 'accepted', 'active'])
-            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END")
+            ->whereIn('date', [$today, $yesterday])
+            ->whereIn('status', ['accepted', 'active'])
             ->orderBy('start_time')
-            ->get();
+            ->get()
+            ->filter(function (Schedule $s) use ($now) {
+                [, $windowEnd] = $s->windowBounds();
+                return $windowEnd->addHour()->gt($now);
+            })
+            ->values();
 
         $buses = [];
         foreach ($schedules as $s) {
+            $isReturnTrip = ($s->trip_leg ?? 1) % 2 === 0;
             $capacity = (int) ($s->bus?->capacity ?? 0);
             $aboard = TicketBoarding::aboardCount($s->tickets, $capacity);
             $isFull = $capacity > 0 && $aboard >= $capacity;
@@ -547,6 +557,7 @@ class CommuterRoutesController extends Controller
             $buses[] = [
                 'schedule_id' => $s->id,
                 'status' => $s->status,
+                'is_return_trip' => $isReturnTrip,
                 'bus_number' => $s->bus?->bus_number ?? '',
                 'plate_number' => $s->bus?->plate_number ?? '',
                 'bus_company' => $s->bus?->bus_company ?? '',
@@ -575,16 +586,13 @@ class CommuterRoutesController extends Controller
         $data = $request->validate([
             'route_id' => ['required', 'integer', 'exists:routes,id'],
             'bus_type' => ['required', 'in:regular,aircon'],
-            // allow -1 (terminal)
-            'from_stop_index' => ['required', 'integer', 'min:-1'],
+            'from_stop_index' => ['required', 'integer', 'min:0'],
             'to_stop_index' => ['required', 'integer', 'min:0'],
             'approval_request_id' => ['nullable', 'integer', 'exists:route_approval_requests,id'],
-            'commuter_id' => ['nullable', 'integer', 'exists:commuters,id'],
-            'passenger_type' => ['nullable', 'string', 'max:32'], // fallback only
+            'passenger_type' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $fromCmp = max(0, (int) $data['from_stop_index']);
-        if ($fromCmp >= (int) $data['to_stop_index']) {
+        if ($data['from_stop_index'] >= $data['to_stop_index']) {
             return response()->json([
                 'success' => false,
                 'message' => 'Alighting stop must be after your boarding stop.',
@@ -593,6 +601,9 @@ class CommuterRoutesController extends Controller
 
         $route = Route::query()->findOrFail($data['route_id']);
         $fullKm = max((float) ($route->distance_km ?? 0), 0.001);
+        $fullFareRegular = (float) ($route->regular_price ?? $route->route_fare ?? 0);
+        $fullFareAircon = (float) ($route->aircon_price ?? $route->route_fare ?? 0);
+        $fullFare = $data['bus_type'] === 'aircon' ? $fullFareAircon : $fullFareRegular;
 
         $pkg = null;
         if (! empty($data['approval_request_id'])) {
@@ -618,23 +629,14 @@ class CommuterRoutesController extends Controller
                 if ((int) ($block['route_id'] ?? 0) !== (int) $data['route_id']) {
                     continue;
                 }
-                $stops = $block['stops'] ?? [];
-                $iFromRaw = (int) $data['from_stop_index'];
-                $iFrom = $iFromRaw < 0 ? 0 : $iFromRaw;
+                $stops = $this->withEndpointStop($this->withTerminalStop($block['stops'] ?? [], $pkg->terminal ?? ''), $route);
+                $iFrom = $data['from_stop_index'];
                 $iTo = $data['to_stop_index'];
-                $stopCount = is_array($stops) ? count($stops) : 0;
-                // Allow destination as "one past last stop index" => use full route distance.
-                $toIsDestination = $stopCount > 0 && (int) $iTo === $stopCount;
-                if (! isset($stops[$iFrom]) || (! $toIsDestination && ! isset($stops[$iTo]))) {
+                if (! isset($stops[$iFrom], $stops[$iTo])) {
                     continue;
                 }
-                // If boarding at terminal (-1), start from 0 km (even if first stop isn't exactly at 0).
-                $distFrom = $iFromRaw < 0
-                    ? 0.0
-                    : (float) ($stops[$iFrom]['distance_km_from_start'] ?? 0);
-                $distTo = $toIsDestination
-                    ? $fullKm
-                    : (float) ($stops[$iTo]['distance_km_from_start'] ?? $fullKm);
+                $distFrom = (float) ($stops[$iFrom]['distance_km_from_start'] ?? 0);
+                $distTo = (float) ($stops[$iTo]['distance_km_from_start'] ?? $fullKm);
                 break;
             }
         }
@@ -646,14 +648,21 @@ class CommuterRoutesController extends Controller
             ], 422);
         }
 
-        $km = max(0.0, (float) ($distTo - $distFrom));
-        $base = $this->ltfrbFareForKm($data['bus_type'], $km, false);
+        $ratio = min(1, max(0, ($distTo - $distFrom) / $fullKm));
+        $base = round($fullFare * $ratio, 2);
 
-        $type = $this->resolvePassengerType($data);
-        $discountPercent = in_array($type, ['Student', 'Senior', 'PWD'], true) ? 20 : 0;
+        $type = ucfirst(strtolower(trim($data['passenger_type'] ?? 'Regular')));
+        if ($type === 'Pwd') {
+            $type = 'PWD';
+        }
 
-        $finalFare = $this->ltfrbFareForKm($data['bus_type'], $km, $discountPercent > 0);
-        $discountAmount = $this->roundToQuarter(max(0.0, $base - $finalFare));
+        $discountPercent = 0;
+        if (in_array($type, ['Student', 'Senior', 'PWD'], true)) {
+            $discountPercent = 20;
+        }
+
+        $discountAmount = round($base * ($discountPercent / 100), 2);
+        $finalFare = round(max(0, $base - $discountAmount), 2);
 
         return response()->json([
             'success' => true,
@@ -663,7 +672,7 @@ class CommuterRoutesController extends Controller
                 'discount_percent' => $discountPercent,
                 'discount_amount' => $discountAmount,
                 'passenger_type' => $type,
-                'km' => $km,
+                'ratio' => $ratio,
                 'distance_km_from' => $distFrom,
                 'distance_km_to' => $distTo,
                 'full_route_distance_km' => $fullKm,
@@ -671,68 +680,79 @@ class CommuterRoutesController extends Controller
         ]);
     }
 
+    private const TERMINAL_STOPS = [
+        'north' => ['name' => 'Cebu North Bus Terminal', 'lng' => 123.920994, 'lat' => 10.311008],
+        'south' => ['name' => 'Cebu South Bus Terminal', 'lng' => 123.893356, 'lat' => 10.298361],
+    ];
+
     /**
-     * LTFRB Add-on Method (Metro Manila PUB fare guide, effective Oct 3 2022).
-     * Ordinary: first 5 km = 13.00, succeeding = +2.25/km
-     * Aircon: first 5 km = 15.00, succeeding = +2.65/km
-     * Concession: 20% off, then round to nearest 0.25
+     * Ensures stop index 0 is always the originating terminal.
+     * Only prepends when the first stop is not already at the terminal (distance > 0).
      */
-    private function ltfrbFareForKm(string $busType, float $km, bool $discounted): float
+    private function withTerminalStop(array $stops, string $terminal): array
     {
-        $km = max(0.0, $km);
-
-        $busType = strtolower($busType) === 'aircon' ? 'aircon' : 'regular';
-        $first5 = $busType === 'aircon' ? 15.00 : 13.00;
-        $perKm = $busType === 'aircon' ? 2.65 : 2.25;
-
-        $fare = $km <= 5.0
-            ? $first5
-            : ($first5 + ($perKm * ($km - 5.0)));
-
-        if ($discounted) {
-            $fare *= 0.8;
+        $info = self::TERMINAL_STOPS[strtolower($terminal)] ?? null;
+        if (! $info) {
+            return $stops;
         }
-
-        return $this->roundToQuarter($fare);
-    }
-
-    private function roundToQuarter(float $amount): float
-    {
-        // "nearest 25 centavos"
-        $v = round($amount * 4) / 4;
-        return round($v, 2);
+        $firstDist = (float) ($stops[0]['distance_km_from_start'] ?? PHP_INT_MAX);
+        if ($firstDist < 0.01) {
+            return $stops; // first stop is already at (or very near) the terminal
+        }
+        array_unshift($stops, [
+            'name'                   => $info['name'],
+            'lng'                    => $info['lng'],
+            'lat'                    => $info['lat'],
+            'distance_km_from_start' => 0.0,
+            'eta_minutes'            => 0,
+        ]);
+        return $stops;
     }
 
     /**
-     * Prefer commuter.passenger_type from DB (registration/profile) when commuter_id is provided.
-     * Falls back to request passenger_type or Regular.
+     * Ensures the route endpoint is always the last stop.
+     * Appends it automatically so commuters always see the final destination.
      */
-    private function resolvePassengerType(array $data): string
+    private function withEndpointStop(array $stops, Route $route): array
     {
-        $fromDb = null;
-        if (! empty($data['commuter_id'])) {
-            $c = Commuter::query()->find($data['commuter_id']);
-            $fromDb = $c?->passenger_type;
+        $fullKm = (float) ($route->distance_km ?? 0);
+        $coords = $this->lineStringCoordinates($route->geometry);
+        if (! $coords) {
+            return $stops;
+        }
+        $lastCoord = $coords[count($coords) - 1];
+
+        // Check if the last stop is already at (or very near) the endpoint
+        if (! empty($stops)) {
+            $last = end($stops);
+            $dx = (float) ($last['lng'] ?? 0) - $lastCoord[0];
+            $dy = (float) ($last['lat'] ?? 0) - $lastCoord[1];
+            if (sqrt($dx * $dx + $dy * $dy) < 0.001) {
+                return $stops; // already there
+            }
         }
 
-        $raw = (string) ($fromDb ?: ($data['passenger_type'] ?? 'Regular'));
-        $raw = trim($raw);
-        if ($raw === '') {
-            $raw = 'Regular';
+        $endName = $route->end_location ?? null;
+        if (! $endName && $route->name) {
+            $parts = preg_split('/ to /i', $route->name, 2);
+            if (count($parts) === 2) {
+                $endName = trim($parts[1]);
+            }
         }
+        $endName = $endName ?: 'Destination';
 
-        $u = strtoupper($raw);
-        if ($u === 'PWD') {
-            return 'PWD';
-        }
-        if (in_array($u, ['SENIOR', 'ELDER', 'ELDERLY'], true)) {
-            return 'Senior';
-        }
-        if ($u === 'STUDENT') {
-            return 'Student';
-        }
+        $avgSpeed = 25;
+        $etaMin = $fullKm > 0 ? (int) round(($fullKm / $avgSpeed) * 60) : 0;
 
-        return 'Regular';
+        $stops[] = [
+            'name'                   => $endName,
+            'lng'                    => $lastCoord[0],
+            'lat'                    => $lastCoord[1],
+            'distance_km_from_start' => $fullKm,
+            'eta_minutes'            => $etaMin,
+        ];
+
+        return $stops;
     }
 
     private function routeIsApprovedForTerminal(int $routeId, string $terminal): bool
@@ -743,8 +763,8 @@ class CommuterRoutesController extends Controller
             ->get();
 
         foreach ($packages as $pkg) {
-            foreach ($pkg->stop_configuration ?? [] as $block) {
-                if ((int) ($block['route_id'] ?? 0) === $routeId) {
+            foreach ((array) ($pkg->route_ids ?? []) as $id) {
+                if ((int) $id === $routeId) {
                     return true;
                 }
             }
@@ -758,29 +778,31 @@ class CommuterRoutesController extends Controller
      */
     private function estimateBusPosition(Schedule $schedule): ?array
     {
-        // Prefer real driver GPS pings if we have them (driver app live tracking).
-        if ($schedule->driver_id) {
-            $since = now()->subMinutes(10);
-            $q = DriverLocation::query()
-                ->where('driver_id', $schedule->driver_id)
-                ->where('recorded_at', '>=', $since)
-                ->orderByDesc('recorded_at');
-
-            // If driver is pinging with schedule_id, prioritize this specific trip.
-            $loc = (clone $q)->where('schedule_id', $schedule->id)->first();
-            if (! $loc) {
-                $loc = $q->first();
-            }
-
-            if ($loc) {
-                return ['lng' => (float) $loc->longitude, 'lat' => (float) $loc->latitude];
-            }
-        }
-
         $route = $schedule->route;
         if (! $route) {
             return null;
         }
+
+        // Always prefer the driver's real GPS position (works for both outbound and return trips)
+        if ($schedule->current_lat !== null && $schedule->current_lng !== null) {
+            return [
+                'lng' => (float) $schedule->current_lng,
+                'lat' => (float) $schedule->current_lat,
+            ];
+        }
+
+        $latestPing = DriverLocation::query()
+            ->where('schedule_id', $schedule->id)
+            ->orderByDesc('recorded_at')
+            ->first();
+        if ($latestPing) {
+            return [
+                'lng' => (float) $latestPing->longitude,
+                'lat' => (float) $latestPing->latitude,
+            ];
+        }
+
+        $isReturnTrip = ($schedule->trip_leg ?? 1) % 2 === 0;
 
         $coords = $this->lineStringCoordinates($route->geometry);
         if (! $coords || count($coords) < 2) {
@@ -788,6 +810,15 @@ class CommuterRoutesController extends Controller
         }
 
         $n = count($coords);
+
+        // Return trip with no real GPS: place at the terminal end (start of return direction)
+        if ($isReturnTrip) {
+            return [
+                'lng' => (float) $coords[$n - 1][0],
+                'lat' => (float) $coords[$n - 1][1],
+            ];
+        }
+
         if ($schedule->status !== 'active' || ! $schedule->started_at) {
             return [
                 'lng' => (float) $coords[0][0],
@@ -868,14 +899,34 @@ class CommuterRoutesController extends Controller
     private function findTodaysBookableScheduleForRoute(int $routeId): ?Schedule
     {
         $today = $this->commuterLocalToday();
+        $yesterday = Carbon::now('Asia/Manila')->subDay()->toDateString();
 
         return Schedule::query()
             ->where('route_id', $routeId)
-            ->whereDate('date', $today)
-            ->whereIn('status', ['scheduled', 'accepted', 'active'])
-            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'accepted' THEN 1 WHEN 'scheduled' THEN 2 ELSE 3 END")
+            ->whereIn('date', [$today, $yesterday])
+            ->whereIn('status', ['active', 'accepted'])
             ->orderBy('start_time')
-            ->first();
+            ->get()
+            ->first(fn (Schedule $s) => $this->isScheduleWithinBookableWindow($s));
+    }
+
+    /**
+     * Today or still-active yesterday trip (end time + 1h grace), aligned with live-buses lookup.
+     */
+    private function isScheduleWithinBookableWindow(Schedule $schedule): bool
+    {
+        $today = $this->commuterLocalToday();
+        $yesterday = Carbon::now('Asia/Manila')->subDay()->toDateString();
+        $date = $this->scheduleDateYmd($schedule);
+
+        if ($date !== $today && $date !== $yesterday) {
+            return false;
+        }
+
+        $now = Carbon::now('Asia/Manila');
+        [, $windowEnd] = $schedule->windowBounds();
+
+        return $windowEnd->copy()->addHour()->gt($now);
     }
 
     private function scheduleDateYmd(Schedule $schedule): string
@@ -885,5 +936,136 @@ class CommuterRoutesController extends Controller
         }
 
         return Carbon::parse((string) $schedule->date)->format('Y-m-d');
+    }
+
+    /**
+     * Mark a ticket as paid after e-wallet or card payment succeeds on the commuter app.
+     */
+    public function markPaid(Request $request, string $publicTicketId): \Illuminate\Http\JsonResponse
+    {
+        $ticket = Ticket::query()->where('public_ticket_id', $publicTicketId)->first();
+        if (! $ticket) {
+            return response()->json(['success' => false, 'message' => 'Ticket not found.'], 404);
+        }
+
+        $ticket->payment_status = 'paid';
+        if ($request->filled('payment_method')) {
+            $ticket->payment_method = $request->input('payment_method');
+        }
+        $ticket->save();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Passenger manifest for the driver: who has booked/paid for this schedule.
+     */
+    public function manifest(int $scheduleId): \Illuminate\Http\JsonResponse
+    {
+        $schedule = Schedule::query()->with(['tickets.commuter'])->find($scheduleId);
+        if (! $schedule) {
+            return response()->json(['success' => false, 'message' => 'Schedule not found.'], 404);
+        }
+
+        // Build a stop lookup (index → stop) from the approved route package
+        $stopsLookup = [];
+        $pkg = RouteApprovalRequest::query()
+            ->where('status', 'approved')
+            ->get()
+            ->first(function ($p) use ($schedule) {
+                return in_array((int) $schedule->route_id, array_map('intval', (array) ($p->route_ids ?? [])), true);
+            });
+
+        if ($pkg && is_array($pkg->stop_configuration)) {
+            foreach ($pkg->stop_configuration as $block) {
+                if ((int) ($block['route_id'] ?? 0) === (int) $schedule->route_id) {
+                    $manifestRoute = Route::query()->find($schedule->route_id);
+                    $rawStops = $this->withTerminalStop($block['stops'] ?? [], $pkg->terminal ?? '');
+                    $stops = $manifestRoute ? $this->withEndpointStop($rawStops, $manifestRoute) : $rawStops;
+                    foreach ($stops as $i => $stop) {
+                        $stopsLookup[$i] = $stop;
+                    }
+                    break;
+                }
+            }
+        }
+
+        $passengers = $schedule->tickets->map(function (Ticket $t) use ($stopsLookup) {
+            $commuter = $t->commuter;
+            $name = $commuter
+                ? trim(implode(' ', array_filter([
+                    $commuter->first_name ?? null,
+                    $commuter->last_name ?? null,
+                ]))) ?: $commuter->name ?? 'Guest'
+                : 'Guest';
+
+            $boardingStop = $t->from_stop_index !== null ? ($stopsLookup[(int) $t->from_stop_index] ?? null) : null;
+
+            return [
+                'ticket_id' => $t->public_ticket_id,
+                'commuter_name' => $name,
+                'fare' => (float) $t->fare,
+                'payment_method' => $t->payment_method,
+                'payment_status' => $t->payment_status ?? 'pending',
+                'boarded_at' => $t->created_at?->toIso8601String(),
+                'alighted' => $t->alighted_at !== null,
+                'from_stop_index' => $t->from_stop_index,
+                'boarding_lng' => $boardingStop ? (float) ($boardingStop['lng'] ?? 0) : null,
+                'boarding_lat' => $boardingStop ? (float) ($boardingStop['lat'] ?? 0) : null,
+                'boarding_stop_name' => $boardingStop['name'] ?? null,
+            ];
+        })->values();
+
+        // Include waiting boarding requests (commuters flagged at stops, not yet paid).
+        // Exclude requests older than 4 hours — those are stale sessions that were never cleaned up.
+        // Deduplicate by newest: commuter_id → email → name → per-record fallback.
+        $boardingReqs = BoardingRequest::query()
+            ->where('schedule_id', $scheduleId)
+            ->where('status', 'waiting')
+            ->where('created_at', '>=', now()->subHours(4))
+            ->orderByDesc('id')
+            ->get()
+            ->unique(function (BoardingRequest $r) {
+                if ($r->commuter_id !== null && (int) $r->commuter_id > 0) {
+                    return 'id:' . $r->commuter_id;
+                }
+                if (! empty($r->commuter_email)) {
+                    return 'email:' . $r->commuter_email;
+                }
+                if (! empty($r->commuter_name)) {
+                    return 'name:' . $r->commuter_name;
+                }
+                return 'anon:' . $r->id;
+            })
+            ->values();
+
+        $pendingPassengers = $boardingReqs->map(function (BoardingRequest $r) {
+            return [
+                'ticket_id'          => 'REQ-' . $r->id,
+                'commuter_name'      => $r->commuter_name ?? 'Waiting Passenger',
+                'commuter_email'     => $r->commuter_email,
+                'fare'               => null,
+                'payment_method'     => null,
+                'payment_status'     => 'pending_boarding',
+                'boarded_at'         => $r->created_at?->toIso8601String(),
+                'alighted'           => false,
+                'from_stop_index'    => $r->from_stop_index,
+                'boarding_lng'       => $r->boarding_lng !== null ? (float) $r->boarding_lng : null,
+                'boarding_lat'       => $r->boarding_lat !== null ? (float) $r->boarding_lat : null,
+                'boarding_stop_name' => $r->boarding_stop_name,
+                'is_boarding_request'=> true,
+            ];
+        })->values();
+
+        $allPassengers = $passengers->concat($pendingPassengers);
+
+        return response()->json([
+            'success'    => true,
+            'schedule_id'=> $scheduleId,
+            'passengers' => $allPassengers,
+            'total'      => $allPassengers->count(),
+            'paid'       => $passengers->where('payment_status', 'paid')->count(),
+            'on_board'   => $passengers->where('alighted', false)->count(),
+        ]);
     }
 }

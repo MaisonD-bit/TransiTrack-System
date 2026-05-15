@@ -1,10 +1,9 @@
-import { ErrorHandler, Injectable, inject } from '@angular/core';
+import { ErrorHandler, Injectable, Injector } from '@angular/core';
 import { ToastController } from '@ionic/angular';
 
 @Injectable()
 export class GlobalErrorHandler implements ErrorHandler {
-  
-  private toastController = inject(ToastController);
+  constructor(private injector: Injector) {}
 
   handleError(error: any): void {
     console.error('Global error handler caught an error:', error);
@@ -33,9 +32,11 @@ export class GlobalErrorHandler implements ErrorHandler {
       message = this.getFirebaseErrorMessage(error);
     }
 
-    // Show toast notification to user (non-blocking)
+    // Resolve ToastController lazily: eager inject/field init can run before the
+    // root injector is ready during bootstrap and cause NullInjectorError (black screen).
     try {
-      const toast = await this.toastController.create({
+      const toastController = this.injector.get(ToastController);
+      const toast = await toastController.create({
         message: message,
         duration: 4000,
         color: 'danger',

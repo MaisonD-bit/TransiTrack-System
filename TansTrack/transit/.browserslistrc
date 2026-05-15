@@ -1,16 +1,9 @@
-# This file is used by the build system to adjust CSS and JS output to support the specified browsers below.
-# For additional information regarding the format and rule options, please see:
-# https://github.com/browserslist/browserslist#queries
-
-# For the full list of supported browsers by the Angular framework, please see:
-# https://angular.io/guide/browser-support
-
-# You can see what browsers were selected by your queries by running:
-#   npx browserslist
-
-Chrome >=79
-ChromeAndroid >=79
-Firefox >=70
-Edge >=79
-Safari >=14
-iOS >=14
+# Capacitor uses the system WebView. Many devices (e.g. Huawei) ship or freeze on
+# Chromium < 90 until "Android System WebView" is updated. Targeting only >= 90
+# can emit JS the WebView cannot parse → blank/black screen with no obvious crash.
+Chrome >= 75
+ChromeAndroid >= 75
+Firefox >= 75
+Edge >= 75
+Safari >= 15
+iOS >= 15

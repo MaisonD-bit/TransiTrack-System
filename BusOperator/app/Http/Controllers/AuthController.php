@@ -55,23 +55,24 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $request->validate([
-            'first_name' => 'required|string|max:255', 
-            'middle_initial' => 'nullable|string|max:1', 
-            'last_name' => 'required|string|max:255', 
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|confirmed|min:8',
-            'terminal' => 'required|in:north,south', 
-            'company_name' => 'required|string|max:255',
+            'first_name'      => 'required|string|max:255',
+            'middle_initial'  => 'nullable|string|max:1',
+            'last_name'       => 'required|string|max:255',
+            'email'           => 'required|email|unique:users,email',
+            'password'        => 'required|string|confirmed|min:8',
+            'terminal'        => 'required|in:north,south',
+            'company_name'    => 'required|string|max:255',
             'company_address' => 'required|string|max:500',
             'company_contact' => 'required|string|max:20',
-            'company_email' => 'required|email|max:255',
-            'fleet_size' => 'required|integer|min:1',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'company_email'   => 'required|email|max:255',
+            'fleet_size'      => 'required|integer|min:1',
+            // photo excluded from validate() — a PHP upload error (e.g. oversized file)
+            // would otherwise block registration even though photo is optional
         ]);
 
         try {
             $photoPath = null;
-            if ($request->hasFile('photo')) {
+            if ($request->hasFile('photo') && $request->file('photo')->isValid()) {
                 $file = $request->file('photo');
                 $filename = time() . '_' . $file->getClientOriginalName();
                 $photoPath = $file->storeAs('operators', $filename, 'public');
@@ -160,11 +161,11 @@ class AuthController extends Controller
             'message' => 'Login successful',
             'token' => $token,
             'user' => [
-                'id' => $commuter->id,
-                'name' => $commuter->name,
-                'email' => $commuter->email,
+                'id'             => $commuter->id,
+                'name'           => $commuter->name,
+                'email'          => $commuter->email,
                 'passenger_type' => $commuter->passenger_type ?? 'Regular',
-                'created_at' => $commuter->created_at,
+                'created_at'     => $commuter->created_at,
             ],
         ], 200);
     }
@@ -175,28 +176,33 @@ class AuthController extends Controller
     public function apiRegister(Request $request)
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:commuters,email',
-            'password' => 'required|string|min:6|confirmed',
-            'passenger_type' => 'nullable|string|in:Regular,Student,Senior,Elderly,PWD',
+            'first_name'     => 'required|string|max:255',
+            'last_name'      => 'required|string|max:255',
+            'middle_name'    => 'nullable|string|max:255',
+            'email'          => 'required|email|unique:commuters,email',
+            'address'        => 'nullable|string|max:500',
+            'contact_number' => 'nullable|string|max:20',
+            'gender'         => 'nullable|in:male,female,other',
+            'password'       => 'required|string|min:6',
+            'password_confirmation' => 'nullable|string|same:password',
         ]);
 
         try {
-            $name = trim((string) $request->name);
             $email = strtolower(trim((string) $request->email));
-            $ptype = (string) ($request->input('passenger_type') ?: 'Regular');
-            if ($ptype === 'Elderly') {
-                $ptype = 'Senior';
-            }
+            $name  = trim($request->first_name . ' ' . $request->last_name);
 
             $commuter = Commuter::create([
-                'name' => $name,
-                'email' => $email,
-                'password' => Hash::make($request->password),
-                'passenger_type' => $ptype,
+                'name'           => $name,
+                'first_name'     => $request->first_name,
+                'middle_name'    => $request->middle_name,
+                'last_name'      => $request->last_name,
+                'email'          => $email,
+                'address'        => $request->address,
+                'contact_number' => $request->contact_number,
+                'gender'         => $request->gender,
+                'password'       => Hash::make($request->password),
             ]);
 
-            // Generate app token (non-Sanctum)
             $token = Str::random(80);
 
             return response()->json([
@@ -204,10 +210,11 @@ class AuthController extends Controller
                 'message' => 'Registration successful',
                 'token' => $token,
                 'user' => [
-                    'id' => $commuter->id,
-                    'name' => $commuter->name,
-                    'email' => $commuter->email,
-                    'passenger_type' => $commuter->passenger_type ?? 'Regular',
+                    'id'         => $commuter->id,
+                    'name'       => $commuter->name,
+                    'first_name' => $commuter->first_name,
+                    'last_name'  => $commuter->last_name,
+                    'email'      => $commuter->email,
                     'created_at' => $commuter->created_at,
                 ],
             ], 201);

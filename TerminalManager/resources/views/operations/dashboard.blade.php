@@ -291,7 +291,19 @@
                             <h5 class="mb-0"><i class="fas fa-pie-chart me-2"></i>Schedule Status Distribution</h5>
                         </div>
                         <div class="card-body d-flex justify-content-center align-items-center" style="min-height: 350px;">
-                            <canvas id="scheduleStatusChart" style="max-height: 300px; max-width: 300px;"></canvas>
+                            <canvas id="scheduleStatusChart" style="max-height: 300px; max-width: 300px;" data-status="@json($analytics['status_counts'] ?? [])" data-occupancy="@json($analytics['occupancy_by_hour'] ?? [])"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Terminal occupancy by hour -->
+                <div class="col-12 col-lg-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Terminal occupancy by hour</h5>
+                        </div>
+                        <div class="card-body d-flex justify-content-center align-items-center" style="min-height: 350px;">
+                            <canvas id="occupancyByHourChart" style="max-height: 300px;"></canvas>
                         </div>
                     </div>
                 </div>
@@ -309,7 +321,7 @@
                                     <span class="fw-bold text-primary">{{ $analytics['bus_utilization'] }}%</span>
                                 </div>
                                 <div class="progress" style="height: 25px;">
-                                    <div class="progress-bar bg-primary" role="progressbar" style="width: {{ $analytics['bus_utilization'] }}%;" aria-valuenow="{{ $analytics['bus_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="progress-bar bg-primary" role="progressbar" style="width: {{ $analytics['bus_utilization'] }}%;" data-width="{{ $analytics['bus_utilization'] }}" aria-valuenow="{{ $analytics['bus_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
                                         <small class="fw-bold">{{ $analytics['bus_utilization'] }}%</small>
                                     </div>
                                 </div>
@@ -397,7 +409,7 @@
                                     <span class="fw-bold text-warning">{{ $analytics['space_utilization'] }}%</span>
                                 </div>
                                 <div class="progress" style="height: 25px;">
-                                    <div class="progress-bar bg-warning" role="progressbar" style="width: {{ $analytics['space_utilization'] }}%;" aria-valuenow="{{ $analytics['space_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="progress-bar bg-warning" role="progressbar" style="width: {{ $analytics['space_utilization'] }}%;" data-width="{{ $analytics['space_utilization'] }}" aria-valuenow="{{ $analytics['space_utilization'] }}" aria-valuemin="0" aria-valuemax="100">
                                         <small class="fw-bold">{{ $analytics['space_utilization'] }}%</small>
                                     </div>
                                 </div>
@@ -445,97 +457,7 @@
                     </div>
                 </div>
             </div>
+
+            <script src="{{ asset('js/chart.js') }}"></script>
         </div>
         @endsection
-
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-        <script>
-            // Initialize Schedule Status Chart
-            document.addEventListener('DOMContentLoaded', function() {
-                const statusData = @json($analytics['status_counts'] ?? []);
-
-                // Create pie chart for schedule status
-                const ctx = document.getElementById('scheduleStatusChart');
-                if (ctx) {
-                    new Chart(ctx, {
-                        type: 'doughnut',
-                        data: {
-                            labels: [
-                                'Completed',
-                                'Active',
-                                'Scheduled',
-                                'Cancelled'
-                            ],
-                            datasets: [{
-                                data: [
-                                    statusData.completed || 0,
-                                    statusData.active || 0,
-                                    statusData.scheduled || 0,
-                                    statusData.cancelled || 0
-                                ],
-                                backgroundColor: [
-                                    '#1bb76e',
-                                    '#2b7be4',
-                                    '#e6b800',
-                                    '#e74c3c'
-                                ],
-                                borderColor: '#fff',
-                                borderWidth: 3
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: true,
-                            plugins: {
-                                legend: {
-                                    position: 'bottom',
-                                    labels: {
-                                        padding: 15,
-                                        font: {
-                                            size: 12
-                                        }
-                                    }
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function(context) {
-                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                            const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                            return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-            });
-
-            // Real-time update of available spaces
-            document.addEventListener('DOMContentLoaded', function() {
-                const updateAvailableSpaces = function() {
-                    fetch('{{ route("dashboard.available-spaces") }}')
-                        .then(response => response.json())
-                        .then(data => {
-                            const spacesElement = document.querySelector('[data-available-spaces]');
-                            if (spacesElement) {
-                                spacesElement.textContent = data.available + ' / ' + data.total;
-                            }
-                        })
-                        .catch(error => console.error('Error updating spaces:', error));
-                };
-
-                // Update immediately on page load
-                updateAvailableSpaces();
-
-                // Update every 10 seconds (adjust interval as needed)
-                setInterval(updateAvailableSpaces, 10000);
-
-                // Also update when user returns to the tab (if browser tab was inactive)
-                document.addEventListener('visibilitychange', function() {
-                    if (!document.hidden) {
-                        updateAvailableSpaces();
-                    }
-                });
-            });
-        </script>

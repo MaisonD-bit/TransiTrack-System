@@ -23,6 +23,10 @@ interface Schedule {
   fare_regular?: number;
   fare_aircon?: number;
   notes?: string;
+  cancel_reason?: string;
+  cancellation_status?: 'pending_approval' | 'approved' | 'rejected' | null;
+  decline_reason?: string;
+  decline_status?: 'pending_approval' | 'approved' | 'rejected' | null;
   route?: {
     id: number;
     name: string;
@@ -40,8 +44,6 @@ interface Schedule {
   };
   created_at: string;
   updated_at: string;
-  /** UI-only: marks a rest-period block */
-  is_rest?: boolean;
 }
 
 interface Summary {
@@ -65,7 +67,6 @@ export class SchedulePage implements OnInit, OnDestroy {
   upcomingSchedules: Schedule[] = [];
   pastSchedules: Schedule[] = [];
   completedSchedules: Schedule[] = [];
-  todayScheduleItems: Schedule[] = [];
   isLoading: boolean = false;
   error: string = '';
   driverId: string = '';
@@ -151,8 +152,6 @@ export class SchedulePage implements OnInit, OnDestroy {
             this.todaySchedules = response.schedules.today || [];
             this.upcomingSchedules = response.schedules.upcoming || [];
             this.pastSchedules = response.schedules.past || [];
-
-            this.todayScheduleItems = this.buildTodayScheduleItems(this.todaySchedules);
             
             // Also get completed schedules
             this.completedSchedules = this.schedules.filter(s => s.status === 'completed');
@@ -180,67 +179,6 @@ export class SchedulePage implements OnInit, OnDestroy {
       this.isLoading = false;
       await loading.dismiss();
     }
-  }
-
-  private buildTodayScheduleItems(today: Schedule[]): Schedule[] {
-    const items: Schedule[] = Array.isArray(today) ? [...today] : [];
-    if (items.length === 0) {
-      return [];
-    }
-
-    const baseDate = (items[0].date || '').toString().split('T')[0] || new Date().toISOString().split('T')[0];
-
-    const toHm = (raw: string | undefined): string | null => {
-      if (!raw) return null;
-      const s = String(raw);
-      const t = s.includes('T') ? (s.split('T')[1] || '') : s;
-      const m = t.replace(/Z$/i, '').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-      if (!m) return null;
-      return `${m[1].padStart(2, '0')}:${m[2]}`;
-    };
-
-    const scheduleWindow = (s: Schedule): { start: Date; end: Date } | null => {
-      const day = (s.date || '').toString().split('T')[0] || baseDate;
-      const st = toHm(s.start_time);
-      const en = toHm(s.end_time);
-      if (!st || !en) return null;
-      const start = new Date(`${day}T${st}:00`);
-      const end = new Date(`${day}T${en}:00`);
-      if (s.ends_next_day) {
-        end.setDate(end.getDate() + 1);
-      }
-      return { start, end };
-    };
-
-    const restStart = new Date(`${baseDate}T12:00:00`);
-    const restEnd = new Date(`${baseDate}T13:00:00`);
-
-    const overlapsRest = items.some((s) => {
-      const w = scheduleWindow(s);
-      if (!w) return false;
-      return w.start.getTime() < restEnd.getTime() && w.end.getTime() > restStart.getTime();
-    });
-
-    if (!overlapsRest) {
-      const rest: Schedule = {
-        id: -1,
-        route_id: 0,
-        driver_id: 0,
-        bus_id: 0,
-        date: baseDate,
-        start_time: '12:00:00',
-        end_time: '13:00:00',
-        status: 'rest',
-        created_at: '',
-        updated_at: '',
-        is_rest: true,
-      } as any;
-      items.push(rest);
-    }
-
-    const toKey = (s: Schedule) => (s.start_time || '').toString();
-    items.sort((a, b) => toKey(a).localeCompare(toKey(b)));
-    return items;
   }
 
   private updateSummary() {
@@ -283,7 +221,11 @@ export class SchedulePage implements OnInit, OnDestroy {
   }
 
   canDecline(schedule: Schedule): boolean {
-    return schedule.status === 'scheduled';
+    return schedule.status === 'scheduled' && schedule.decline_status !== 'pending_approval';
+  }
+
+  isDeclinePending(schedule: Schedule): boolean {
+    return schedule.status === 'pending_decline' || schedule.decline_status === 'pending_approval';
   }
 
   canStart(schedule: Schedule): boolean {
@@ -292,6 +234,11 @@ export class SchedulePage implements OnInit, OnDestroy {
 
   canComplete(schedule: Schedule): boolean {
     return schedule.status === 'active';
+  }
+
+  canCancel(schedule: Schedule): boolean {
+    return ['accepted', 'active'].includes(schedule.status) &&
+      schedule.cancellation_status !== 'pending_approval';
   }
 
   async acceptSchedule(schedule: Schedule) {
@@ -307,7 +254,7 @@ export class SchedulePage implements OnInit, OnDestroy {
           text: 'Accept',
           handler: async () => {
             try {
-              const response = await this.apiService.post(`schedules/${schedule.id}/accept`, {}).toPromise();
+              const response = await this.apiService.acceptSchedule(schedule.id).toPromise();
               if (response && response.success) {
                 await this.loadSchedules();
                 await this.presentToast('Schedule accepted successfully!', 'success');
@@ -326,25 +273,36 @@ export class SchedulePage implements OnInit, OnDestroy {
   async declineSchedule(schedule: Schedule) {
     const alert = await this.alertController.create({
       header: 'Decline Schedule',
-      message: `Decline the schedule for ${schedule.route?.name}?`,
+      message: `Please provide a reason for declining the schedule for ${schedule.route?.name}. The operator will review your request.`,
+      inputs: [
+        {
+          name: 'reason',
+          type: 'textarea',
+          placeholder: 'Enter your reason here (e.g. personal emergency, vehicle issue…)',
+          attributes: { maxlength: 500 }
+        }
+      ],
       buttons: [
+        { text: 'Cancel', role: 'cancel' },
         {
-          text: 'Cancel',
-          role: 'cancel'
-        },
-        {
-          text: 'Decline',
-          handler: async () => {
+          text: 'Submit Decline',
+          handler: async (data) => {
+            const reason = (data.reason || '').trim();
+            if (reason.length < 5) {
+              await this.presentToast('Please provide a valid reason (at least 5 characters).', 'warning');
+              return false;
+            }
             try {
-              const response = await this.apiService.declineSchedule(schedule.id).toPromise();
+              const response = await this.apiService.declineSchedule(schedule.id, reason).toPromise();
               if (response.success) {
                 await this.loadSchedules();
-                await this.presentToast('Schedule declined', 'warning');
+                await this.presentToast('Decline request submitted. Awaiting operator approval.', 'warning');
               }
             } catch (error) {
               console.error('Error declining schedule:', error);
-              await this.presentToast('Failed to decline schedule', 'danger');
+              await this.presentToast('Failed to submit decline request', 'danger');
             }
+            return true;
           }
         }
       ]
@@ -374,6 +332,43 @@ export class SchedulePage implements OnInit, OnDestroy {
       console.error('Error starting schedule:', error);
       await this.presentToast('Failed to start trip', 'danger');
     }
+  }
+
+  async cancelSchedule(schedule: Schedule) {
+    const alert = await this.alertController.create({
+      header: 'Cancel Schedule',
+      message: 'Please provide a reason for cancelling this schedule. The operator will review your request.',
+      inputs: [
+        {
+          name: 'reason',
+          type: 'textarea',
+          placeholder: 'Enter cancellation reason (required)...',
+        }
+      ],
+      buttons: [
+        { text: 'Back', role: 'cancel' },
+        {
+          text: 'Submit Request',
+          handler: async (data) => {
+            if (!data.reason || data.reason.trim().length < 5) {
+              await this.presentToast('Please provide a reason (at least 5 characters).', 'warning');
+              return false;
+            }
+            try {
+              const response = await this.apiService.cancelSchedule(schedule.id, data.reason.trim()).toPromise();
+              if (response?.success) {
+                await this.loadSchedules();
+                await this.presentToast('Cancellation request submitted. Awaiting operator approval.', 'warning');
+              }
+            } catch (error) {
+              await this.presentToast('Failed to submit cancellation request.', 'danger');
+            }
+            return true;
+          }
+        }
+      ]
+    });
+    await alert.present();
   }
 
   async completeSchedule(schedule: Schedule) {

@@ -18,6 +18,7 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $fillable = [
+        'user_id',
         'name',
         'first_name',
         'last_name',
@@ -110,6 +111,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Stream Chat id for terminal manager rows (`managers` table). Prefixed so it never collides with `users.id`.
+     */
+    public function streamUserId(): string
+    {
+        return 'm_'.$this->id;
+    }
+
+    /**
      * Generate a Stream Chat token for the user
      */
     public function getStreamToken(): string
@@ -119,7 +128,7 @@ class User extends Authenticatable
             env('STREAM_API_SECRET')
         );
 
-        return $client->createToken((string)$this->id);
+        return $client->createToken($this->streamUserId());
     }
 
     /**
@@ -136,7 +145,7 @@ class User extends Authenticatable
         };
 
         return [
-            'id' => (string) $this->id,
+            'id' => $this->streamUserId(),
             'name' => $this->name,
             'role' => $streamRole,
             'image' => $this->photo_url ?? null,

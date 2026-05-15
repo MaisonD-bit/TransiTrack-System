@@ -21,7 +21,15 @@ const routes: Routes = [
       },
       {
         path: 'notifications',
-        loadChildren: () => import('../notifications/notifications.module').then( m => m.NotificationsPageModule) // 👈 Changed path
+        loadChildren: () => import('../notifications/notifications.module').then( m => m.NotificationsPageModule)
+      },
+      {
+        path: 'performance',
+        loadChildren: () => import('../performance/performance.module').then(m => m.PerformancePageModule)
+      },
+      {
+        path: 'chat',
+        loadChildren: () => import('../chat/chat.module').then(m => m.ChatPageModule)
       },
       {
         path: '',

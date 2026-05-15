@@ -11,16 +11,16 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-devkit/build-angular:browser",
+          "builder": "@angular-devkit/build-angular:browser-esbuild",
           "options": {
             "outputPath": "www",
-            "baseHref": "/",
+            "baseHref": "./",
             "index": "src/index.html",
             "main": "src/main.ts",
             "polyfills": "src/polyfills.ts",
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
-            "allowedCommonJsDependencies": ["mapbox-gl"],
+            "allowedCommonJsDependencies": ["mapbox-gl", "qrcode"],
             "assets": [
               {
                 "glob": "**/*",
@@ -51,7 +51,6 @@
           },
           "configurations": {
             "production": {
-              "baseHref": "./",
               "budgets": [
                 {
                   "type": "initial",
@@ -81,26 +80,13 @@
             },
             "development": {
               "optimization": false,
-              "sourceMap": true,
-              "baseHref": "/"
-            },
-            /**
-             * Android debug build: same behavior as dev (no optimization),
-             * but uses baseHref "./" so assets resolve under file:// WebView.
-             *
-             * Use: ionic build --configuration androidDebug
-             */
-            "androidDebug": {
-              "optimization": false,
-              "sourceMap": true,
-              "outputHashing": "none",
-              "baseHref": "./"
+              "sourceMap": true
             },
             "ci": {
               "progress": false
             }
           },
-          "defaultConfiguration": "androidDebug"
+          "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",

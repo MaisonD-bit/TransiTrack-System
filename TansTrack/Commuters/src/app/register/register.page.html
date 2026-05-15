@@ -77,18 +77,17 @@
           </ion-input>
         </ion-item>
 
-        <ion-item class="ion-margin-bottom register-field" lines="none">
-          <ion-select
-            formControlName="gender"
-            label="Gender *"
-            labelPlacement="stacked"
-            interface="popover"
-            placeholder="Select your gender *"
-            [class.error]="registerForm.get('gender')?.invalid && registerForm.get('gender')?.touched">
-            <ion-select-option value="male">Male</ion-select-option>
-            <ion-select-option value="female">Female</ion-select-option>
-          </ion-select>
-        </ion-item>
+        <div class="gender-field ion-margin-bottom">
+          <p class="gender-label">Gender *</p>
+          <div class="gender-options">
+            <button type="button" class="gender-btn"
+              [class.selected]="registerForm.get('gender')?.value === 'male'"
+              (click)="setGender('male')">Male</button>
+            <button type="button" class="gender-btn"
+              [class.selected]="registerForm.get('gender')?.value === 'female'"
+              (click)="setGender('female')">Female</button>
+          </div>
+        </div>
 
         <ion-item class="ion-margin-bottom register-field" lines="none">
           <ion-input
@@ -127,12 +126,14 @@
         </ion-item>
       </ion-list>
 
-      <ion-item lines="none" class="terms-item">
-        <ion-checkbox formControlName="terms" slot="start"></ion-checkbox>
-        <ion-label class="ion-text-wrap">
-          I agree to the <a href="../register/Policy.html">Terms of Service</a> and <a href="Policy.html">Privacy Policy</a>
-        </ion-label>
-      </ion-item>
+      <div class="terms-item" (click)="toggleTerms()">
+        <div class="terms-check" [class.checked]="registerForm.get('terms')?.value">
+          <span *ngIf="registerForm.get('terms')?.value">&#10003;</span>
+        </div>
+        <span class="terms-label">
+          I agree to the <a href="../register/Policy.html" (click)="$event.stopPropagation()">Terms of Service</a> and <a href="Policy.html" (click)="$event.stopPropagation()">Privacy Policy</a>
+        </span>
+      </div>
 
       <div class="error-messages" *ngIf="registerForm.invalid && registerForm.touched">
         <div *ngIf="registerForm.get('name')?.hasError('required')">

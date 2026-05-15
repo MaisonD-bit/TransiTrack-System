@@ -11,7 +11,6 @@ import { AuthService } from '../services/auth.service';
 })
 export class ProfilePage implements OnInit {
   isEditing = false;
-  showAddPaymentForm = false;
   showIdScanner = false;
 
   userProfile = {
@@ -24,29 +23,15 @@ export class ProfilePage implements OnInit {
     idNumber: null as string | null
   };
 
-  newPaymentMethod = {
-    type: 'cash',
-    number: '',
-    name: ''
-  };
-
-  paymentMethods: Array<{
-    type: string;
-    number: string;
-    name: string;
-    isDefault: boolean;
-  }> = [];
-
   constructor(
     private alertController: AlertController,
     private toastController: ToastController,
     private authService: AuthService,
-    private router: Router
+    private router: Router,
   ) {}
 
   async ngOnInit() {
     await this.loadProfile();
-    this.loadPaymentMethods();
   }
 
   async loadProfile() {
@@ -68,6 +53,19 @@ export class ProfilePage implements OnInit {
           idVerified: currentUser.idVerified ?? currentUser.id_verified ?? false,
           idNumber: currentUser.idNumber || currentUser.id_number || null
         };
+
+        // Auto-detect student from email domain on every load
+        if (this.isStudentEmail(this.userProfile.email)) {
+          const changed = this.userProfile.passengerType !== 'Student' || !this.userProfile.idVerified;
+          this.userProfile.passengerType = 'Student';
+          this.userProfile.idVerified = true;
+          if (changed) {
+            await this.authService.updateUserProfile({
+              passengerType: 'Student',
+              idVerified: true
+            });
+          }
+        }
       } else {
         // No user logged in, redirect to login
         const alert = await this.alertController.create({
@@ -167,112 +165,6 @@ export class ProfilePage implements OnInit {
     }
     
     this.showIdScanner = false;
-  }
-
-  loadPaymentMethods() {
-    // Load from localStorage for now (can be moved to API later)
-    const saved = localStorage.getItem(`paymentMethods_${this.userProfile.id}`);
-    if (saved) {
-      this.paymentMethods = JSON.parse(saved);
-    }
-  }
-
-  async addPaymentMethod() {
-    if (!this.newPaymentMethod.type || !this.newPaymentMethod.number || !this.newPaymentMethod.name) {
-      const alert = await this.alertController.create({
-        header: 'Missing Information',
-        message: 'Please fill in all fields',
-        buttons: ['OK']
-      });
-      await alert.present();
-      return;
-    }
-
-    const method = {
-      ...this.newPaymentMethod,
-      isDefault: this.paymentMethods.length === 0
-    };
-
-    this.paymentMethods.push(method);
-    localStorage.setItem(`paymentMethods_${this.userProfile.id}`, JSON.stringify(this.paymentMethods));
-
-    this.newPaymentMethod = { type: 'gcash', number: '', name: '' };
-    this.showAddPaymentForm = false;
-
-    const toast = await this.toastController.create({
-      message: 'Payment method added successfully',
-      duration: 2000,
-      color: 'success',
-      position: 'bottom'
-    });
-    await toast.present();
-  }
-
-  async removePaymentMethod(index: number) {
-    const alert = await this.alertController.create({
-      header: 'Remove Payment Method',
-      message: 'Are you sure you want to remove this payment method?',
-      buttons: [
-        {
-          text: 'Cancel',
-          role: 'cancel'
-        },
-        {
-          text: 'Remove',
-          role: 'destructive',
-          handler: () => {
-            this.paymentMethods.splice(index, 1);
-            localStorage.setItem(`paymentMethods_${this.userProfile.id}`, JSON.stringify(this.paymentMethods));
-            
-            this.toastController.create({
-              message: 'Payment method removed',
-              duration: 2000,
-              color: 'danger',
-              position: 'bottom'
-            }).then(toast => toast.present());
-          }
-        }
-      ]
-    });
-    await alert.present();
-  }
-
-  setDefaultPayment(index: number) {
-    this.paymentMethods.forEach((method, i) => {
-      method.isDefault = i === index;
-    });
-    localStorage.setItem(`paymentMethods_${this.userProfile.id}`, JSON.stringify(this.paymentMethods));
-
-    this.toastController.create({
-      message: 'Default payment method updated',
-      duration: 2000,
-      color: 'success',
-      position: 'bottom'
-    }).then(toast => toast.present());
-  }
-
-  getPaymentIcon(type: string): string {
-    const icons: { [key: string]: string } = {
-      'gcash': 'phone-portrait',
-      'paymaya': 'card',
-      'cash': 'cash'
-    };
-    return icons[type] || 'wallet';
-  }
-
-  getPaymentLabel(type: string): string {
-    const labels: { [key: string]: string } = {
-      'gcash': 'GCash',
-      'paymaya': 'PayMaya',
-      'cash': 'Cash'
-    };
-    return labels[type] || type;
-  }
-
-  maskNumber(number: string): string {
-    if (number.length <= 4) return number;
-    const last4 = number.slice(-4);
-    return `**** **** ${last4}`;
   }
 
   async logout() {

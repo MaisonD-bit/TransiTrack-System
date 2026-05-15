@@ -8,6 +8,9 @@
       <ion-button (click)="markAllAsRead()" *ngIf="unreadCount > 0">
         <ion-icon slot="icon-only" name="checkmark-done"></ion-icon>
       </ion-button>
+      <ion-button (click)="clearAllNotifications()" *ngIf="notifications.length > 0">
+        <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+      </ion-button>
     </ion-buttons>
   </ion-toolbar>
 </ion-header>
@@ -93,6 +96,9 @@
       <ion-item-options side="end">
         <ion-item-option color="primary" (click)="markAsRead(notification)" *ngIf="!notification.is_read">
           <ion-icon slot="icon-only" name="checkmark"></ion-icon>
+        </ion-item-option>
+        <ion-item-option color="danger" (click)="deleteNotification(notification, $event)">
+          <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
         </ion-item-option>
       </ion-item-options>
     </ion-item-sliding>

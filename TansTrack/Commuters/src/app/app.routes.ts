@@ -1,5 +1,4 @@
 import { Routes } from '@angular/router';
-import { AuthGuard } from './services/auth.guard';
 
 export const routes: Routes = [
   {
@@ -14,11 +13,6 @@ export const routes: Routes = [
   {
     path: 'register',
     loadChildren: () => import('./register/register.module').then(m => m.RegisterPageModule)
-  },
-  {
-    path: 'map',
-    loadChildren: () => import('./map/map.module').then(m => m.MapPageModule),
-    canActivate: [AuthGuard],
   },
   {
     path: 'tabs',

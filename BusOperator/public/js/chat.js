@@ -201,6 +201,31 @@ function displayMessages(messages) {
     scrollToBottom();
 }
 
+/** Hide caption line when it only repeats the attachment filename (legacy sends used 📎/📷 + name). */
+function shouldSuppressRedundantAttachmentCaption(textTrim, attachments) {
+    if (!textTrim || !attachments || attachments.length === 0) {
+        return false;
+    }
+    for (const att of attachments) {
+        if (att.type === 'file') {
+            const fn = att.title || att.fallback || '';
+            if (fn && (textTrim === '📎 ' + fn || textTrim === fn)) {
+                return true;
+            }
+        }
+        if (att.type === 'image') {
+            const fb = att.fallback || '';
+            if (textTrim === '📷 Image') {
+                return true;
+            }
+            if (fb && (textTrim === '📷 ' + fb || textTrim === fb)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Append single message
 function appendMessage(message) {
     // Prevent duplicate messages from appearing
@@ -208,9 +233,9 @@ function appendMessage(message) {
         console.log('Skipping duplicate message:', message.id);
         return;
     }
-    
+
     displayedMessageIds.add(message.id);
-    
+
     const container = document.getElementById('messages-container');
     const div = document.createElement('div');
     const isOwn = message.user.id === window.userId;
@@ -237,8 +262,12 @@ function appendMessage(message) {
         });
     }
 
-    const text = (message.text || '').trim();
-    const textBlock = text ? `<div class="message-text">${escapeHtml(message.text)}</div>` : '';
+    const rawText = message.text || '';
+    const textTrim = rawText.trim();
+    const suppressText = shouldSuppressRedundantAttachmentCaption(textTrim, message.attachments);
+    const textBlock = textTrim && !suppressText
+        ? `<div class="message-text">${escapeHtml(rawText)}</div>`
+        : '';
 
     div.innerHTML = `
         <div class="message-bubble">
@@ -290,10 +319,20 @@ function channelPreviewText(lastMessage) {
     if (!lastMessage) {
         return 'No messages yet';
     }
-    if (lastMessage.text && String(lastMessage.text).trim()) {
+    const t = String(lastMessage.text || '').trim();
+    const atts = lastMessage.attachments;
+    if (atts && atts.length && shouldSuppressRedundantAttachmentCaption(t, atts)) {
+        const a = atts[0];
+        if (a.type === 'image') {
+            return '📷 Image';
+        }
+        if (a.type === 'file') {
+            return '📎 ' + (a.title || a.fallback || 'File');
+        }
+    }
+    if (t) {
         return lastMessage.text;
     }
-    const atts = lastMessage.attachments;
     if (atts && atts.length) {
         const a = atts[0];
         if (a.type === 'image') {
@@ -320,7 +359,7 @@ async function uploadAndSendImage(file) {
             throw new Error('Upload did not return a URL');
         }
         await currentChannel.sendMessage({
-            text: file.name ? '📷 ' + file.name : '📷 Image',
+            text: '',
             attachments: [{
                 type: 'image',
                 image_url: imageUrl,
@@ -344,7 +383,7 @@ async function uploadAndSendFile(file) {
             throw new Error('Upload did not return a URL');
         }
         await currentChannel.sendMessage({
-            text: '📎 ' + file.name,
+            text: '',
             attachments: [{
                 type: 'file',
                 asset_url: assetUrl,

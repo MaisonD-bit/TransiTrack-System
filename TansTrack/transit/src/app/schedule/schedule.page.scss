@@ -255,6 +255,11 @@
     }
   }
 
+  .decline-pending-note {
+    font-size: 0.85rem;
+    color: var(--ion-color-warning);
+  }
+
   .completed-note, .declined-note {
     display: flex;
     align-items: center;

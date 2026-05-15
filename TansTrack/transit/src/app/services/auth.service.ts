@@ -13,46 +13,46 @@ export class AuthService {
   public user$ = this.userSubject.asObservable();
 
   constructor(private router: Router) {
-    const driverId = localStorage.getItem('driverId');
+    const driverId = sessionStorage.getItem('driverId');
     if (driverId) {
       this.isLoggedInSubject.next(true);
       this.userSubject.next({
         uid: driverId,
-        email: localStorage.getItem('driverEmail'),
-        displayName: localStorage.getItem('driverName')
+        email: sessionStorage.getItem('driverEmail'),
+        displayName: sessionStorage.getItem('driverName')
       });
     }
   }
 
   login(driverId: string, driverName: string, email?: string) {
-      console.log(`AuthService.login called with ID: ${driverId}, Name: ${driverName}, Email: ${email}`);
-      localStorage.setItem('driverId', driverId);
-      localStorage.setItem('driverName', driverName);
-      if (email) localStorage.setItem('driverEmail', email);
-      localStorage.setItem('currentUser', JSON.stringify({
-          id: driverId, 
+      sessionStorage.setItem('driverId', driverId);
+      sessionStorage.setItem('driverName', driverName);
+      if (email) sessionStorage.setItem('driverEmail', email);
+      sessionStorage.setItem('currentUser', JSON.stringify({
+          id: driverId,
           name: driverName,
           email: email
       }));
       this.isLoggedInSubject.next(true);
       this.userSubject.next({
-          uid: driverId, 
+          uid: driverId,
           email: email,
           displayName: driverName
       });
   }
 
   logout() {
-    localStorage.removeItem('driverId');
-    localStorage.removeItem('driverName');
-    localStorage.removeItem('driverEmail');
+    sessionStorage.removeItem('driverId');
+    sessionStorage.removeItem('driverName');
+    sessionStorage.removeItem('driverEmail');
+    sessionStorage.removeItem('currentUser');
     this.isLoggedInSubject.next(false);
     this.userSubject.next(null);
     this.router.navigate(['/login']);
   }
 
   isAuthenticated(): boolean {
-    return !!localStorage.getItem('driverId');
+    return !!sessionStorage.getItem('driverId');
   }
 
   isLoggedIn(): boolean {
@@ -60,16 +60,16 @@ export class AuthService {
   }
 
   getDriverId(): string | null {
-    return localStorage.getItem('driverId');
+    return sessionStorage.getItem('driverId');
   }
   getDriverName(): string | null {
-    return localStorage.getItem('driverName');
+    return sessionStorage.getItem('driverName');
   }
   getDriverEmail(): string | null {
-    return localStorage.getItem('driverEmail');
+    return sessionStorage.getItem('driverEmail');
   }
   getCurrentUser(): any {
-    const userData = localStorage.getItem('currentUser');
+    const userData = sessionStorage.getItem('currentUser');
     return userData ? JSON.parse(userData) : null;
   }
 

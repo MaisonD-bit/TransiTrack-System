@@ -1,0 +1,107 @@
+<ion-header [translucent]="true">
+  <ion-toolbar color="primary">
+    <ion-title>My Performance</ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="loadPerformance()">
+        <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true" class="perf-content">
+
+  <div *ngIf="isLoading" class="loading-state">
+    <ion-spinner name="crescent"></ion-spinner>
+    <p>Loading your stats...</p>
+  </div>
+
+  <div *ngIf="!isLoading && kpi">
+
+    <!-- Driver Name -->
+    <div class="driver-banner">
+      <ion-icon name="person-circle-outline"></ion-icon>
+      <h2>{{ kpi.driver.name }}</h2>
+    </div>
+
+    <!-- Rating -->
+    <ion-card class="kpi-card rating-card">
+      <ion-card-content>
+        <div class="rating-display">
+          <div class="rating-score">{{ kpi.average_rating ?? '—' }}</div>
+          <div class="rating-stars">
+            <ion-icon
+              *ngFor="let s of ratingStars(kpi.average_rating)"
+              [name]="s ? 'star' : 'star-outline'"
+              color="warning">
+            </ion-icon>
+          </div>
+          <div class="rating-label">Average Rating · {{ kpi.total_reviews }} review{{ kpi.total_reviews !== 1 ? 's' : '' }}</div>
+        </div>
+      </ion-card-content>
+    </ion-card>
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <ion-card class="kpi-card">
+        <ion-card-content>
+          <div class="kpi-value">{{ kpi.completion_rate }}%</div>
+          <div class="kpi-label">Completion Rate</div>
+          <ion-progress-bar [value]="(kpi.completion_rate ?? 0) / 100" color="success"></ion-progress-bar>
+        </ion-card-content>
+      </ion-card>
+
+      <ion-card class="kpi-card">
+        <ion-card-content>
+          <div class="kpi-value">{{ kpi.acceptance_rate }}%</div>
+          <div class="kpi-label">Acceptance Rate</div>
+          <ion-progress-bar [value]="(kpi.acceptance_rate ?? 0) / 100" color="primary"></ion-progress-bar>
+        </ion-card-content>
+      </ion-card>
+
+      <ion-card class="kpi-card">
+        <ion-card-content>
+          <div class="kpi-value">{{ kpi.completed_trips }}</div>
+          <div class="kpi-label">Trips Completed</div>
+        </ion-card-content>
+      </ion-card>
+
+      <ion-card class="kpi-card">
+        <ion-card-content>
+          <div class="kpi-value" [class.danger-val]="kpi.incident_count > 0">
+            {{ kpi.incident_count }}
+          </div>
+          <div class="kpi-label">Incidents Reported</div>
+        </ion-card-content>
+      </ion-card>
+    </div>
+
+    <!-- This Month -->
+    <ion-card class="kpi-card month-card">
+      <ion-card-header>
+        <ion-card-title>This Month</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-item lines="none">
+          <ion-label>Trips Assigned</ion-label>
+          <ion-note slot="end">{{ kpi.this_month.total }}</ion-note>
+        </ion-item>
+        <ion-item lines="none">
+          <ion-label>Trips Completed</ion-label>
+          <ion-note slot="end" color="success">{{ kpi.this_month.completed }}</ion-note>
+        </ion-item>
+        <ion-item lines="none">
+          <ion-label>Trips Declined / Cancelled</ion-label>
+          <ion-note slot="end" color="danger">{{ kpi.declined_trips + kpi.cancelled_trips }}</ion-note>
+        </ion-item>
+      </ion-card-content>
+    </ion-card>
+
+  </div>
+
+  <div *ngIf="!isLoading && !kpi" class="empty-state">
+    <ion-icon name="bar-chart-outline"></ion-icon>
+    <p>No performance data yet.</p>
+  </div>
+
+</ion-content>

@@ -3,83 +3,45 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 
-@Injectable({
-  providedIn: 'root'
-})
+@Injectable({ providedIn: 'root' })
 export class FeedbackService {
   private apiUrl = environment.apiUrl;
 
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient) {}
 
-  private getHeaders(): HttpHeaders {
-    return new HttpHeaders({
-      'ngrok-skip-browser-warning': 'true'
-    });
+  private get headers(): HttpHeaders {
+    return new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
   }
 
-  // Get all feedbacks for the user
-  getUserFeedbacks(): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/feedbacks/user`,
-      { headers: this.getHeaders() }
-    );
+  submitFeedback(data: {
+    commuter_id?: number;
+    public_ticket_id?: string;
+    driver_rating?: number;
+    service_rating?: number;
+    cleanliness_rating?: number;
+    safety_rating?: number;
+    comment?: string;
+  }): Observable<any> {
+    return this.http.post<any>(`${this.apiUrl}/feedbacks`, data, { headers: this.headers });
   }
 
-  // Get feedback by ID
-  getFeedbackDetails(feedbackId: string): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/feedbacks/${feedbackId}`,
-      { headers: this.getHeaders() }
-    );
+  getPendingTripsForFeedback(commuterId: number): Observable<any> {
+    return this.http.get<any>(`${this.apiUrl}/feedbacks/pending?commuter_id=${commuterId}`, { headers: this.headers });
   }
 
-  // Get pending trips for feedback (trips that are completed but no feedback yet)
-  getPendingTripsForFeedback(): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/feedbacks/pending-trips`,
-      { headers: this.getHeaders() }
-    );
+  getUserFeedbacks(commuterId: number): Observable<any> {
+    return this.http.get<any>(`${this.apiUrl}/feedbacks/commuter?commuter_id=${commuterId}`, { headers: this.headers });
   }
 
-  // Submit new feedback
-  submitFeedback(feedbackData: any): Observable<any> {
-    return this.http.post<any>(
-      `${this.apiUrl}/feedbacks/submit`,
-      feedbackData,
-      { headers: this.getHeaders() }
-    );
+  getDriverRatings(driverId: number): Observable<any> {
+    return this.http.get<any>(`${this.apiUrl}/feedbacks/driver/${driverId}`, { headers: this.headers });
   }
 
-  // Update existing feedback
-  updateFeedback(feedbackId: string, feedbackData: any): Observable<any> {
-    return this.http.put<any>(
-      `${this.apiUrl}/feedbacks/${feedbackId}`,
-      feedbackData,
-      { headers: this.getHeaders() }
-    );
+  deleteFeedback(id: string): Observable<any> {
+    return this.http.delete<any>(`${this.apiUrl}/feedbacks/${id}`, { headers: this.headers });
   }
 
-  // Delete feedback
-  deleteFeedback(feedbackId: string): Observable<any> {
-    return this.http.delete<any>(
-      `${this.apiUrl}/feedbacks/${feedbackId}`,
-      { headers: this.getHeaders() }
-    );
-  }
-
-  // Get driver ratings
-  getDriverRatings(driverId: string): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/drivers/${driverId}/ratings`,
-      { headers: this.getHeaders() }
-    );
-  }
-
-  // Get bus ratings
-  getBusRatings(busId: string): Observable<any> {
-    return this.http.get<any>(
-      `${this.apiUrl}/buses/${busId}/ratings`,
-      { headers: this.getHeaders() }
-    );
+  clearAllFeedbacks(commuterId: number): Observable<any> {
+    return this.http.delete<any>(`${this.apiUrl}/feedbacks?commuter_id=${commuterId}`, { headers: this.headers });
   }
 }

@@ -232,7 +232,17 @@
             <p class="subtitle">Register Your Bus Operator Account</p>
         </div>
 
-        <form method="POST" action="{{ route('register.post') }}" enctype="multipart/form-data"> <!-- Updated route name -->
+        @if ($errors->any())
+        <div class="alert alert-danger mb-3" style="background:rgba(220,53,69,0.15);border:1px solid rgba(220,53,69,0.4);border-radius:8px;padding:1rem;">
+            <ul class="mb-0 ps-3" style="color:#f8d7da;">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+        @endif
+
+        <form method="POST" action="{{ route('register.post') }}" enctype="multipart/form-data">
             @csrf
 
             <!-- Photo Upload Section -->
@@ -259,9 +269,9 @@
                         id="terminal"
                         class="terminal-select"
                         required>
-                    <option value="" disabled selected>Choose your operating terminal</option>
-                    <option value="north">North Terminal (SM City)</option>
-                    <option value="south">South Terminal</option>
+                    <option value="" disabled {{ old('terminal') ? '' : 'selected' }}>Choose your operating terminal</option>
+                    <option value="north" {{ old('terminal') == 'north' ? 'selected' : '' }}>North Terminal (SM City)</option>
+                    <option value="south" {{ old('terminal') == 'south' ? 'selected' : '' }}>South Terminal</option>
                 </select>
                 <div class="terminal-info">
                     Your buses and routes will be filtered based on this terminal

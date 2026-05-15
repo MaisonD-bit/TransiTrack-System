@@ -35,7 +35,7 @@ export class RegisterPage implements OnInit {
       middleName: [''],
       email: ['', [Validators.required, Validators.email]],
       address: ['', Validators.required],
-      contactNumber: ['', [Validators.required, Validators.pattern(/^\d{10}$/)]],
+      contactNumber: ['', [Validators.required, Validators.pattern(/^\d{10,11}$/)]],
       gender: ['', Validators.required],
       password: ['', [Validators.required, Validators.minLength(8), this.passwordStrengthValidator]],
       confirmPassword: ['', [Validators.required]],
@@ -76,14 +76,15 @@ export class RegisterPage implements OnInit {
     await loading.present();
 
     try {
-      const { firstName, lastName, email, password, confirmPassword, contactNumber } = this.registerForm.value;
+      const { firstName, lastName, middleName, email, address, contactNumber, gender, password, confirmPassword } = this.registerForm.value;
       await this.authService.register(
         firstName,
         lastName,
         email,
         contactNumber,
         password,
-        confirmPassword
+        confirmPassword,
+        { middle_name: middleName, address, gender }
       );
       await loading.dismiss();
       
@@ -106,6 +107,17 @@ export class RegisterPage implements OnInit {
     } finally {
       this.isLoading = false;
     }
+  }
+
+  setGender(value: string) {
+    this.registerForm.get('gender')?.setValue(value);
+    this.registerForm.get('gender')?.markAsTouched();
+  }
+
+  toggleTerms() {
+    const current = this.registerForm.get('terms')?.value;
+    this.registerForm.get('terms')?.setValue(!current);
+    this.registerForm.get('terms')?.markAsTouched();
   }
 
   togglePasswordVisibility(field: 'password' | 'confirmPassword') {

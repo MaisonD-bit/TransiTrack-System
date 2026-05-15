@@ -1,6 +1,11 @@
 <ion-header [translucent]="false">
   <ion-toolbar color="primary">
     <ion-title>Trip History</ion-title>
+    <ion-buttons slot="end">
+      <ion-button (click)="clearAllTrips()" *ngIf="trips.length > 0">
+        <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
   </ion-toolbar>
 </ion-header>
 
@@ -18,18 +23,11 @@
 
       <!-- Filter and Sort Options -->
       <ion-segment [(ngModel)]="filterStatus" (ionChange)="onFilterChange()" color="primary" scrollable="true">
-        <ion-segment-button value="all">
-          <ion-label>All</ion-label>
-        </ion-segment-button>
-        <ion-segment-button value="in-progress">
-          <ion-label>Active</ion-label>
-        </ion-segment-button>
-        <ion-segment-button value="completed">
-          <ion-label>Done</ion-label>
-        </ion-segment-button>
-        <ion-segment-button value="cancelled">
-          <ion-label>Cancelled</ion-label>
-        </ion-segment-button>
+        <ion-segment-button value="all"><ion-label>All</ion-label></ion-segment-button>
+        <ion-segment-button value="in-progress"><ion-label>Active</ion-label></ion-segment-button>
+        <ion-segment-button value="paid"><ion-label>Paid</ion-label></ion-segment-button>
+        <ion-segment-button value="completed"><ion-label>Done</ion-label></ion-segment-button>
+        <ion-segment-button value="cancelled"><ion-label>Cancelled</ion-label></ion-segment-button>
       </ion-segment>
 
       <!-- Sort Dropdown -->
@@ -76,9 +74,12 @@
             <h2>{{ trip.routeName }}</h2>
             <p class="trip-date">{{ formatTripDate(trip.tripDate) }}</p>
           </div>
-          <ion-badge [color]="getStatusColor(trip.status)">
-            {{ trip.status | uppercase }}
-          </ion-badge>
+          <div style="display:flex;align-items:center;gap:4px">
+            <ion-badge [color]="getStatusColor(trip.status)">{{ getStatusLabel(trip.status) }}</ion-badge>
+            <ion-button fill="clear" size="small" color="danger" (click)="deleteTrip(trip, $event)">
+              <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+            </ion-button>
+          </div>
         </div>
 
         <div class="trip-locations">
@@ -222,6 +223,21 @@
               <ion-label>Payment Method</ion-label>
               <ion-text slot="end">{{ selectedTrip.paymentMethod }}</ion-text>
             </ion-item>
+
+            <ng-container *ngIf="getReceipt(selectedTrip.id) as receipt">
+              <ion-item>
+                <ion-label>Date Paid</ion-label>
+                <ion-text slot="end">{{ receipt.paidAt | date:'MMM d, y h:mm a' }}</ion-text>
+              </ion-item>
+              <ion-item>
+                <ion-label>Reference No.</ion-label>
+                <ion-text slot="end" style="font-size:0.85rem">{{ receipt.transactionRef }}</ion-text>
+              </ion-item>
+              <ion-item lines="none">
+                <ion-icon name="checkmark-circle" slot="start" color="success"></ion-icon>
+                <ion-label color="success"><strong>Payment Confirmed</strong></ion-label>
+              </ion-item>
+            </ng-container>
 
             <ion-button
               *ngIf="selectedTrip.status === 'in-progress'"

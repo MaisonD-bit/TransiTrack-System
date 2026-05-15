@@ -37,6 +37,7 @@ function saveCurrentFormData() {
         emergency_relation: document.getElementById('emergency_relation')?.value || '',
         emergency_contact: document.getElementById('emergency_contact')?.value || '',
         status: document.getElementById('status')?.value || 'active',
+        suspension_days: document.getElementById('suspension_days')?.value || '',
         notes: document.getElementById('notes')?.value || '',
         photo_preview: document.getElementById('photo-preview')?.src || ''
     };
@@ -65,6 +66,7 @@ function restoreFormData() {
     setFieldValue('emergency_relation', currentFormData.emergency_relation);
     setFieldValue('emergency_contact', currentFormData.emergency_contact);
     setFieldValue('status', currentFormData.status);
+    setFieldValue('suspension_days', currentFormData.suspension_days);
     setFieldValue('notes', currentFormData.notes);
     
     if (currentFormData.photo_preview) {
@@ -73,6 +75,13 @@ function restoreFormData() {
             preview.src = currentFormData.photo_preview;
         }
     }
+}
+
+function toggleSuspensionDaysField() {
+    const status = document.getElementById('status')?.value;
+    const wrap = document.getElementById('suspensionDaysWrap');
+    if (!wrap) return;
+    wrap.style.display = status === 'suspended' ? 'block' : 'none';
 }
 
 function showDriverForm() {
@@ -104,6 +113,7 @@ function showDriverForm() {
     
     // Clear stored form data for new driver
     currentFormData = {};
+    toggleSuspensionDaysField();
     
     if (formSection) {
         formSection.style.display = 'block';
@@ -231,6 +241,9 @@ function editDriver(driverId) {
             setFieldValue('emergency_relation', data.emergency_relation);
             setFieldValue('emergency_contact', data.emergency_contact);
             setFieldValue('status', data.status);
+            const sd = document.getElementById('suspension_days');
+            if (sd) sd.value = '';
+            if (typeof toggleSuspensionDaysField === 'function') toggleSuspensionDaysField();
             setFieldValue('notes', data.notes);
             
             // Update photo preview
@@ -453,6 +466,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!csrfToken) {
         console.error('CSRF token meta tag not found!');
         return;
+    }
+
+    const statusSel = document.getElementById('status');
+    if (statusSel) {
+        statusSel.addEventListener('change', toggleSuspensionDaysField);
     }
 
     // Add Driver button event listeners

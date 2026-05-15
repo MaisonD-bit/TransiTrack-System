@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class UserController extends Controller
 {
@@ -29,13 +30,22 @@ class UserController extends Controller
     {
         $valid = $request->validate([
             'email' => 'required|email|max:255',
-            'password' => 'required|string|min:6',
+            'password' => 'required|string|min:8',
         ]);
 
         if (Auth::attempt(['email' => $request->email, 'password' => $request->password])) {
             $user = Auth::user();
 
             if ($user->role === 'terminalManager') {
+
+                if ($user->status !== 'active') {
+                    Auth::logout();
+                    $statusMessage = $user->status === 'inactive'
+                        ? 'Your account is pending for approval. Please wait for confirmation from the System Administrator.'
+                        : 'Please contact support.';
+                    return back()->withErrors(['status_message' => $statusMessage])->withInput();
+                }
+
                 $request->session()->regenerate();
                 return redirect()->intended(route('dashboard'));
             }
@@ -52,7 +62,7 @@ class UserController extends Controller
         $valid = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|unique:managers,email|max:255',
+            'email' => 'required|email|unique:users,email|unique:managers,email|max:255',
             'password' => 'required|string|min:8|confirmed',
             'contact_number' => 'required|string|max:50',
             'gender' => 'required|in:male,female',
@@ -67,21 +77,44 @@ class UserController extends Controller
             $photoPath = $request->file('photo')->store('managers', 'public');
         }
 
-        // Auth provider uses App\Models\User → `managers` table only.
-        User::create([
-            'name' => $name,
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'email' => $request->email,
-            'password' => $request->password,
-            'contact_number' => $request->contact_number,
-            'gender' => $request->gender,
-            'role' => 'terminalManager',
-            'terminal' => $request->terminal,
-            'photo_url' => $photoPath,
-        ]);
+        DB::transaction(function () use ($request, $name, $photoPath) {
+            $hashedPassword = bcrypt($request->password);
 
-        return redirect()->route('login')->with('success', 'Account created. You can sign in now.');
+            $userId = DB::table('users')->insertGetId([
+                'name' => $name,
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'password' => $hashedPassword,
+                'contact_number' => $request->contact_number,
+                'gender' => $request->gender,
+                'role' => 'terminalManager',
+                'terminal' => $request->terminal,
+                'status' => 'inactive',
+                'photo_url' => $photoPath,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('managers')->insert([
+                'user_id' => $userId,
+                'name' => $name,
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'password' => $hashedPassword,
+                'contact_number' => $request->contact_number,
+                'gender' => $request->gender,
+                'role' => 'terminalManager',
+                'terminal' => $request->terminal,
+                'status' => 'inactive',
+                'photo_url' => $photoPath,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+
+        return redirect()->route('login')->with('success', 'Account created. Please wait for approval from the System Administrator.');
     }
 
     public function register()

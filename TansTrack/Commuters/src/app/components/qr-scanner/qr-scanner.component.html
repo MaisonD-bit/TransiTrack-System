@@ -1,0 +1,70 @@
+<div class="scanner-wrapper">
+
+  <div class="scanner-topbar">
+    <span class="scanner-title">Scan to Pay</span>
+  </div>
+
+  <!-- Mode toggle -->
+  <div class="mode-toggle">
+    <button [class.active]="mode === 'camera'" (click)="setMode('camera')">
+      <ion-icon name="camera-outline"></ion-icon> Camera
+    </button>
+    <button [class.active]="mode === 'upload'" (click)="setMode('upload')">
+      <ion-icon name="image-outline"></ion-icon> Upload QR
+    </button>
+    <button [class.active]="mode === 'eticket'" (click)="setMode('eticket')">
+      <ion-icon name="ticket-outline"></ion-icon> My e-Ticket
+    </button>
+  </div>
+
+  <!-- Camera viewfinder (html5-qrcode mounts here) -->
+  <div id="qr-reader-element" class="qr-reader-container" [class.hidden]="mode !== 'camera'"></div>
+
+  <!-- E-Ticket mode -->
+  <div class="eticket-area" *ngIf="mode === 'eticket'">
+    <ng-container *ngIf="eTicketQrDataUrl; else noTicket">
+      <div class="eticket-qr-wrap">
+        <img [src]="eTicketQrDataUrl" alt="e-Ticket QR" class="eticket-qr-img" />
+        <p class="eticket-label">Your e-Ticket QR</p>
+      </div>
+    </ng-container>
+    <ng-template #noTicket>
+      <div class="eticket-no-qr">
+        <ion-icon name="ticket-outline" class="no-ticket-icon"></ion-icon>
+        <p>No e-ticket found. Please select a route first.</p>
+      </div>
+    </ng-template>
+    <ion-button expand="block" color="success" [disabled]="!eTicketPayload" (click)="confirmETicket()">
+      <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+      Confirm Payment
+    </ion-button>
+  </div>
+
+  <!-- Upload mode -->
+  <div class="upload-area" *ngIf="mode === 'upload'">
+    <ion-icon name="qr-code-outline" class="upload-icon"></ion-icon>
+    <p>Select a QR image from your gallery</p>
+    <p class="upload-sub">Works with the conductor's payment QR or a screenshot of your e-ticket</p>
+    <ion-button expand="block" color="primary" (click)="triggerFileInput()" [disabled]="isProcessingFile">
+      <ion-icon name="image-outline" slot="start"></ion-icon>
+      {{ isProcessingFile ? 'Reading QR...' : 'Choose Image' }}
+    </ion-button>
+    <input #fileInput type="file" accept="image/*" hidden (change)="onFileSelected($event)" />
+    <!-- invisible div required by html5-qrcode scanFile internals -->
+    <div id="qr-file-decoder" style="display:none"></div>
+  </div>
+
+  <!-- Error state -->
+  <div class="error-msg" *ngIf="error">
+    <ion-icon name="warning-outline"></ion-icon> {{ error }}
+  </div>
+
+  <p class="scan-hint">{{ hint }}</p>
+
+  <div class="cancel-row">
+    <ion-button expand="block" fill="outline" color="light" (click)="dismiss()">
+      Cancel
+    </ion-button>
+  </div>
+
+</div>

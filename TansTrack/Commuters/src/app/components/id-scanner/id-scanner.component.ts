@@ -146,46 +146,81 @@ export class IdScannerComponent {
     if (!this.capturedImage) return;
 
     const loading = await this.loadingController.create({
-      message: 'Reading ID with OCR...',
+      message: 'Reading ID...',
       spinner: 'crescent'
     });
     await loading.present();
 
     try {
       const scanResult = await this.idVerificationService.scanIdWithOCR(this.capturedImage);
-      
-      if (scanResult.success && scanResult.data.text) {
-        this.extractedData = this.parseDisplayData(scanResult.data.text);
-        
-        if (!this.extractedData.idNumber) {
-          await this.showWarning('Could not detect ID number. You can still proceed with manual verification.');
+
+      if (scanResult.success && scanResult.data?.text) {
+        const text = scanResult.data.text;
+        this.extractedData = this.parseDisplayData(text);
+
+        // Detect actual ID type from card text and auto-correct if mismatched
+        const detectedType = this.detectIdType(text);
+        if (detectedType && detectedType !== this.selectedIdType) {
+          const detectedLabel = detectedType === 'senior' ? 'Senior Citizen ID' : 'PWD ID';
+          const selectedLabel = this.selectedIdType === 'senior' ? 'Senior Citizen ID' : 'PWD ID';
+          this.selectedIdType = detectedType;
+          await loading.dismiss();
+          await this.showIdTypeMismatch(selectedLabel, detectedLabel);
+          return;
+        } else if (!detectedType) {
+          await loading.dismiss();
+          await this.showWarning('Could not confirm the ID type from the card. Please make sure you selected the correct type above before verifying.');
+          return;
         }
       } else {
-        await this.showError('Could not read ID. Please try again with a clearer image.');
+        // OCR failed — still allow proceeding, just no extracted info
+        this.extractedData = { idNumber: null, name: null, expiryDate: null };
       }
-      
     } catch (error) {
       console.error('Scan error:', error);
-      await this.showError('Failed to read ID. Please try again.');
+      this.extractedData = { idNumber: null, name: null, expiryDate: null };
     } finally {
       await loading.dismiss();
     }
   }
 
-  private parseDisplayData(text: string): any {
-    const upperText = text.toUpperCase();
-    
-    const idMatch = upperText.match(/(?:PWD|SENIOR|SC|ID|NO)[\s\-:#]*([A-Z0-9\-]{5,20})/i);
-    const nameMatch = upperText.match(/(?:NAME|HOLDER)[\s\-:#]*([A-Z\s,\.]+)/i);
-    const expiryMatch = upperText.match(/(?:VALID|EXPIR|UNTIL)[\s\-:#]*(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/i);
+  private detectIdType(text: string): 'pwd' | 'senior' | null {
+    const upper = text.toUpperCase();
+    const isSenior = /SENIOR\s*CITIZEN|OSCA|OFFICE\s*OF\s*SENIOR/.test(upper);
+    const isPwd = /\bPWD\b|PERSON[S]?\s*WITH\s*DISABILIT/.test(upper);
 
-    return {
-      idNumber: idMatch ? idMatch[1].trim() : null,
-      name: nameMatch ? nameMatch[1].trim().split(/\n|\r/)[0] : null,
-      expiryDate: expiryMatch ? expiryMatch[1] : null,
-      confidence: text.length > 10 ? 0.85 : 0.5,
-      rawText: text
-    };
+    if (isSenior && !isPwd) return 'senior';
+    if (isPwd && !isSenior) return 'pwd';
+    if (isSenior && isPwd) return null; // ambiguous
+    return null; // unrecognizable
+  }
+
+  private async showIdTypeMismatch(selected: string, detected: string) {
+    const alert = await this.alertController.create({
+      header: 'ID Type Corrected',
+      message: `You selected <strong>${selected}</strong> but we detected a <strong>${detected}</strong>. Switched to ${detected} verification automatically.`,
+      buttons: ['OK']
+    });
+    await alert.present();
+  }
+
+  private parseDisplayData(text: string): any {
+    // ID number: match "ID No. 8764" or "OSCA No. ..." or "PWD No. ..." specifically
+    // Avoid matching substrings of words like NON-TRANSFERABLE
+    const idNoMatch = text.match(/\bID\s*No\.?\s*(\d{3,10})/i)
+      || text.match(/\bOSCA\s*(?:No\.?)?\s*([A-Z0-9\-]{3,15})/i)
+      || text.match(/\bPWD\s*(?:ID)?\s*(?:No\.?)?\s*([A-Z0-9\-]{3,15})/i);
+    const idNumber = idNoMatch ? idNoMatch[1].trim() : null;
+
+    // Name: text after "Name :" up to a newline or known next field
+    const nameMatch = text.match(/Name\s*[:\-]?\s*([A-Za-z\s\.,]+?)(?:\r?\n|Address|$)/i);
+    const name = nameMatch ? nameMatch[1].trim() : null;
+
+    // Date of issue or expiry
+    const dateMatch = text.match(/(?:Date of Issue|Valid|Expir)[^\d]*(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/i);
+    const expiryDate = dateMatch ? dateMatch[1] : null;
+
+    return { idNumber, name, expiryDate };
   }
 
   async verifyId() {

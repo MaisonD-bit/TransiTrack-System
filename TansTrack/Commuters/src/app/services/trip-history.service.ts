@@ -112,4 +112,13 @@ export class TripHistoryService {
   getLocalTrips(): Observable<any> {
     return of({ success: true, data: this.getLocalTripsSync() });
   }
+
+  deleteLocalTrip(id: string): void {
+    const trips = this.getLocalTripsSync().filter((t: any) => t.id !== id);
+    localStorage.setItem('localTrips', JSON.stringify(trips));
+  }
+
+  clearLocalTrips(): void {
+    localStorage.removeItem('localTrips');
+  }
 }

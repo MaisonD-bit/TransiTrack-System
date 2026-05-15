@@ -79,6 +79,11 @@ class ApprovalController extends Controller
             'sysadmin_notes' => null,
         ]);
 
+        $ids = array_values(array_filter(array_map('intval', (array) ($routeApprovalRequest->route_ids ?? []))));
+        if ($ids !== []) {
+            BusRoute::query()->whereIn('id', $ids)->update(['status' => 'active']);
+        }
+
         Notification::create([
             'type' => 'route_approval',
             'message' => 'Your route configuration for terminal '.strtoupper((string) $routeApprovalRequest->terminal).' has been APPROVED. You may assign drivers for daily operations.',

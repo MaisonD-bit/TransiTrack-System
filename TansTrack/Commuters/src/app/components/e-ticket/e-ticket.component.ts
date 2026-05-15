@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
+import { FormsModule } from '@angular/forms';
 import QRCode from 'qrcode';
 
 @Component({
@@ -8,102 +9,80 @@ import QRCode from 'qrcode';
   templateUrl: './e-ticket.component.html',
   styleUrls: ['./e-ticket.component.scss'],
   standalone: true,
-  imports: [CommonModule, IonicModule],
+  imports: [CommonModule, IonicModule, FormsModule]
 })
 export class ETicketComponent implements OnChanges {
   @Input() selectedRoute: any;
-  /** Route database id (string from API). */
-  @Input() routeId: string | number | null | undefined;
   @Input() ticketID: string = '';
   @Input() ticketFare: number | null = 0;
-  /** Boarding → alighting or route name. */
-  @Input() tripLabel: string | null = null;
   @Input() currentTime: string = '';
   @Input() paymentMethod: string = 'cash';
-  /** Signed server token to embed in QR (preferred). */
-  @Input() qrToken: string | null = null;
-  /** unpaid|pending|paid|failed */
-  @Input() paymentStatus: string = 'unpaid';
   @Input() visible: boolean = false;
-  @Input() discountPercent: number = 0;
-  @Input() discountAmount: number = 0;
-  @Input() passengerType: string = 'Regular';
   @Input() operatorCompany: string = '';
   @Input() busLabel: string = '';
+  @Input() discountPercent: number = 0;
+  @Input() passengerType: string = '';
 
   @Output() close = new EventEmitter<void>();
   @Output() share = new EventEmitter<void>();
+  @Output() scanToPay = new EventEmitter<void>();
+  @Output() paymentMethodChange = new EventEmitter<string>();
 
-  qrDataUrl: string | null = null;
+  qrDataUrl: string = '';
 
-  get isPaidOnline(): boolean {
-    return this.paymentMethod !== 'cash';
+  get hasDiscount(): boolean {
+    return this.discountPercent > 0 && this.passengerType !== 'Regular';
   }
 
-  get isQrAllowed(): boolean {
-    return this.isPaidOnline && (this.paymentStatus || '').toLowerCase() === 'paid' && !!this.qrToken;
-  }
-
-  get routeDisplayName(): string {
-    return this.selectedRoute?.name || '';
-  }
-
-  get fareNum(): number {
-    const n = this.ticketFare ?? this.selectedRoute?.basefare;
-    return typeof n === 'number' && !Number.isNaN(n) ? n : 0;
-  }
-
-  get concessionSummary(): string | null {
-    const t = (this.passengerType || '').trim();
-    if (!t || t.toLowerCase() === 'regular') {
-      return this.discountPercent > 0 ? `${this.discountPercent}% concession` : null;
-    }
-    if (['Student', 'Senior', 'PWD'].includes(t) || this.discountPercent > 0) {
-      return `${t}${this.discountPercent > 0 ? ` · ${this.discountPercent}% off` : ''}`;
-    }
-    return null;
-  }
-
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['visible'] && !this.visible) {
-      this.qrDataUrl = null;
-      return;
-    }
-    void this.regenerateQr();
-  }
-
-  private async regenerateQr(): Promise<void> {
-    if (!this.visible || !this.selectedRoute || !this.ticketID || !this.isQrAllowed) {
-      this.qrDataUrl = null;
-      return;
-    }
-
-    const payload = { token: this.qrToken };
-
-    try {
-      this.qrDataUrl = await QRCode.toDataURL(JSON.stringify(payload), {
-        width: 220,
-        margin: 2,
-        errorCorrectionLevel: 'M',
-      });
-    } catch {
-      this.qrDataUrl = null;
+  ngOnChanges(): void {
+    if (this.visible && this.ticketID && this.selectedRoute) {
+      const payload = [
+        this.ticketID,
+        this.selectedRoute.name,
+        this.ticketFare ?? 0,
+        this.currentTime
+      ].join('|');
+      QRCode.toDataURL(payload, { width: 200, margin: 1 })
+        .then(url => this.qrDataUrl = url)
+        .catch(() => this.qrDataUrl = '');
     }
   }
 
-  getPaymentLabel(): string {
-    const labels: Record<string, string> = {
-      cash: 'Cash',
-      paymaya: 'PayMaya',
-      gcash: 'GCash',
-    };
-    return labels[this.paymentMethod] || this.paymentMethod;
+  getOrigin(): string {
+    const name = this.selectedRoute?.name || '';
+    return name ? name.split(' to ')[0] || 'Start Point' : 'Start Point';
   }
 
-  closeTicket() {
-    this.close.emit();
+  getDestination(): string {
+    const name = this.selectedRoute?.name || '';
+    return name ? name.split(' to ')[1] || 'End Point' : 'End Point';
   }
-  shareTicket() {
-    this.share.emit();
+
+  getRouteDistance(): string {
+    const distance = this.selectedRoute?.distance_km;
+    if (distance != null && distance !== '') {
+      const numDistance = Number(distance);
+      if (!isNaN(numDistance) && numDistance > 0) {
+        return `${numDistance.toFixed(1)} km`;
+      }
+    }
+    return 'N/A';
+  }
+
+  closeTicket() { this.close.emit(); }
+  shareTicket() { this.share.emit(); }
+  openScanToPay() { this.scanToPay.emit(); }
+
+  onPaymentMethodChange(method: string) {
+    this.paymentMethod = method;
+    this.paymentMethodChange.emit(method);
+  }
+
+  downloadQr() {
+    if (!this.qrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = this.qrDataUrl;
+    a.download = `eticket-${this.ticketID}.png`;
+    a.click();
   }
 }

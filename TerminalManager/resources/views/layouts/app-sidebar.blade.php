@@ -12,10 +12,6 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     @stack('styles')
     <style>
-        body {
-            background: #222;
-        }
-
         :root {
             --primary: #1a1c30;
             --secondary: #3498db;
@@ -100,7 +96,7 @@
         .logoutBtn {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 1.5rem;
             background: transparent;
             border: none;
             font-size: 16px;
@@ -125,7 +121,6 @@
             flex-direction: column;
             margin-left: 280px;
             min-height: 100vh;
-            background-color: #fff;
             padding: 20px;
             padding-left: 40px;
         }
@@ -140,7 +135,7 @@
             z-index: 10;
             height: 74.19px;
         }
-        
+
         h4 {
             font-weight: 600;
             color: black;
@@ -256,10 +251,6 @@
                 overflow: visible;
             }
 
-            .sidebar-footer {
-                flex: none;
-            }
-
             .sidebar-link {
                 flex: none;
                 padding: 12px 20px;
@@ -295,24 +286,38 @@
                 <span>Bus Schedules</span>
             </a>
 
-            <a href="{{ route('messages') }}" class="sidebar-link {{ request()->routeIs('message') ? 'active' : '' }}">
+            <a href="{{ route('announcements') }}" class="sidebar-link {{ request()->routeIs('announcements') ? 'active' : '' }}">
                 <i class="bi bi-chat-dots-fill"></i>
-                <span>Messages & Announcements</span>
+                <span>Announcements</span>
             </a>
 
-            <a href="{{ route('chat') }}" class="sidebar-link {{ request()->routeIs('chat.*') ? 'active' : '' }}">
+            <a href="{{ route('chat') }}" class="sidebar-link {{ request()->routeIs('chat') ? 'active' : '' }}">
                 <i class="bi bi-chat-left-text-fill"></i>
                 <span>Chat</span>
             </a>
 
+            @if(auth()->check() && auth()->user()->terminal === 'south')
             <a href="{{ route('spaces.index') }}" class="sidebar-link {{ request()->routeIs('spaces.*') ? 'active' : '' }}">
                 <i class="fas fa-map-marker-alt"></i>
-                <span>Spaces</span>
+                <span>South terminal spaces</span>
             </a>
+            @endif
+
+            @if(auth()->check() && auth()->user()->terminal === 'north')
+            <a href="{{ route('north-spaces.index') }}" class="sidebar-link {{ request()->routeIs('north-spaces.*') ? 'active' : '' }}">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>North terminal spaces</span>
+            </a>
+            @endif
 
             <a href="{{ route('terminal.route-stops') }}" class="sidebar-link {{ request()->routeIs('terminal.route-stops*') ? 'active' : '' }}">
                 <i class="fas fa-route"></i>
                 <span>Route stops</span>
+            </a>
+
+            <a href="{{ route('approval') }}" class="sidebar-link {{ request()->routeIs('approval') ? 'active' : '' }}">
+                <i class="fas fa-check-circle"></i>
+                <span>Operator approvals</span>
             </a>
         </div>
 
@@ -335,6 +340,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stream-chat@8"></script>
     @stack('scripts')
 
 </body>

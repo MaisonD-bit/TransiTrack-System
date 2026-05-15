@@ -2,6 +2,9 @@
   <ion-toolbar color="primary">
     <ion-title>Feedback & Ratings</ion-title>
     <ion-buttons slot="end">
+      <ion-button (click)="clearAllFeedbacks()" *ngIf="feedbacks.length > 0">
+        <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+      </ion-button>
       <ion-button (click)="openFeedbackForm()" color="primary">
         <ion-icon name="add-circle-outline" slot="icon-only"></ion-icon>
       </ion-button>
@@ -65,10 +68,15 @@
             <h2>{{ feedback.routeName }}</h2>
             <p class="feedback-date">{{ feedback.tripDate | date: 'MMM dd, yyyy' }}</p>
           </div>
-          <ion-badge [color]="getRatingColor(getAverageRating(feedback))">
-            <ion-icon name="star" slot="start"></ion-icon>
-            {{ getAverageRating(feedback) | number: '1.1-1' }}
-          </ion-badge>
+          <div style="display:flex;align-items:center;gap:4px">
+            <ion-badge [color]="getRatingColor(getAverageRating(feedback))">
+              <ion-icon name="star" slot="start"></ion-icon>
+              {{ getAverageRating(feedback) | number: '1.1-1' }}
+            </ion-badge>
+            <ion-button fill="clear" size="small" color="danger" (click)="deleteFeedback(feedback, $event)">
+              <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+            </ion-button>
+          </div>
         </div>
 
         <div class="driver-info">
@@ -128,8 +136,8 @@
             <ion-item>
               <ion-label>Trip</ion-label>
               <ion-select [(ngModel)]="newFeedback.tripId">
-                <ion-select-option *ngFor="let trip of pendingTrips" [value]="trip.id">
-                  {{ trip.route_name }} - {{ trip.trip_date | date: 'MMM dd, yyyy' }}
+                <ion-select-option *ngFor="let trip of pendingTrips" [value]="trip.public_ticket_id">
+                  {{ trip.route_name }} - {{ trip.date | date: 'MMM dd, yyyy' }}
                 </ion-select-option>
               </ion-select>
             </ion-item>

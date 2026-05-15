@@ -10,7 +10,6 @@ import * as mapboxgl from 'mapbox-gl';
 import { environment } from '../../environments/environment';
 import { CommuterService, LiveRoute } from '../services/commuter.service';
 import { Subscription } from 'rxjs';
-import { ActivatedRoute } from '@angular/router';
 
 @Component({
   selector: 'app-map',
@@ -24,11 +23,6 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   map: mapboxgl.Map | undefined;
   busMarkers: mapboxgl.Marker[] = [];
   selectedRoute: string = '';
-  /** Focus this route when navigated from Home "Track Route". */
-  focusRouteId: string | null = null;
-  /** Focus this live schedule (bus trip) when selected. */
-  focusScheduleId: number | null = null;
-  private liveBusPollTimer: ReturnType<typeof setInterval> | null = null;
   
   // Real-time data
   routes: LiveRoute[] = [];
@@ -40,19 +34,9 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   selectedDestination: { lat: number; lng: number } | null = null;
   showNavigationLine: boolean = false;
 
-  constructor(private commuterService: CommuterService, private route: ActivatedRoute) {}
+  constructor(private commuterService: CommuterService) {}
 
   ngOnInit() {
-    this.route.queryParamMap.subscribe((q) => {
-      const rid = q.get('routeId');
-      const sid = q.get('scheduleId');
-      this.focusRouteId = rid ? String(rid) : null;
-      this.focusScheduleId = sid != null && sid !== '' ? Number(sid) : null;
-      // If map is already ready, refresh markers now.
-      if (this.map) {
-        this.startLiveBusPoll();
-      }
-    });
     this.subscribeToRealTimeData();
   }
 
@@ -120,8 +104,8 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
     this.map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     this.map.on('load', () => {
+      // addBusMarkers() removed - user doesn't want bus tracking
       this.addRouteLines();
-      this.startLiveBusPoll();
       
      
       geolocateControl.trigger();
@@ -162,88 +146,8 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   
   addRouteLines() {
     // Load actual route data from API and display navigation lines
-    const focus = this.focusRouteId
-      ? this.routes.find((r) => String(r.id) === String(this.focusRouteId))
-      : null;
-
-    if (focus) {
-      this.loadAndDisplayRoute(focus);
-      return;
-    }
-
-    this.routes.forEach((route) => this.loadAndDisplayRoute(route));
-  }
-
-  private stopLiveBusPoll(): void {
-    if (this.liveBusPollTimer) {
-      clearInterval(this.liveBusPollTimer);
-      this.liveBusPollTimer = null;
-    }
-  }
-
-  private startLiveBusPoll(): void {
-    this.stopLiveBusPoll();
-    if (!this.focusRouteId) {
-      return;
-    }
-    this.refreshLiveBusMarkers();
-    this.liveBusPollTimer = setInterval(() => this.refreshLiveBusMarkers(), 5000);
-  }
-
-  private refreshLiveBusMarkers(): void {
-    if (!this.map || !this.focusRouteId) return;
-
-    const terminal = this.commuterService.getTerminal();
-    this.commuterService.getLiveBuses(String(this.focusRouteId), terminal).subscribe({
-      next: (res) => {
-        const buses = Array.isArray(res?.buses) ? res.buses : [];
-        const filtered = this.focusScheduleId != null
-          ? buses.filter((b: any) => b.schedule_id === this.focusScheduleId)
-          : buses;
-
-        // clear old markers
-        this.busMarkers.forEach((m) => {
-          try { m.remove(); } catch {}
-        });
-        this.busMarkers = [];
-
-        filtered.forEach((b: any) => {
-          if (!b?.position) return;
-          const lng = Number(b.position.lng);
-          const lat = Number(b.position.lat);
-          if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
-
-          const selected = this.focusScheduleId != null && b.schedule_id === this.focusScheduleId;
-          const color = b.is_full ? '#dc2626' : b.status === 'active' ? '#16a34a' : '#2563eb';
-
-          const el = document.createElement('div');
-          const size = 32;
-          const ring = selected ? '0 0 0 4px rgba(251, 191, 36, 0.85)' : '0 0 0 2px rgba(255,255,255,.9)';
-          el.style.cssText = `width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;`;
-          el.innerHTML = `
-            <div style="
-              width:${size}px;height:${size}px;border-radius:999px;
-              background: ${color};
-              box-shadow: ${ring}, 0 6px 14px rgba(0,0,0,.22);
-              display:flex;align-items:center;justify-content:center;
-            ">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M7 4h10a3 3 0 0 1 3 3v9a2 2 0 0 1-2 2h-1v1a1 1 0 1 1-2 0v-1H9v1a1 1 0 1 1-2 0v-1H6a2 2 0 0 1-2-2V7a3 3 0 0 1 3-3Z" fill="rgba(255,255,255,.95)"/>
-                <path d="M7 7h10v5H7V7Z" fill="rgba(0,0,0,.18)"/>
-                <circle cx="8" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
-                <circle cx="16" cy="16" r="1.2" fill="rgba(0,0,0,.35)"/>
-              </svg>
-            </div>`;
-
-          const label = `${b.bus_number || 'Bus'} · ${b.operator_company || ''} · ${b.driver_name || ''}${b.is_full ? ' · FULL' : ''}`;
-          const popup = new mapboxgl.Popup({ offset: 12 }).setHTML(`<strong>${label}</strong>`);
-          const mk = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).setPopup(popup).addTo(this.map!);
-          this.busMarkers.push(mk);
-        });
-      },
-      error: () => {
-        // ignore transient errors (ngrok / network)
-      },
+    this.routes.forEach((route, index) => {
+      this.loadAndDisplayRoute(route);
     });
   }
 
@@ -410,7 +314,6 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.stopLiveBusPoll();
     if (this.map) {
       this.map.remove();
     }
