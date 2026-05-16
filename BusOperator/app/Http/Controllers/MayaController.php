@@ -107,9 +107,10 @@ class MayaController extends Controller
         ]);
 
         return response()->json([
-            'success'      => true,
-            'checkout_id'  => $body['checkoutId'] ?? null,
-            'checkout_url' => $body['redirectUrl'] ?? null,
+            'success'          => true,
+            'checkout_id'      => $body['checkoutId'] ?? null,
+            'checkout_url'     => $body['redirectUrl'] ?? null,
+            'reference_number' => $payload['requestReferenceNumber'],
         ]);
     }
 

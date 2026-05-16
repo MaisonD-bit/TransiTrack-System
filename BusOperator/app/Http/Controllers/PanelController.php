@@ -16,6 +16,11 @@ use Carbon\Carbon;
 
 class PanelController extends Controller
 {
+    public function liveTracking()
+    {
+        return view('panels.live-tracking');
+    }
+
     public function operatorPanel()
     {
         $userId = Auth::id();

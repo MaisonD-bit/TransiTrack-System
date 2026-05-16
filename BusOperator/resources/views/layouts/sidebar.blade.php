@@ -20,6 +20,10 @@
             <i class="fas fa-clipboard-list"></i>
             <span>Trip Logs</span>
         </a>
+        <a href="{{ route('live-tracking.panel') }}" class="nav-item {{ request()->routeIs('live-tracking.panel') ? 'active' : '' }}">
+            <i class="fas fa-map-marked-alt"></i>
+            <span>Live Tracking</span>
+        </a>
         <a href="{{ route('route-requests.panel') }}" class="nav-item {{ request()->routeIs('route-requests.*') ? 'active' : '' }}">
             <i class="fas fa-code-branch"></i>
             <span>Route approvals</span>
@@ -35,10 +39,6 @@
         <a href="{{ route('buses.panel') }}" class="nav-item {{ request()->routeIs('buses.*') ? 'active' : '' }}">
             <i class="fas fa-bus-alt"></i>
             <span>Buses</span>
-        </a>
-        <a href="{{ route('support-tickets.panel') }}" class="nav-item {{ request()->routeIs('support-tickets.*') ? 'active' : '' }}">
-            <i class="fas fa-headset"></i>
-            <span>Support Tickets</span>
         </a>
         <a href="{{ route('chat.panel') }}" class="nav-item {{ request()->routeIs('chat.*') ? 'active' : '' }}">
             <i class="fas fa-comments"></i>

@@ -26,6 +26,10 @@ export interface RouteMapBoardingPassenger {
   boarding_lng?: number | null;
   boarding_lat?: number | null;
   boarding_stop_name?: string | null;
+  drop_off_lng?: number | null;
+  drop_off_lat?: number | null;
+  drop_off_stop_name?: string | null;
+  payment_status?: string | null;
   /** True only for boarding requests — commuter waiting at a stop, not yet aboard */
   is_boarding_request?: boolean;
 }
@@ -48,10 +52,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() boardingPassengers: RouteMapBoardingPassenger[] = [];
   /** When true, animates a bus marker along the route coordinates */
   @Input() simulate: boolean = false;
+  /** Optional key to scope simulation progress per schedule/leg */
+  @Input() simKey: string | number | null = null;
   /** Emits each position the simulation marker moves to */
   @Output() positionUpdate = new EventEmitter<{ lng: number; lat: number }>();
   /** Emits once when the simulated bus reaches the final route coordinate */
   @Output() arrivedAtDestination = new EventEmitter<void>();
+  /** Emits when the bus passes a commuter's chosen drop-off stop */
+  @Output() passengerDropOff = new EventEmitter<{ ticketId: string; commuterName: string; stopName: string }>();
 
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
@@ -64,6 +72,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private simulationSub: Subscription | null = null;
   private currentBusLng = 0;
   private currentBusLat = 0;
+  /** Ticket IDs already emitted for drop-off — prevents repeated toasts on same stop */
+  private dropOffEmitted = new Set<string>();
 
   ngAfterViewInit() {
     mapboxgl.accessToken = 'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
@@ -96,7 +106,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       if (this.simulate && (changes['routeGeoJson'] || changes['routeStops'])) {
         // Clear saved simulation step when geometry changes to prevent teleporting on reversed routes.
         try {
-          sessionStorage.removeItem(this.SIM_STEP_KEY);
+          sessionStorage.removeItem(this.getSimStepKey());
         } catch {}
         this.startSimulation();
       }
@@ -104,7 +114,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (changes['simulate'] && this.mapLoaded) {
       if (this.simulate) {
         try {
-          sessionStorage.removeItem(this.SIM_STEP_KEY);
+          sessionStorage.removeItem(this.getSimStepKey());
         } catch {}
         this.startSimulation();
       } else {
@@ -116,10 +126,6 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   ngOnDestroy() {
     this.stopSimulation();
-    // Avoid cross-leg teleporting caused by stale sessionStorage.
-    try {
-      sessionStorage.removeItem(this.SIM_STEP_KEY);
-    } catch {}
   }
 
   drawRoute() {
@@ -191,17 +197,37 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   private readonly SIM_STEP_KEY = 'driver_sim_step';
 
+  private getSimStepKey(): string {
+    const suffix = this.simKey != null ? String(this.simKey) : 'default';
+    return `${this.SIM_STEP_KEY}_${suffix}`;
+  }
+
   private startSimulation() {
     this.stopSimulation();
+    this.dropOffEmitted.clear();
     if (!this.mapLoaded || !this.map) return;
     const coords: number[][] = this.routeGeoJson?.coordinates;
     if (!Array.isArray(coords) || coords.length < 2) return;
 
-    const saved = sessionStorage.getItem(this.SIM_STEP_KEY);
+    const saved = sessionStorage.getItem(this.getSimStepKey());
     const savedStep = saved !== null ? parseInt(saved, 10) : -1;
+    const lastIdx = coords.length - 1;
     const startIdx = savedStep >= 0 && savedStep < coords.length ? savedStep : 0;
 
-    this.busMarker = new mapboxgl.Marker({ color: '#0074D9', scale: 1.2 })
+    // Simulation already reached the end in a previous session — re-emit arrived so the
+    // trip completes even if the component was remounted (tab switch, app restart, etc.).
+    if (savedStep >= lastIdx) {
+      this.busMarker = new mapboxgl.Marker({ element: this.createBusMarkerEl(), anchor: 'center' })
+        .setLngLat([coords[lastIdx][0], coords[lastIdx][1]])
+        .addTo(this.map);
+      this.currentBusLng = coords[lastIdx][0];
+      this.currentBusLat = coords[lastIdx][1];
+      this.positionUpdate.emit({ lng: this.currentBusLng, lat: this.currentBusLat });
+      this.arrivedAtDestination.emit();
+      return;
+    }
+
+    this.busMarker = new mapboxgl.Marker({ element: this.createBusMarkerEl(), anchor: 'center' })
       .setLngLat([coords[startIdx][0], coords[startIdx][1]])
       .addTo(this.map);
 
@@ -219,16 +245,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         this.currentBusLat = lat;
         this.busMarker.setLngLat([lng, lat]);
         this.positionUpdate.emit({ lng, lat });
-        sessionStorage.setItem(this.SIM_STEP_KEY, String(index));
+        sessionStorage.setItem(this.getSimStepKey(), String(index));
         this.checkBusPastBoardingStops(lng, lat);
+        this.checkBusPastDropOffStops(lng, lat);
       },
       complete: () => {
         this.arrivedAtDestination.emit();
-        sessionStorage.removeItem(this.SIM_STEP_KEY);
-        if (this.busMarker) {
-          this.busMarker.remove();
-          this.busMarker = null;
-        }
+        const last = coords.length - 1;
+        sessionStorage.setItem(this.getSimStepKey(), String(last));
         this.simulationSub = null;
       },
     });
@@ -299,7 +323,17 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         stop.distance_km_from_start != null
           ? `<br><span style="color:#666">${Number(stop.distance_km_from_start).toFixed(2)} km from start</span>`
           : '';
-      const el = new mapboxgl.Marker({ color: '#f97316', scale: 1 })
+      const pinEl = document.createElement('div');
+      pinEl.style.cssText = [
+        'width:28px', 'height:28px', 'border-radius:50%',
+        'background:#f97316', 'border:2.5px solid #fff',
+        'box-shadow:0 2px 6px rgba(0,0,0,0.35)',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'color:#fff', 'font-weight:700', 'font-size:11px', 'font-family:sans-serif',
+        'cursor:pointer'
+      ].join(';');
+      pinEl.textContent = String(i);
+      const marker = new mapboxgl.Marker({ element: pinEl, anchor: 'center' })
         .setLngLat(ll)
         .setPopup(
           new mapboxgl.Popup({ maxWidth: '280px' }).setHTML(
@@ -307,7 +341,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           )
         )
         .addTo(this.map);
-      this.stopMarkers.push(el);
+      this.stopMarkers.push(marker);
     });
   }
 
@@ -385,6 +419,27 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     toRemove.forEach(k => this.boardingStopMarkers.delete(k));
   }
 
+  /** Called on each simulation step — emits drop-off event for passengers whose stop the bus has reached (~400 m). */
+  private checkBusPastDropOffStops(busLng: number, busLat: number) {
+    const aboard = (this.boardingPassengers || []).filter(
+      p => !p.is_boarding_request && !p.alighted && p.drop_off_lng != null && p.drop_off_lat != null
+    );
+    for (const p of aboard) {
+      const ticketId = p.public_ticket_id;
+      if (!ticketId || this.dropOffEmitted.has(ticketId)) continue;
+      const dx = busLng - p.drop_off_lng!;
+      const dy = busLat - p.drop_off_lat!;
+      if (Math.sqrt(dx * dx + dy * dy) < 0.004) { // ~400 m
+        this.dropOffEmitted.add(ticketId);
+        this.passengerDropOff.emit({
+          ticketId,
+          commuterName: p.commuter_name || 'Passenger',
+          stopName: p.drop_off_stop_name || 'stop',
+        });
+      }
+    }
+  }
+
   private fitToStopsOnly() {
     const bounds = new mapboxgl.LngLatBounds();
     let n = 0;
@@ -398,6 +453,13 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (n > 0) {
       this.map.fitBounds(bounds, { padding: 50, maxZoom: 14 });
     }
+  }
+
+  private createBusMarkerEl(): HTMLElement {
+    const el = document.createElement('div');
+    el.style.cssText = 'font-size:28px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));cursor:default;';
+    el.textContent = '🚌';
+    return el;
   }
 
   private escapeHtml(s: string): string {

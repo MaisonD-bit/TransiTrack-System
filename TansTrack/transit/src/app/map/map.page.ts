@@ -1,4 +1,5 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import {
   ActionSheetController,
@@ -60,6 +61,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   mapRouteGeoJson: { type: string; coordinates: number[][] } | null = null;
   mapRouteStops: RouteMapStop[] = [];
   mapBoardingPassengers: RouteMapBoardingPassenger[] = [];
+  mapAllPassengers: RouteMapBoardingPassenger[] = [];
   selectedSegment: string = 'current';
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
@@ -68,6 +70,11 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
   private lastPositionPush = 0;
   private arrivalPromptShown = false;
   private manifestPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  get simulationKey(): string | null {
+    if (!this.currentSchedule) return null;
+    return `${this.currentSchedule.id}-${this.currentSchedule.trip_leg ?? 1}`;
+  }
 
   private readonly mapboxToken =
     'pk.eyJ1Ijoic2Vlam83IiwiYSI6ImNtY3ZqcWJ1czBic3QycHEycnM0d2xtaXEifQ.DdQ8QFpf5LlgTDtejDgJSA';
@@ -103,7 +110,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     this.apiService.getPassengerManifest(scheduleId).subscribe({
       next: (response) => {
         if (response?.success && Array.isArray(response?.passengers)) {
-          this.mapBoardingPassengers = response.passengers.map((p: any) => ({
+          const mapped = response.passengers.map((p: any) => ({
             public_ticket_id: p.ticket_id,
             fare: p.fare,
             commuter_name: p.commuter_name,
@@ -112,13 +119,24 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
             boarding_lng: p.boarding_lng,
             boarding_lat: p.boarding_lat,
             boarding_stop_name: p.boarding_stop_name,
+            drop_off_lng: p.drop_off_lng,
+            drop_off_lat: p.drop_off_lat,
+            drop_off_stop_name: p.drop_off_stop_name,
+            payment_status: p.payment_status ?? null,
             is_boarding_request: p.is_boarding_request === true,
           }));
+          // All passengers (including boarding requests) — fed to route-map for purple stop markers
+          this.mapAllPassengers = mapped.filter((p: any) => !!p.commuter_name && !p.alighted);
+          // Only ticketed, non-alighted, non-request passengers — shown in the Aboard Commuters list
+          this.mapBoardingPassengers = mapped.filter((p: any) =>
+            !!p.commuter_name && !p.alighted && p.is_boarding_request !== true
+          );
           return;
         }
 
         // Safe fallback: treat non-success / no passengers as empty list.
         this.mapBoardingPassengers = [];
+          this.mapAllPassengers = [];
       },
       error: (err) => {
         const status = err?.status ?? err?.error?.status;
@@ -127,6 +145,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         if (status === 404) {
           this.stopManifestPoll();
           this.mapBoardingPassengers = [];
+          this.mapAllPassengers = [];
         }
       },
     });
@@ -233,7 +252,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       const end = this.parseScheduleEnd(s);
       if (!start || !end) return false;
       const status = st(s);
-      return (status === 'accepted' || status === 'active') && now >= start && now < end;
+      return (status === 'accepted' || status === 'active' || status === 'scheduled') && now >= start && now < end;
     });
     if (inWindow) return inWindow;
 
@@ -241,7 +260,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       .filter((s) => {
         if (this.scheduleDateKey(s) !== todayStr) return false;
         const status = st(s);
-        if (status !== 'accepted' && status !== 'active') return false;
+        if (status !== 'accepted' && status !== 'active' && status !== 'scheduled') return false;
         const end = this.parseScheduleEnd(s);
         return !end || now < end;
       })
@@ -262,7 +281,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     return (
       upcomingSchedules.find((s) => {
         const status = st(s);
-        return status === 'accepted' || status === 'active';
+        return status === 'accepted' || status === 'active' || status === 'scheduled';
       }) || null
     );
   }
@@ -276,6 +295,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
+          this.mapAllPassengers = [];
         this.isNearDestination = false;
         this.arrivalPromptShown = false;
 
@@ -318,6 +338,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
 
         this.mapRouteStops = Array.isArray(route.stops) ? route.stops : [];
         this.mapBoardingPassengers = [];
+          this.mapAllPassengers = [];
         this.startManifestPoll(this.currentSchedule.id);
 
         void this.buildRouteGeometry(this.currentSchedule);
@@ -328,6 +349,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
         this.mapRouteGeoJson = null;
         this.mapRouteStops = [];
         this.mapBoardingPassengers = [];
+          this.mapAllPassengers = [];
       }
     });
   }
@@ -449,18 +471,29 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     return `${this.formatTime(schedule.start_time)} - ${this.formatTime(schedule.end_time)}`;
   }
 
+  private shortLocation(loc: string): string {
+    const beforeComma = loc.split(',')[0].trim();
+    return beforeComma.includes(' ') ? beforeComma.split(' ')[0] : beforeComma;
+  }
+
   getScheduleRoute(schedule: Schedule): string {
-    if (this.isReturnTrip && schedule.route?.end_location && schedule.route?.start_location) {
-      return `${schedule.route.end_location} to ${schedule.route.start_location}`;
+    const r = schedule.route;
+    if (!r) return '';
+    if (this.isReturnTrip && r.end_location && r.start_location) {
+      return `${this.shortLocation(r.end_location)} to ${this.shortLocation(r.start_location)}`;
     }
-    return schedule.route?.name || '';
+    return r.start_location && r.end_location
+      ? `${this.shortLocation(r.start_location)} to ${this.shortLocation(r.end_location)}`
+      : r.name || '';
   }
 
   getScheduleDestination(schedule: Schedule): string {
-    if (this.isReturnTrip && schedule.route?.start_location) {
-      return schedule.route.start_location;
+    const r = schedule.route;
+    if (!r) return '';
+    if (this.isReturnTrip && r.start_location) {
+      return r.start_location;
     }
-    return schedule.route?.end_location || '';
+    return r.end_location || '';
   }
 
   refreshSchedules() {
@@ -582,6 +615,108 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     this.doCompleteSchedule(this.currentSchedule);
   }
 
+  async onPassengerDropOff(event: { ticketId: string; commuterName: string; stopName: string }) {
+    // Remove from local lists immediately so the count updates without waiting for next poll
+    this.mapBoardingPassengers = this.mapBoardingPassengers.filter(
+      p => p.public_ticket_id !== event.ticketId
+    );
+    this.mapAllPassengers = this.mapAllPassengers.filter(
+      p => p.public_ticket_id !== event.ticketId
+    );
+
+    // Notify the backend
+    this.apiService.post('commuter/alight', { public_ticket_id: event.ticketId }).subscribe({
+      error: (err) => console.warn('driver-side alight failed', err),
+    });
+
+    const toast = await this.toastController.create({
+      message: `${event.commuterName} wants to drop off in stop ${event.stopName}`,
+      duration: 4000,
+      color: 'warning',
+      position: 'top',
+      icon: 'exit-outline',
+    });
+    await toast.present();
+  }
+
+  async respondToSchedule(scheduleId: number, action: 'accept' | 'decline') {
+    if (action === 'decline') {
+      const alert = await this.alertController.create({
+        header: 'Decline Schedule',
+        message: 'Please provide a reason. The operator will review your request.',
+        inputs: [{ name: 'reason', type: 'textarea', placeholder: 'Enter your reason here…', attributes: { maxlength: 500 } }],
+        buttons: [
+          { text: 'Cancel', role: 'cancel' },
+          {
+            text: 'Submit Decline',
+            handler: async (data) => {
+              const reason = (data.reason || '').trim();
+              if (reason.length < 5) {
+                const t = await this.toastController.create({
+                  message: 'Please provide a valid reason (at least 5 characters).',
+                  duration: 2000,
+                  color: 'warning'
+                });
+                await t.present();
+                return false;
+              }
+              await this.submitDecline(scheduleId, reason);
+              return true;
+            }
+          }
+        ]
+      });
+      await alert.present();
+      return;
+    }
+
+    try {
+      const response: any = await this.apiService.acceptSchedule(scheduleId).toPromise();
+      if (response?.success) {
+        const toast = await this.toastController.create({
+          message: 'Schedule accepted.',
+          duration: 2000,
+          color: 'success'
+        });
+        await toast.present();
+        this.loadDriverSchedules();
+      } else {
+        throw new Error(response?.message || 'Failed');
+      }
+    } catch (error: any) {
+      const toast = await this.toastController.create({
+        message: error.message || 'Could not accept schedule.',
+        duration: 2500,
+        color: 'danger'
+      });
+      await toast.present();
+    }
+  }
+
+  private async submitDecline(scheduleId: number, reason: string) {
+    try {
+      const response: any = await this.apiService.declineSchedule(scheduleId, reason).toPromise();
+      if (response?.success) {
+        const toast = await this.toastController.create({
+          message: 'Decline request submitted. Awaiting operator approval.',
+          duration: 2500,
+          color: 'warning'
+        });
+        await toast.present();
+        this.loadDriverSchedules();
+      } else {
+        throw new Error(response?.message || 'Failed');
+      }
+    } catch (error: any) {
+      const toast = await this.toastController.create({
+        message: error.message || 'Could not submit decline request.',
+        duration: 2500,
+        color: 'danger'
+      });
+      await toast.present();
+    }
+  }
+
 
   startSchedule(schedule: Schedule) {
     const call$ = this.apiService.startSchedule(schedule.id);
@@ -607,6 +742,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       this.apiService.completeReturnTrip(schedule.id).subscribe({
         next: async (response) => {
           if (response.success) {
+            try { sessionStorage.removeItem(`driver_sim_step_${this.simulationKey}`); } catch {}
             this.isReturnTrip = false;
             this.loadDriverSchedules();
             const toast = await this.toastController.create({
@@ -628,7 +764,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       this.apiService.completeSchedule(schedule.id).subscribe({
         next: async (response) => {
           if (response.success) {
-            schedule.status = 'completed';
+            try { sessionStorage.removeItem(`driver_sim_step_${this.simulationKey}`); } catch {}
             this.loadDriverSchedules();
             const toast = await this.toastController.create({
               message: 'Trip completed! Check your schedule for the return trip.',
@@ -652,6 +788,58 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
     } else {
       doComplete();
     }
+  }
+
+  async completeTripLeg() {
+    if (!this.currentSchedule) return;
+    try {
+      await firstValueFrom(this.apiService.completeSchedule(this.currentSchedule.id));
+      const toast = await this.toastController.create({
+        message: 'Trip leg completed. Accept the next leg to continue.',
+        duration: 3000, color: 'success'
+      });
+      await toast.present();
+      this.loadDriverSchedules();
+    } catch (e: any) {
+      const toast = await this.toastController.create({
+        message: e?.error?.message || e?.message || 'Could not complete trip.',
+        duration: 2500, color: 'danger'
+      });
+      await toast.present();
+    }
+  }
+
+  async endDayTrip() {
+    if (!this.currentSchedule) return;
+    const scheduleId = this.currentSchedule.id;
+    const alert = await this.alertController.create({
+      header: 'End Day',
+      message: 'Are you sure you want to end your day? The schedule will be marked as completed.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'End Day',
+          cssClass: 'alert-button-danger',
+          handler: async () => {
+            try {
+              await firstValueFrom(this.apiService.endDay(scheduleId));
+              const toast = await this.toastController.create({
+                message: 'Day ended. Schedule completed.', duration: 2000, color: 'success'
+              });
+              await toast.present();
+              this.loadDriverSchedules();
+            } catch (e: any) {
+              const toast = await this.toastController.create({
+                message: e?.error?.message || e?.message || 'Could not end day.',
+                duration: 2500, color: 'danger'
+              });
+              await toast.present();
+            }
+          }
+        }
+      ]
+    });
+    await alert.present();
   }
 
   formatTime(timeString: string): string {

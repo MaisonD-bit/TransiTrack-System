@@ -51,31 +51,20 @@
         </div>
         <div class="schedule-row">
           <ion-icon name="calendar-outline"></ion-icon>
-          <span>{{ getScheduleDate(currentSchedule) }}</span>
+          <span>{{ todayFormatted }}</span>
         </div>
         <!-- Bus Info -->
         <div class="schedule-row" *ngIf="currentSchedule.bus">
           <ion-icon name="car-outline"></ion-icon>
           <span>{{ currentSchedule.bus.bus_number }} - {{ currentSchedule.bus.model }}</span>
         </div>
-        <!-- Initial Accept / Decline (leg 1, not yet accepted) -->
-        <div *ngIf="currentSchedule.status === 'scheduled'" class="schedule-actions">
+        <!-- Accept / Decline (shown whenever leg_status is pending — initial or after completing a leg) -->
+        <div *ngIf="!legStatus || legStatus === 'pending'" class="schedule-actions">
           <ion-button expand="block" color="success" (click)="respondToSchedule(currentSchedule.id, 'accept')">
             <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
             Accept
           </ion-button>
           <ion-button expand="block" color="danger" fill="outline" (click)="respondToSchedule(currentSchedule.id, 'decline')">
-            <ion-icon name="close-circle-outline" slot="start"></ion-icon>
-            Decline
-          </ion-button>
-        </div>
-        <!-- Return-trip Accept / Decline (next leg pending) -->
-        <div *ngIf="hasReturnTrip && legStatus === 'pending' && currentSchedule.status !== 'scheduled'" class="schedule-actions">
-          <ion-button expand="block" color="success" (click)="respondToReturnTrip('accept')">
-            <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
-            Accept
-          </ion-button>
-          <ion-button expand="block" color="danger" fill="outline" (click)="respondToReturnTrip('decline')">
             <ion-icon name="close-circle-outline" slot="start"></ion-icon>
             Decline
           </ion-button>

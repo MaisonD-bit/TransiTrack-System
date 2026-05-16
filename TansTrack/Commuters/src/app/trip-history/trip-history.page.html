@@ -230,12 +230,18 @@
                 <ion-text slot="end">{{ receipt.paidAt | date:'MMM d, y h:mm a' }}</ion-text>
               </ion-item>
               <ion-item>
-                <ion-label>Reference No.</ion-label>
-                <ion-text slot="end" style="font-size:0.85rem">{{ receipt.transactionRef }}</ion-text>
+                <ion-label>Transaction ID</ion-label>
+                <ion-text slot="end" style="font-size:0.85rem;font-family:monospace">{{ receipt.transactionRef }}</ion-text>
               </ion-item>
               <ion-item lines="none">
                 <ion-icon name="checkmark-circle" slot="start" color="success"></ion-icon>
                 <ion-label color="success"><strong>Payment Confirmed</strong></ion-label>
+              </ion-item>
+            </ng-container>
+            <ng-container *ngIf="!getReceipt(selectedTrip.id) && selectedTrip.transactionRef">
+              <ion-item>
+                <ion-label>Transaction ID</ion-label>
+                <ion-text slot="end" style="font-size:0.85rem;font-family:monospace">{{ selectedTrip.transactionRef }}</ion-text>
               </ion-item>
             </ng-container>
 

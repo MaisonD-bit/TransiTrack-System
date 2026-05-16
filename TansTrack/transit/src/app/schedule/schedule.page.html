@@ -167,10 +167,6 @@
                 Start Trip
               </ion-button>
 
-              <ion-button *ngIf="canComplete(schedule)" expand="block" color="tertiary" (click)="completeSchedule(schedule)">
-                <ion-icon slot="start" name="checkmark-done-circle"></ion-icon>
-                Complete Trip
-              </ion-button>
 
               <ion-button *ngIf="canCancel(schedule)" expand="block" color="warning" fill="outline" (click)="cancelSchedule(schedule)">
                 <ion-icon slot="start" name="ban"></ion-icon>
@@ -339,11 +335,6 @@
             <ion-button *ngIf="canDecline(schedule)" expand="block" color="danger" fill="outline" (click)="declineSchedule(schedule)">
               <ion-icon slot="start" name="close-circle"></ion-icon>
               Decline (Late)
-            </ion-button>
-
-            <ion-button *ngIf="canComplete(schedule)" expand="block" color="tertiary" (click)="completeSchedule(schedule)">
-              <ion-icon slot="start" name="checkmark-done-circle"></ion-icon>
-              Complete (Late)
             </ion-button>
 
             <ion-note *ngIf="schedule.status === 'completed'" color="success" class="completed-note">

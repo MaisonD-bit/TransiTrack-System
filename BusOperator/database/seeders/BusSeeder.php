@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\Bus;
-use App\Models\User;
 
 class BusSeeder extends Seeder
 {
@@ -13,8 +12,6 @@ class BusSeeder extends Seeder
      */
     public function run(): void
     {
-        $adminId = User::where('role', 'admin')->value('id') ?? 1;
-
         // ========== NORTH TERMINAL BUSES ==========
         // Based on North Bus Terminal Guide PDF
 
@@ -22,7 +19,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'JLT-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'JT-N001',
                 'model' => 'Hyundai County',
                 'capacity' => 45,
@@ -37,7 +33,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'JLT-N002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'JT-N002',
                 'model' => 'Hyundai County',
                 'capacity' => 45,
@@ -53,7 +48,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'IMB-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'IM-N001',
                 'model' => 'Hino RM2',
                 'capacity' => 50,
@@ -69,7 +63,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CSS-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CS-N001',
                 'model' => 'Hino FB',
                 'capacity' => 48,
@@ -84,7 +77,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CSS-N002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CS-N002',
                 'model' => 'Hino FB',
                 'capacity' => 48,
@@ -100,7 +92,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'RR-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'RR-N001',
                 'model' => 'Mitsubishi Rosa',
                 'capacity' => 40,
@@ -116,7 +107,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'MCA-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'MC-N001',
                 'model' => 'Mitsubishi Fuso',
                 'capacity' => 46,
@@ -131,7 +121,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'MCA-N002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'MC-N002',
                 'model' => 'Mitsubishi Fuso',
                 'capacity' => 40,
@@ -147,7 +136,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'IA-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'IA-N001',
                 'model' => 'Nissan Civilian',
                 'capacity' => 42,
@@ -162,7 +150,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'IA-N002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'IA-N002',
                 'model' => 'Nissan Civilian',
                 'capacity' => 38,
@@ -178,7 +165,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CER-N001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CR-N001',
                 'model' => 'Yutong ZK6119H',
                 'capacity' => 55,
@@ -193,7 +179,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CER-N002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CR-N002',
                 'model' => 'Yutong ZK6119H',
                 'capacity' => 50,
@@ -212,7 +197,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CER-S001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CR-S001',
                 'model' => 'Yutong ZK6119H',
                 'capacity' => 55,
@@ -227,7 +211,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CER-S002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CR-S002',
                 'model' => 'Yutong ZK6119H',
                 'capacity' => 50,
@@ -242,7 +225,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'CER-S003'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'CR-S003',
                 'model' => 'Yutong ZK6119H',
                 'capacity' => 52,
@@ -258,7 +240,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'VT-S001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'VT-S001',
                 'model' => 'Hino RK1J',
                 'capacity' => 48,
@@ -273,7 +254,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'VT-S002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'VT-S002',
                 'model' => 'Hino RK1J',
                 'capacity' => 45,
@@ -289,7 +269,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'LBL-S001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'LB-S001',
                 'model' => 'Mitsubishi Fuso',
                 'capacity' => 46,
@@ -304,7 +283,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'LBL-S002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'LB-S002',
                 'model' => 'Mitsubishi Fuso',
                 'capacity' => 44,
@@ -320,7 +298,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'GL-S001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'GL-S001',
                 'model' => 'Nissan Civilian',
                 'capacity' => 42,
@@ -336,7 +313,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'SSB-S001'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'SS-S001',
                 'model' => 'Hino FB',
                 'capacity' => 48,
@@ -351,7 +327,6 @@ class BusSeeder extends Seeder
         Bus::updateOrCreate(
             ['plate_number' => 'SSB-S002'],
             [
-                'user_id' => $adminId,
                 'bus_number' => 'SS-S002',
                 'model' => 'Hino FB',
                 'capacity' => 46,

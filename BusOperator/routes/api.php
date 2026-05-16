@@ -10,12 +10,10 @@ use App\Http\Controllers\BusController;
 use App\Http\Controllers\PaymentController; 
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\CommuterRoutesController;
-use App\Http\Controllers\CommuterController;
 use App\Http\Controllers\TerminalParkingController;
-use App\Http\Controllers\SupportTicketController;
-use App\Http\Controllers\FeedbackController;
-use App\Http\Controllers\MayaController;
-use App\Http\Controllers\ChatController;
+use App\Http\Controllers\DriverLocationController;
+use App\Http\Controllers\TicketScanController;
+use App\Http\Controllers\PasswordRecoveryController;
 
 Route::prefix('v1')->group(function () {
 
@@ -32,7 +30,6 @@ Route::prefix('v1')->group(function () {
         Route::post('/register', [AuthController::class, 'apiRegister']);
         Route::post('/logout', [AuthController::class, 'apiLogout']);
         Route::get('/user', [AuthController::class, 'getAuthenticatedUser']);
-        Route::put('/{id}/profile', [CommuterController::class, 'updateProfile']);
     });
 
     Route::get('/bus-operators', function () {
@@ -44,31 +41,38 @@ Route::prefix('v1')->group(function () {
     
     Route::prefix('drivers')->group(function () {
         Route::get('/{driverId}/schedules', [ScheduleController::class, 'getDriverSchedules']);
-        Route::get('/{id}/performance', [DriverController::class, 'performance']);
+        
         Route::get('/{id}', [DriverController::class, 'show']);
+
+        // Driver live tracking (phone GPS → backend)
+        Route::post('/{driverId}/location', [DriverLocationController::class, 'store']);
+        // Driver reached a stop/destination: mark matching tickets as alighted.
+        Route::post('/{driverId}/arrived', [CommuterRoutesController::class, 'driverArrived']);
+
         Route::post('/register', [DriverController::class, 'registerFromApp']);
+        
+        // Update driver status
         Route::put('/{id}/status', [DriverController::class, 'updateStatus']);
     });
     
+    // Schedule management routes for mobile app
     Route::prefix('schedules')->group(function () {
+        // Public route - no auth required for commuters to see active buses
         Route::get('/active', [ScheduleController::class, 'getActiveSchedules'])->withoutMiddleware(['auth:sanctum']);
         
+        // Get all schedules (admin view)
         Route::get('/', [ScheduleController::class, 'index']);
         
+        // Get specific schedule
         Route::get('/{id}', [ScheduleController::class, 'show']);
         
+        // Schedule actions for drivers
         Route::put('/{id}/accept', [ScheduleController::class, 'acceptSchedule']);
         Route::put('/{id}/decline', [ScheduleController::class, 'declineSchedule']);
         Route::put('/{id}/start', [ScheduleController::class, 'startSchedule']);
         Route::put('/{id}/complete', [ScheduleController::class, 'completeSchedule']);
-        Route::put('/{id}/cancel', [ScheduleController::class, 'cancelSchedule']);
-        Route::put('/{id}/update-position', [ScheduleController::class, 'updatePosition']);
-        Route::put('/{id}/return/accept', [ScheduleController::class, 'acceptReturnTrip']);
-        Route::put('/{id}/return/decline', [ScheduleController::class, 'declineReturnTrip']);
-        Route::put('/{id}/return/start', [ScheduleController::class, 'startReturnTrip']);
-        Route::put('/{id}/return/complete', [ScheduleController::class, 'completeReturnTrip']);
-        Route::put('/{id}/end-day', [ScheduleController::class, 'endDay']);
-
+        
+        // Create new schedule (admin)
         Route::post('/', [ScheduleController::class, 'assignToDriver']);
     });
     
@@ -90,18 +94,20 @@ Route::prefix('v1')->group(function () {
 
     Route::prefix('notifications')->group(function () {
         Route::get('/driver/{driverId}', [NotificationsController::class, 'getForDriver']);
-        Route::delete('/driver/{driverId}/clear', [NotificationsController::class, 'clearForDriver']);
-        Route::delete('/{id}', [NotificationsController::class, 'deleteOne']);
         Route::post('/driver-send', [NotificationsController::class, 'sendFromDriver']);
         Route::post('/incident', [NotificationsController::class, 'reportIncident']);
         Route::post('/operator-send', [NotificationsController::class, 'sendToDriver'])
-            ->middleware(['web', 'auth']);
+            ->middleware(['web', 'auth']); 
         Route::patch('/{id}/read', [NotificationsController::class, 'markNotificationAsRead']);
-        Route::patch('/driver/{driverId}/mark-all-read', [NotificationsController::class, 'markAllDriverNotificationsAsRead']);
     });
+
+    // Operator-only live tracking feed (web auth)
+    Route::get('/live/driver-locations', [DriverLocationController::class, 'latestForOperator'])
+        ->middleware(['web', 'auth']);
 
     Route::get('drivers', [DriverController::class, 'index']);
 
+    // Commuter: approved routes with terminal bus stops + fare preview (no auth)
     Route::get('commuter/approved-routes', [CommuterRoutesController::class, 'approvedRoutes']);
     Route::get('commuter/live-buses', [CommuterRoutesController::class, 'liveBuses']);
     Route::post('commuter/fare-preview', [CommuterRoutesController::class, 'farePreview']);
@@ -109,38 +115,18 @@ Route::prefix('v1')->group(function () {
     Route::post('commuter/fare-calculate', [CommuterRoutesController::class, 'fareCalculate']);
     Route::post('commuter/book-ticket', [CommuterRoutesController::class, 'bookTicket']);
     Route::post('commuter/alight', [CommuterRoutesController::class, 'alight']);
-    Route::patch('commuter/tickets/{publicTicketId}/mark-paid', [CommuterRoutesController::class, 'markPaid']);
-    Route::post('commuter/request-boarding', [CommuterRoutesController::class, 'requestBoarding']);
-    Route::patch('commuter/boarding-requests/{id}/cancel', [CommuterRoutesController::class, 'cancelBoardingRequest']);
-    Route::post('commuter/cancel-my-boarding-requests', [CommuterRoutesController::class, 'cancelMyBoardingRequests']);
-    Route::get('schedules/{scheduleId}/manifest', [CommuterRoutesController::class, 'manifest']);
-    Route::get('driver/stream-token', [ChatController::class, 'driverStreamToken']);
 
-    // Feedback & ratings
-    Route::post('feedbacks', [FeedbackController::class, 'store']);
-    Route::get('feedbacks/commuter', [FeedbackController::class, 'commuterFeedback']);
-    Route::get('feedbacks/pending', [FeedbackController::class, 'pendingForFeedback']);
-    Route::get('feedbacks/driver/{driverId}', [FeedbackController::class, 'driverFeedback']);
-    Route::delete('feedbacks', [FeedbackController::class, 'clearForCommuter']);
-    Route::delete('feedbacks/{id}', [FeedbackController::class, 'destroy']);
+    // Payment endpoints (Commuters app uses /api/v1/*)
+    Route::post('payments/maya/create', [PaymentController::class, 'createMayaCheckout']);
+    Route::get('payments/maya/verify/{id}', [PaymentController::class, 'verifyMayaPayment']);
+    Route::post('payments/maya/webhook', [PaymentController::class, 'handleWebhook']);
 
-    // Support tickets (commuter → operator)
-    Route::post('support/tickets/create', [SupportTicketController::class, 'store']);
-    Route::get('support/tickets', [SupportTicketController::class, 'index']);
-    Route::get('support/tickets/{id}', [SupportTicketController::class, 'show']);
-    Route::patch('support/tickets/{id}/status', [SupportTicketController::class, 'updateStatus']);
+    // Driver scan & validate boarding (signed QR token)
+    Route::post('tickets/scan-validate', [TicketScanController::class, 'scanValidate']);
 
-    // Payment — e-wallet simulation (GCash / PayMaya)
-    Route::get('payments/ewallet/balance/{accountNumber}', [PaymentController::class, 'ewalletBalance']);
-    Route::post('payments/ewallet/charge', [PaymentController::class, 'ewalletCharge']);
-    Route::post('payments/ewallet/topup', [PaymentController::class, 'ewalletTopup']);
-
-    // Payment — Stripe (credit card)
-    Route::post('payments/stripe/charge', [PaymentController::class, 'createStripeCharge']);
-    Route::get('payments/stripe/intent/{id}', [PaymentController::class, 'getIntentStatus']);
-
-    // Payment — Maya (PayMaya) real checkout
-    Route::post('payments/maya/checkout', [MayaController::class, 'createCheckout']);
+    // Password recovery (email-based)
+    Route::post('password/forgot', [PasswordRecoveryController::class, 'forgot']);
+    Route::post('password/reset', [PasswordRecoveryController::class, 'reset']);
 });
 
 // Simple simulated checkout page (development only)
@@ -179,17 +165,6 @@ Route::group(['middleware' => 'api'], function () {
     Route::put('schedules/{id}/decline', [ScheduleController::class, 'declineSchedule']);
     Route::put('schedules/{id}/start', [ScheduleController::class, 'startSchedule']);
     Route::put('schedules/{id}/complete', [ScheduleController::class, 'completeSchedule']);
-    Route::put('schedules/{id}/update-position', [ScheduleController::class, 'updatePosition']);
-    Route::put('schedules/{id}/cancel', [ScheduleController::class, 'cancelSchedule']);
-    Route::put('schedules/{id}/approve-cancel', [ScheduleController::class, 'approveCancellation']);
-    Route::put('schedules/{id}/reject-cancel', [ScheduleController::class, 'rejectCancellation']);
-    Route::put('schedules/{id}/approve-decline', [ScheduleController::class, 'approveDecline']);
-    Route::put('schedules/{id}/reject-decline', [ScheduleController::class, 'rejectDecline']);
-    Route::put('schedules/{id}/return/accept', [ScheduleController::class, 'acceptReturnTrip']);
-    Route::put('schedules/{id}/return/decline', [ScheduleController::class, 'declineReturnTrip']);
-    Route::put('schedules/{id}/return/start', [ScheduleController::class, 'startReturnTrip']);
-    Route::put('schedules/{id}/return/complete', [ScheduleController::class, 'completeReturnTrip']);
-    Route::put('schedules/{id}/end-day', [ScheduleController::class, 'endDay']);
     
     // Other API endpoints
     Route::get('schedules', [ScheduleController::class, 'index']);
@@ -198,7 +173,10 @@ Route::group(['middleware' => 'api'], function () {
     Route::post('schedules', [ScheduleController::class, 'assignToDriver']);
     
     Route::get('drivers/{id}', [DriverController::class, 'show']);
-    Route::get('drivers/{id}/performance', [DriverController::class, 'performance']);
     Route::get('drivers', [DriverController::class, 'index']);
 
+    // Payment endpoints
+    Route::post('payments/maya/create', [PaymentController::class, 'createMayaCheckout']);
+    Route::get('payments/maya/verify/{id}', [PaymentController::class, 'verifyMayaPayment']);
+    Route::post('payments/maya/webhook', [PaymentController::class, 'handleWebhook']);
 });

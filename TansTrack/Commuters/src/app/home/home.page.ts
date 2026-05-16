@@ -42,7 +42,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     selected?: boolean;
   }[] = [];
   mapRouteGeometry: { type: 'LineString'; coordinates: number[][] } | null = null;
-  private mapStopsForRoute: { name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number }[] = [];
+  private mapStopsForRoute: { name?: string; lng: number; lat: number; order?: number; distance_km_from_start?: number; eta_minutes?: number; base_index?: number }[] = [];
   selectedScheduleId: number | null = null;
   private isSelectedBusReturn = false;
   private liveBusPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -73,9 +73,16 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   /** Prevents re-triggering the stop arrival when bus lingers near the stop. */
   private alightStopReached: boolean = false;
   /** Pending payment waiting for Maya popup result. */
-  private pendingMayaPayment: { payment: ScannedPayment; fare: number } | null = null;
+  private pendingMayaPayment: { payment: ScannedPayment; fare: number; referenceNumber?: string } | null = null;
   /** Avoid spamming unpaid reminders when approaching the stop. */
   private paymentReminderShown: boolean = false;
+  /** True once the selected bus reaches the boarding stop (commuter can board). */
+  private boardingStopReached: boolean = false;
+  /** Exposed to template so e-ticket can lock the cancel button once boarded */
+  get isBoarded(): boolean { return this.boardingStopReached; }
+  private paymentNagInterval: any = null;
+  private destPaymentReminderShown = false;
+  private terminalDepartReminderShown = false;
   // Post-trip UI state
   showRatingModal: boolean = false;
   showTripComplete: boolean = false;
@@ -104,6 +111,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   ) {}
 
   private readonly TRIP_STATE_BASE_KEY = 'commuter_active_trip';
+  private readonly SIM_STEP_BASE_KEY = 'commuter_sim_step';
+
+  private getSimStepKey(): string {
+    const ticket = this.ticketId || 'unknown';
+    return `${this.SIM_STEP_BASE_KEY}_${ticket}`;
+  }
 
   private getTripStateKey(): string {
     try {
@@ -113,6 +126,56 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     } catch {
       return this.TRIP_STATE_BASE_KEY;
     }
+  }
+
+  private buildReturnRouteName(route: LiveRoute): string {
+    const start = route.startLocation || '';
+    const end = route.endLocation || '';
+    if (start && end) return `${end} to ${start}`;
+    const name = route.name || '';
+    const toSplit = name.split(' to ');
+    if (toSplit.length === 2) return `${toSplit[1]} to ${toSplit[0]}`;
+    const dashSplit = name.split(' - ');
+    if (dashSplit.length === 2) return `${dashSplit[1]} - ${dashSplit[0]}`;
+    return `${name} (Return)`;
+  }
+
+  private buildRouteOptions(routes: LiveRoute[]): LiveRoute[] {
+    const options: LiveRoute[] = [];
+    routes.forEach((route) => {
+      const baseRouteId = route.baseRouteId ?? String(route.id);
+      const baseOption: LiveRoute = {
+        ...route,
+        id: baseRouteId,
+        baseRouteId,
+        displayName: route.displayName || route.name,
+        isReturnTripOption: false,
+      };
+      options.push(baseOption);
+
+      const hasReturn =
+        (Array.isArray(route.return_stops) && route.return_stops.length > 0) ||
+        this.normalizeLineStringGeometry(route.return_map_geometry ?? (route as any).return_geometry) != null;
+
+      if (hasReturn) {
+        const returnName = this.buildReturnRouteName(route);
+        options.push({
+          ...route,
+          id: `${baseRouteId}::return`,
+          baseRouteId,
+          name: returnName,
+          displayName: returnName,
+          isReturnTripOption: true,
+        });
+      }
+    });
+
+    return options;
+  }
+
+  private getSelectedRouteApiId(): string | null {
+    if (!this.selectedRoute) return null;
+    return this.selectedRoute.baseRouteId ?? this.selectedRoute.id;
   }
 
   ngOnInit() {
@@ -175,6 +238,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       if (!route) return;
       this.selectedRouteId = s.selectedRouteId;
       this.selectedRoute = route;
+      this.isSelectedBusReturn = !!route.isReturnTripOption;
       this.ticketId = s.ticketId || '';
       this.ticketFare = s.ticketFare ?? null;
       this.showTicket = s.showTicket ?? false;
@@ -194,6 +258,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.syncStopPinsForMap();
       this.updateMapDirectionAssets();
       this.startLiveBusPoll();
+      if (this.showTicket) {
+        this.startBusSimulation();
+      }
     } catch {
       localStorage.removeItem(this.getTripStateKey());
       this.cancelStaleMyBoardingRequests();
@@ -208,25 +275,63 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   stopEtas: { name: string; distKm: number; etaMin: number; isPassed: boolean }[] = [];
   etaToMyStop: number | null = null;
 
+  get stopsForSelection(): any[] {
+    return this.getStopsForSelection();
+  }
+
   get commuterBoardingPinForMap(): { lng: number; lat: number; label?: string } | null {
+    const isStartStop = this.fromStopIndex === 0;
+    if (isStartStop) {
+      if (this.paymentCompleted) return null;
+    } else if (this.boardingStopReached) {
+      return null;
+    }
     const pin = this.stopPinsForMap[this.fromStopIndex];
     if (!pin || isNaN(pin.lng) || isNaN(pin.lat)) return null;
     return { lng: pin.lng, lat: pin.lat, label: pin.label };
   }
 
+  stopLabel(stop: any, displayIndex: number): string {
+    if (stop?.name) return stop.name;
+    const baseIndex = typeof stop?.base_index === 'number' ? stop.base_index : null;
+    if (typeof baseIndex === 'number') return `Stop ${baseIndex + 1}`;
+    const order = stop?.order ?? stop?.stop_order ?? stop?.sequence;
+    if (typeof order === 'number') return `Stop ${order}`;
+    return `Stop ${displayIndex + 1}`;
+  }
+
+  private getStopsForSelection(): any[] {
+    return this.mapStopsForRoute.length ? this.mapStopsForRoute : (this.selectedRoute?.stops ?? []);
+  }
+
+  private mapStopIndexForApi(displayIndex: number): number {
+    const stops = this.getStopsForSelection();
+    const stop = stops[displayIndex] as any;
+    if (stop && typeof stop.base_index === 'number') return stop.base_index;
+    if (this.isSelectedBusReturn) {
+      const baseStops = this.selectedRoute?.stops ?? [];
+      if (baseStops.length) {
+        const mapped = baseStops.length - 1 - displayIndex;
+        return Math.max(0, Math.min(baseStops.length - 1, mapped));
+      }
+    }
+    return displayIndex;
+  }
+
   private syncStopPinsForMap(): void {
-    const stops = this.mapStopsForRoute.length ? this.mapStopsForRoute : this.selectedRoute?.stops;
+    const stops = this.getStopsForSelection();
     if (!stops?.length) {
       this.stopPinsForMap = [];
       return;
     }
     this.stopPinsForMap = stops
       .map((s: any, i: number) => {
-        const eta = this.stopEtas.find(e => e.name === (s.name || `Stop ${i + 1}`));
+        const label = this.stopLabel(s, i);
+        const eta = this.stopEtas.find(e => e.name === label);
         return {
           lng: Number(s.lng),
           lat: Number(s.lat),
-          label: s.name || `Stop ${i + 1}`,
+          label,
           etaMin: eta && !eta.isPassed ? eta.etaMin : undefined,
         };
       })
@@ -272,7 +377,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   private computeStopEtas(): void {
     const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
     const coords: number[][] = this.mapRouteGeometry?.coordinates || this.selectedRoute?.geometry?.coordinates;
-    const stops = this.mapStopsForRoute.length ? this.mapStopsForRoute : this.selectedRoute?.stops;
+    const stops = this.getStopsForSelection();
 
     if (!bus?.position || !Array.isArray(coords) || coords.length < 2 || !stops?.length) {
       this.stopEtas = [];
@@ -288,7 +393,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       const stopDist = s.distance_km_from_start ?? 0;
       const remaining = Math.max(0, stopDist - busDistKm);
       return {
-        name: s.name || `Stop ${i + 1}`,
+        name: this.stopLabel(s, i),
         distKm: stopDist,
         etaMin: Math.round(remaining / AVG_KMH * 60),
         isPassed: stopDist < busDistKm - 0.15,
@@ -304,6 +409,29 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     this.syncStopPinsForMap();
+    this.autoAdvanceBoardingStop();
+  }
+
+  /** If the bus has passed the commuter's currently-selected Board At stop, silently advance
+   *  to the next available (non-passed, non-last) stop so the selection stays valid. */
+  private autoAdvanceBoardingStop(): void {
+    if (this.showTicket || this.paymentCompleted) return; // already boarded — don't change
+    if (!this.stopEtas.length) return;
+    const stops = this.getStopsForSelection();
+    if (!stops || stops.length < 2) return;
+    if (!this.stopEtas[this.fromStopIndex]?.isPassed) return; // current stop still ahead
+
+    // Find the first stop that is neither passed nor the last stop (last = terminus/destination)
+    const nextIdx = this.stopEtas.findIndex(
+      (e, i) => !e.isPassed && i < stops.length - 1
+    );
+    if (nextIdx < 0 || nextIdx === this.fromStopIndex) return;
+
+    this.fromStopIndex = nextIdx;
+    // Ensure toStopIndex is always strictly after fromStopIndex
+    if (this.toStopIndex <= this.fromStopIndex) {
+      this.toStopIndex = Math.min(this.fromStopIndex + 1, stops.length - 1);
+    }
   }
 
   /** GeoJSON from DB/API may be a Feature, string, or LineString — map expects LineString. */
@@ -340,7 +468,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private updateSelectedBusDirection(): void {
     if (this.selectedScheduleId == null) {
-      this.isSelectedBusReturn = false;
+      this.isSelectedBusReturn = !!this.selectedRoute?.isReturnTripOption;
       return;
     }
     const bus = this.liveBuses.find((b) => b.schedule_id === this.selectedScheduleId);
@@ -376,7 +504,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.mapRouteGeometry = baseGeom;
     }
 
-    const baseStops = route.stops || [];
+    const baseStops = (route.stops || []).map((s: any, i: number) => ({
+      ...s,
+      base_index: i,
+    }));
     const returnStops = (route as any).return_stops || [];
     const rawStops = this.isSelectedBusReturn
       ? (returnStops.length ? returnStops : [...baseStops].reverse())
@@ -385,10 +516,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const totalKm = Number(route.distance_km ?? 0);
     this.mapStopsForRoute = rawStops.map((s: any) => {
       const dist = s?.distance_km_from_start;
+      const baseIndex = typeof s?.base_index === 'number' ? s.base_index : undefined;
       if (this.isSelectedBusReturn && typeof dist === 'number' && totalKm > 0) {
-        return { ...s, distance_km_from_start: Math.max(0, totalKm - dist) };
+        return { ...s, base_index: baseIndex, distance_km_from_start: Math.max(0, totalKm - dist) };
       }
-      return s;
+      return { ...s, base_index: baseIndex };
     });
 
     this.syncStopPinsForMap();
@@ -426,7 +558,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     console.log('Home page: Loading route data...');
     // Subscribe to routes data
     const routesSub = this.commuterService.routes$.subscribe(routes => {
-      this.routes = routes;
+      this.routes = this.buildRouteOptions(routes);
       // Only restore on initial load — skip if user has already selected a route
       if (!this.selectedRouteId) {
         this.restoreActiveTrip();
@@ -445,6 +577,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.mapRouteGeometry = null;
       this.mapStopsForRoute = [];
       this.isSelectedBusReturn = false;
+      this.boardingStopReached = false;
       this.ticketOperatorCompany = '';
       this.ticketBusLabel = '';
       this.discountAmount = 0;
@@ -452,14 +585,19 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
 
+    this.stopPaymentNag();
     this.paymentCompleted = false;
     this.paymentReminderShown = false;
+    this.destPaymentReminderShown = false;
+    this.terminalDepartReminderShown = false;
     this.alightStopReached = false;
     this.alightNotified = false;
+    this.boardingStopReached = false;
     this.resetBoardingRequest();
     // pick from cache (ion-select may use string or number id)
     const sid = String(this.selectedRouteId);
     this.selectedRoute = this.routes.find((route) => String(route.id) === sid) || null;
+    this.isSelectedBusReturn = !!this.selectedRoute?.isReturnTripOption;
     console.log('Selected route:', this.selectedRoute);
     this.syncStopPinsForMap();
     this.updateMapDirectionAssets();
@@ -480,7 +618,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     try {
       this.ticketDestination = this.selectedRoute.name || null;
 
-      const stops = this.selectedRoute.stops;
+      const stops = this.getStopsForSelection();
       if (stops && stops.length >= 2) {
         this.fromStopIndex = 0;
         this.toStopIndex = stops.length - 1;
@@ -504,7 +642,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       }
 
       const passengerType = this.commuterService.getPassengerType();
-      this.commuterService.calculateFareWithDiscount(this.selectedRoute.id, passengerType).subscribe({
+      const apiRouteId = this.getSelectedRouteApiId();
+      if (!apiRouteId) return;
+      this.commuterService.calculateFareWithDiscount(apiRouteId, passengerType).subscribe({
         next: (response) => {
           if (response.success && response.data) {
             this.ticketFare = response.data.final_fare;
@@ -530,8 +670,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   onSegmentStopsChange() {
-    if (!this.selectedRoute?.stops?.length) return;
-    const max = this.selectedRoute.stops.length - 1;
+    const stops = this.getStopsForSelection();
+    if (!stops.length) return;
+    this.boardingStopReached = false;
+    const max = stops.length - 1;
     if (this.fromStopIndex < 0) this.fromStopIndex = 0;
     if (this.fromStopIndex > max) this.fromStopIndex = max;
     if (this.toStopIndex < 0) this.toStopIndex = 0;
@@ -549,16 +691,20 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private applySegmentFare() {
-    if (!this.selectedRoute?.stops || this.selectedRoute.stops.length < 2) return;
+    const stops = this.getStopsForSelection();
+    if (!stops.length || stops.length < 2) return;
+    const mappedFrom = this.mapStopIndexForApi(this.fromStopIndex);
+    const mappedTo = this.mapStopIndexForApi(this.toStopIndex);
     // API always wants the lower index as from and higher as to (direction-agnostic fare calc)
-    const apiFrom = Math.min(this.fromStopIndex, this.toStopIndex);
-    const apiTo = Math.max(this.fromStopIndex, this.toStopIndex);
+    const apiFrom = Math.min(mappedFrom, mappedTo);
+    const apiTo = Math.max(mappedFrom, mappedTo);
+    const approvalId = this.selectedRoute?.approval_request_id;
     this.commuterService
       .fareSegment({
-        route_id: parseInt(this.selectedRoute.id, 10),
+        route_id: parseInt(this.getSelectedRouteApiId() || '0', 10),
         from_stop_index: apiFrom,
         to_stop_index: apiTo,
-        approval_request_id: this.selectedRoute.approval_request_id,
+        approval_request_id: approvalId,
       })
       .subscribe({
         next: (res) => {
@@ -566,9 +712,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
             this.ticketFare = res.data.final_fare;
             this.discountPercent = res.data.discount_percent || 0;
             this.discountAmount = res.data.discount_amount || 0;
-            const from = this.selectedRoute!.stops![this.fromStopIndex];
-            const to = this.selectedRoute!.stops![this.toStopIndex];
-            this.ticketDestination = `${from?.name || 'Boarding'} → ${to?.name || 'Alighting'}`;
+            const from = stops[this.fromStopIndex];
+            const to = stops[this.toStopIndex];
+            const fromLabel = from?.name || this.stopLabel(from, this.fromStopIndex);
+            const toLabel = to?.name || this.stopLabel(to, this.toStopIndex);
+            this.ticketDestination = `${fromLabel || 'Boarding'} → ${toLabel || 'Alighting'}`;
           }
         },
         error: () => {
@@ -598,7 +746,13 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.liveBusMapPins = [];
       return;
     }
-    this.commuterService.getLiveBuses(String(this.selectedRoute.id), this.commuterTerminal).subscribe({
+    const apiRouteId = this.getSelectedRouteApiId();
+    if (!apiRouteId) {
+      this.liveBuses = [];
+      this.liveBusMapPins = [];
+      return;
+    }
+    this.commuterService.getLiveBuses(String(apiRouteId), this.commuterTerminal).subscribe({
       next: (res) => {
         if (!res.success || !Array.isArray(res.buses)) {
           this.liveBuses = [];
@@ -610,6 +764,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         this.updateLiveBusMapPins();
         this.updateSelectedBusDirection();
         this.updateMapDirectionAssets();
+        this.checkBoardingFromLivePosition();
         if (
           this.selectedScheduleId != null &&
           !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
@@ -617,6 +772,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           this.selectedScheduleId = null;
           this.updateSelectedBusDirection();
           this.updateMapDirectionAssets();
+          this.boardingStopReached = false;
           this.showTicket = false;
           this.updateLiveBusMapPins();
           this.saveActiveTrip();
@@ -701,22 +857,30 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   /** Fare proportional to distance along route (backend fare-preview) */
   private applyFareForStopChoice() {
-    if (!this.selectedRoute?.stops?.length) return;
+    const stops = this.getStopsForSelection();
+    if (!stops.length) return;
 
-    let idx = this.selectedRoute.stops.length - 1;
+    let idx = stops.length - 1;
     if (this.stopChoice !== 'terminus' && this.stopChoice !== '') {
       const n = typeof this.stopChoice === 'string' ? parseInt(this.stopChoice, 10) : Number(this.stopChoice);
       if (!Number.isNaN(n)) idx = n;
     }
 
+    const apiIndex = this.mapStopIndexForApi(idx);
+
     this.commuterService
-      .previewFareAtStop(this.selectedRoute!.id, idx, this.selectedRoute!.approval_request_id)
+      .previewFareAtStop(
+        this.getSelectedRouteApiId() || this.selectedRoute!.id,
+        apiIndex,
+        this.selectedRoute!.approval_request_id
+      )
       .subscribe({
         next: (res) => {
           if (res.success && res.data?.fare != null) {
             this.ticketFare = res.data.fare;
-            const stop = this.selectedRoute!.stops![idx];
-            this.ticketDestination = `${this.selectedRoute!.name} → ${stop?.name || 'Stop ' + (idx + 1)}`;
+            const stop = stops[idx];
+            const label = stop?.name || this.stopLabel(stop, idx);
+            this.ticketDestination = `${this.selectedRoute!.name} → ${label}`;
           }
         },
         error: () => {
@@ -727,7 +891,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private autoFlagForBoarding(): void {
     if (!this.selectedRoute || !this.selectedScheduleId) return;
-    const stops = this.selectedRoute.stops;
+    const stops = this.getStopsForSelection();
     if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) return;
 
     // If a request is still in-flight, mark that we need to retry when it settles.
@@ -747,8 +911,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     this.commuterService.requestBoarding({
       schedule_id: this.selectedScheduleId,
-      route_id: parseInt(this.selectedRoute.id, 10),
-      from_stop_index: this.fromStopIndex,
+      route_id: parseInt(this.getSelectedRouteApiId() || '0', 10),
+      from_stop_index: this.mapStopIndexForApi(this.fromStopIndex),
       commuter_id: this.getCommuterId(),
       commuter_name: currentUser.name || currentUser.first_name || null,
       commuter_email: currentUser.email || null,
@@ -768,8 +932,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         if (res.success) {
           this.boardingRequestId = res.id ?? null;
           this.boardingRequested = true;
-          this.boardingRequestStopName = res.boarding_stop_name ||
-            this.selectedRoute?.stops?.[this.fromStopIndex]?.name || 'your stop';
+          const stop = stops[this.fromStopIndex];
+          this.boardingRequestStopName = res.boarding_stop_name || stop?.name || this.stopLabel(stop, this.fromStopIndex) || 'your stop';
           this.saveActiveTrip();
         }
       },
@@ -838,8 +1002,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     // Calculate fare with passenger type discount from backend
     const passengerType = this.commuterService.getPassengerType();
     
+    const apiRouteId = this.getSelectedRouteApiId();
+    if (!apiRouteId) return;
     this.commuterService.calculateFareWithDiscount(
-      this.selectedRoute.id,
+      apiRouteId,
       passengerType
     ).subscribe({
       next: (response) => {
@@ -874,12 +1040,17 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   async confirmBeforeGetETicket() {
     if (!this.selectedRoute) return;
 
+    if (this.liveBuses.length === 0) {
+      void this.showToast('No active driver for this route. Please wait for a driver to accept a schedule.', 'warning');
+      return;
+    }
+
     if (this.liveBuses.length > 0 && this.selectedScheduleId == null) {
       void this.showToast('Select an active bus for this route first.', 'warning');
       return;
     }
 
-    const stops = this.selectedRoute.stops;
+    const stops = this.getStopsForSelection();
     if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) {
       void this.showToast('Boarding stop and alighting stop cannot be the same.', 'warning');
       return;
@@ -913,6 +1084,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   generateTicket() {
     if (!this.selectedRoute) return;
 
+    if (this.liveBuses.length === 0) {
+      void this.showToast('No active driver for this route. Please wait for a driver to accept a schedule.', 'warning');
+      return;
+    }
+
     if (this.liveBuses.length > 0 && this.selectedScheduleId == null) {
       const first = this.liveBuses.find(b => !b.is_full);
       if (first) {
@@ -920,7 +1096,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       }
     }
 
-    const stops = this.selectedRoute.stops;
+    const stops = this.getStopsForSelection();
     if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) {
       void this.showToast('Boarding stop and alighting stop cannot be the same.', 'warning');
       return;
@@ -929,11 +1105,15 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const passengerType = this.commuterService.getPassengerType();
 
     if (stops && stops.length >= 2) {
+      const mappedFrom = this.mapStopIndexForApi(this.fromStopIndex);
+      const mappedTo = this.mapStopIndexForApi(this.toStopIndex);
+      const apiFrom = Math.min(mappedFrom, mappedTo);
+      const apiTo = Math.max(mappedFrom, mappedTo);
       this.commuterService
         .fareSegment({
-          route_id: parseInt(this.selectedRoute.id, 10),
-          from_stop_index: this.fromStopIndex,
-          to_stop_index: this.toStopIndex,
+          route_id: parseInt(this.getSelectedRouteApiId() || '0', 10),
+          from_stop_index: apiFrom,
+          to_stop_index: apiTo,
           approval_request_id: this.selectedRoute.approval_request_id,
         })
         .subscribe({
@@ -955,7 +1135,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     this.ticketDestination = this.selectedRoute.name;
-    this.commuterService.calculateFareWithDiscount(this.selectedRoute.id, passengerType).subscribe({
+    const apiRouteId = this.getSelectedRouteApiId();
+    if (!apiRouteId) return;
+    this.commuterService.calculateFareWithDiscount(apiRouteId, passengerType).subscribe({
       next: (response) => {
         if (response.success && response.data) {
           this.confirmTicketWithBackend(
@@ -1042,6 +1224,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         commuter_id: this.getCommuterId(),
         payment_method: this.paymentMethod,
         from_stop_index: this.fromStopIndex,
+        to_stop_index: this.toStopIndex,
       })
       .subscribe({
         next: (bookRes) => {
@@ -1058,6 +1241,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           this.showTicket = true;
           this.saveActiveTrip();
           this.startBusSimulation();
+          this.startPaymentNag();
           let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
           if (discountAmount > 0) {
             message += ` (${passengerType} discount: -₱${discountAmount})`;
@@ -1219,7 +1403,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       window.removeEventListener('message', this.mayaMessageHandler);
     }
 
-    this.pendingMayaPayment = { payment, fare };
+    this.pendingMayaPayment = { payment, fare, referenceNumber: result.reference_number };
 
     // Listen for the result posted by the Maya callback page
     this.mayaMessageHandler = (event: MessageEvent) => {
@@ -1228,12 +1412,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.mayaMessageHandler = null;
 
       this.ngZone.run(async () => {
-        const { status, ticketId } = event.data;
+        const { status } = event.data;
         const pending = this.pendingMayaPayment;
         this.pendingMayaPayment = null;
 
         if (status === 'success' && pending) {
-          await this.completeBooking(pending.payment, 'paymaya', pending.fare, ticketId ?? null);
+          await this.completeBooking(pending.payment, 'paymaya', pending.fare, pending.referenceNumber ?? null);
         } else if (status === 'cancelled') {
           void this.showPaymentFailedAlert('Payment cancelled', 'Your PayMaya payment was cancelled. You can try again or choose a different payment method.');
         } else {
@@ -1266,7 +1450,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       const paidTicket = localStorage.getItem('maya_paid_ticket');
       if (paidTicket === ticketRef) {
         localStorage.removeItem('maya_paid_ticket');
-        this.ngZone.run(() => this.completeBooking(pending.payment, 'paymaya', pending.fare, paidTicket));
+        this.ngZone.run(() => this.completeBooking(pending.payment, 'paymaya', pending.fare, pending.referenceNumber ?? null));
       } else {
         this.ngZone.run(() => this.showPaymentFailedAlert('Payment not completed', 'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.'));
       }
@@ -1306,6 +1490,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         public_ticket_id: ticketId,
         payment_method: methodType,
         commuter_id: JSON.parse(sessionStorage.getItem('currentUser') || '{}').id ?? undefined,
+        from_stop_index: this.fromStopIndex,
+        to_stop_index: this.toStopIndex,
       }).subscribe();
     }
 
@@ -1317,7 +1503,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     if (ticketId) {
-      this.tripHistoryService.updateLocalTrip(ticketId, { status: 'paid', paymentMethod: methodType });
+      const txRef = transactionId || ('TT-' + ticketId.slice(-10).toUpperCase());
+      this.tripHistoryService.updateLocalTrip(ticketId, { status: 'paid', paymentMethod: methodType, transactionRef: txRef });
 
       // Save receipt to localStorage for display in Trip History
       const receipt = {
@@ -1326,7 +1513,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         paymentMethod: methodType === 'paymaya' ? 'PayMaya' : methodType === 'gcash' ? 'GCash' : methodType === 'card' ? 'Card' : 'Cash',
         routeName: this.selectedRoute?.name || '',
         paidAt: new Date().toISOString(),
-        transactionRef: transactionId || ('TT-' + ticketId.slice(-10).toUpperCase()),
+        transactionRef: txRef,
       };
       localStorage.setItem(`receipt_${ticketId}`, JSON.stringify(receipt));
     }
@@ -1349,6 +1536,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
 
     // Hide fare/ticket UI but keep route so the map stays visible
+    this.stopPaymentNag();
     this.showTicket = false;
     this.paymentCompleted = true;
     this.paymentReminderShown = false;
@@ -1410,6 +1598,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     };
 
     this.resetBoardingRequest();
+    this.stopPaymentNag();
+    this.destPaymentReminderShown = false;
+    this.terminalDepartReminderShown = false;
     this.notifyAlighted();
     if (this.ticketId) {
       const arrived = new Date().toISOString();
@@ -1619,8 +1810,24 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
 
-    // Set boarding location as the first coordinate (route start)
-    const firstCoord = coords[0];
+    const saved = sessionStorage.getItem(this.getSimStepKey());
+    const savedStep = saved !== null ? parseInt(saved, 10) : -1;
+    const startIdx = savedStep >= 0 && savedStep < coords.length ? savedStep : 0;
+
+    const lastIdx = coords.length - 1;
+
+    // If the sim already reached the end, keep the position at the final coordinate.
+    if (savedStep >= lastIdx) {
+      const lastCoord = coords[lastIdx];
+      this.boardingLocation = { lng: Number(lastCoord[0]), lat: Number(lastCoord[1]) };
+      this.currentBusPosition = { ...this.boardingLocation };
+      this.distanceTraveled = this.selectedRoute.distance_km || 0;
+      this.isSimulationActive = false;
+      return;
+    }
+
+    // Set boarding location as the saved or first coordinate
+    const firstCoord = coords[startIdx];
     console.log('First coordinate from route:', firstCoord);
     
     this.boardingLocation = {
@@ -1644,7 +1851,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const totalSteps = coords.length;
 
     this.busSimulationSubscription = this.busSimulator
-      .simulateAlongLine(coords, 2000)
+      .simulateAlongLine(coords, 2000, startIdx)
       .subscribe({
         next: (position) => {
           if (!position || isNaN(position.lng) || isNaN(position.lat)) return;
@@ -1652,8 +1859,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           if (totalDistance > 0 && totalSteps > 0) {
             this.distanceTraveled = totalDistance * (position.index / totalSteps);
           }
+          sessionStorage.setItem(this.getSimStepKey(), String(position.index));
         },
         complete: () => {
+          sessionStorage.setItem(this.getSimStepKey(), String(lastIdx));
           this.busSimulationSubscription = null;
           this.isSimulationActive = false;
         },
@@ -1671,12 +1880,6 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (!this.showTicket && !this.paymentCompleted) return;
     if (!this.selectedScheduleId) return;
 
-    if (!this.paymentCompleted) {
-      this.ensurePaymentBeforeAlight();
-      return;
-    }
-
-    // Use the terminal manager's stop lat/lng directly — no route geometry needed
     const destStop = this.selectedRoute?.stops?.[this.toStopIndex];
     if (!destStop) return;
     const dLng = Number(destStop.lng), dLat = Number(destStop.lat);
@@ -1687,6 +1890,18 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
     const dist = new mapboxgl.LngLat(selectedBus.position.lng, selectedBus.position.lat)
       .distanceTo(new mapboxgl.LngLat(dLng, dLat));
+
+    // Proactive payment reminder ~1 km before destination
+    if (!this.paymentCompleted && !this.destPaymentReminderShown && dist <= 1000) {
+      this.destPaymentReminderShown = true;
+      void this.showToast('You are near your destination. Please complete your fare payment now.', 'warning');
+      this.startPaymentNag();
+    }
+
+    if (!this.paymentCompleted) {
+      this.ensurePaymentBeforeAlight();
+      return;
+    }
 
     if (dist <= 500) { // within 500 m of the terminal-defined stop
       this.alightStopReached = true;
@@ -1727,6 +1942,60 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
   }
 
+  /** Called after each live bus poll to check if the selected bus has reached the boarding stop. */
+  private checkBoardingFromLivePosition(): void {
+    if (this.boardingStopReached) return;
+    if (!this.selectedScheduleId) return;
+
+    if (this.fromStopIndex === 0) {
+      // Terminal passenger: notify when bus departs unpaid
+      if (!this.showTicket || this.paymentCompleted || this.terminalDepartReminderShown) return;
+      const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
+      if (bus?.status === 'active') {
+        this.terminalDepartReminderShown = true;
+        void this.showToast('The bus has departed. Please complete your payment now.', 'danger');
+        this.startPaymentNag();
+      }
+      return;
+    }
+
+    const stops = this.getStopsForSelection();
+    const boardStop = stops[this.fromStopIndex];
+    if (!boardStop) return;
+    const bLng = Number(boardStop.lng), bLat = Number(boardStop.lat);
+    if (isNaN(bLng) || isNaN(bLat)) return;
+
+    const selectedBus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
+    if (!selectedBus?.position) return;
+
+    const dist = new mapboxgl.LngLat(selectedBus.position.lng, selectedBus.position.lat)
+      .distanceTo(new mapboxgl.LngLat(bLng, bLat));
+
+    if (dist <= 500) {
+      this.boardingStopReached = true;
+    }
+  }
+
+  /** Start a recurring 60-second payment reminder while the commuter is onboard and unpaid. */
+  private startPaymentNag(): void {
+    if (this.paymentNagInterval || this.paymentCompleted) return;
+    this.paymentNagInterval = setInterval(() => {
+      if (!this.showTicket || this.paymentCompleted) {
+        this.stopPaymentNag();
+        return;
+      }
+      const method = this.getPaymentMethodLabel();
+      void this.showToast(`Reminder: Please complete your ${method} payment.`, 'warning');
+    }, 60000);
+  }
+
+  private stopPaymentNag(): void {
+    if (this.paymentNagInterval) {
+      clearInterval(this.paymentNagInterval);
+      this.paymentNagInterval = null;
+    }
+  }
+
   /**
    * Stop the bus simulation
    */
@@ -1736,6 +2005,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.busSimulationSubscription = null;
     }
     this.isSimulationActive = false;
+    sessionStorage.removeItem(this.getSimStepKey());
     console.log('Bus simulation stopped');
   }
 

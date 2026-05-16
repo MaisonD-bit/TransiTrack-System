@@ -57,11 +57,11 @@
         label="Route"
         labelPlacement="stacked">
         <ion-select-option *ngFor="let route of routes" [value]="route.id">
-          {{ route.name }}
+          {{ route.displayName || route.name }}
         </ion-select-option>
       </ion-select>
 
-      <ng-container *ngIf="selectedRoute?.stops?.length && selectedRoute!.stops!.length >= 2">
+      <ng-container *ngIf="stopsForSelection.length >= 2">
         <ion-select
           class="route-select ion-margin-top"
           [(ngModel)]="fromStopIndex"
@@ -69,8 +69,11 @@
           interface="popover"
           label="Board at"
           labelPlacement="stacked">
-          <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
-            {{ s.name || ('Stop ' + (i + 1)) }}
+          <ion-select-option
+            *ngFor="let s of stopsForSelection; let i = index"
+            [value]="i"
+            [disabled]="stopEtas[i]?.isPassed">
+            {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
           </ion-select-option>
         </ion-select>
 
@@ -79,19 +82,19 @@
           [(ngModel)]="toStopIndex"
           (ionChange)="onSegmentStopsChange()"
           interface="popover"
-          label="Alight at"
+          label="Drop off"
           labelPlacement="stacked">
           <ion-select-option
-            *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
+            *ngFor="let s of stopsForSelection; let i = index"
             [value]="i"
-            [disabled]="i === fromStopIndex">
-            {{ s.name || ('Stop ' + (i + 1)) }}
+            [disabled]="i === fromStopIndex || stopEtas[i]?.isPassed">
+            {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
           </ion-select-option>
         </ion-select>
       </ng-container>
 
       <ion-select
-        *ngIf="selectedRoute?.stops?.length === 1"
+        *ngIf="stopsForSelection.length === 1"
         class="route-select ion-margin-top"
         [(ngModel)]="stopChoice"
         (ionChange)="onStopChoiceChange()"
@@ -99,8 +102,8 @@
         label="Alight at (fare by distance)"
         labelPlacement="stacked">
         <ion-select-option value="terminus">Final stop — full route fare</ion-select-option>
-        <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
-          {{ s.name || ('Stop ' + (i + 1)) }}
+        <ion-select-option *ngFor="let s of stopsForSelection; let i = index" [value]="i">
+          {{ stopLabel(s, i) }}
         </ion-select-option>
       </ion-select>
 
@@ -234,6 +237,8 @@
         [busLabel]="ticketBusLabel"
         [discountPercent]="discountPercent"
         [passengerType]="commuterService.getPassengerType()"
+        [paymentCompleted]="paymentCompleted"
+        [canCancel]="!isBoarded"
         (close)="closeTicket()"
         (share)="shareTicket()"
         (scanToPay)="openQrScanner()">

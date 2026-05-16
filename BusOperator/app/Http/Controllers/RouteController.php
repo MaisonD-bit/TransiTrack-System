@@ -19,8 +19,10 @@ class RouteController extends Controller
         $userId = $user->id;
         $userTerminal = $user->terminal;
 
+        // Filter routes by user_id AND terminal
         $query = BusRoute::where('user_id', $userId)->where('terminal', $userTerminal);
 
+        // Apply search filter
         if ($request->filled('search')) {
             $searchTerm = $request->search;
             $query->where(function ($q) use ($searchTerm) {
@@ -61,7 +63,7 @@ class RouteController extends Controller
             'bus_type' => 'required|in:regular,aircon',
             'status' => 'required|in:active,inactive',
             'geometry' => 'required|string',
-            'stops_data' => 'nullable|string',
+            'stops_data' => 'nullable|string', // ✅ Changed from array to string
         ]);
 
         if ($validator->fails()) {
@@ -73,7 +75,7 @@ class RouteController extends Controller
 
         try {
             $user = auth()->user();
-
+            
             // ✅ Parse stops_data if it's a JSON string
             $data = $request->all();
             if (isset($data['stops_data']) && is_string($data['stops_data'])) {
@@ -90,19 +92,9 @@ class RouteController extends Controller
                 $data['aircon_price'] = round($routeFare * 1.18, 2); // Aircon is ~18% more
             }
             
-            // Compute return geometry (reversed coordinates) and stops inline
-            if (!empty($data['geometry'])) {
-                $geo = json_decode($data['geometry'], true);
-                if (isset($geo['coordinates'])) {
-                    $geo['coordinates'] = array_reverse($geo['coordinates']);
-                    $data['return_geometry'] = json_encode($geo);
-                }
-            }
-            $data['return_stops_data'] = array_reverse($data['stops_data'] ?? []);
-
             $route = BusRoute::create(array_merge($data, [
                 'user_id' => $user->id,
-                'terminal' => $user->terminal,
+                'terminal' => $user->terminal
             ]));
 
             return response()->json([
@@ -162,8 +154,7 @@ class RouteController extends Controller
                     'bus_type' => $route->bus_type,
                     'route_fare' => $route->route_fare,
                     'status' => $route->status,
-                    'terminal' => $route->terminal,
-                    'has_return_trip' => !empty($route->return_geometry),
+                    'terminal' => $route->terminal, 
                     'geometry' => $geometry,
                     'stops_data' => $stopsArr
                 ]
@@ -196,7 +187,7 @@ class RouteController extends Controller
             'bus_type' => 'required|string|in:regular,aircon',
             'status' => 'string|in:active,inactive',
             'geometry' => 'required|string',
-            'stops_data' => 'nullable|string',
+            'stops_data' => 'nullable|string', 
         ]);
 
         if ($validator->fails()) {
@@ -208,12 +199,13 @@ class RouteController extends Controller
 
         try {
             $data = $request->all();
-
+            
             // ✅ Parse stops_data if it's a JSON string
             if (isset($data['stops_data']) && is_string($data['stops_data'])) {
                 $data['stops_data'] = json_decode($data['stops_data'], true);
             }
             
+            // ✅ Update regular_price and aircon_price based on route_fare and bus_type
             if (isset($data['route_fare']) && isset($data['bus_type'])) {
                 $routeFare = floatval($data['route_fare']);
                 if ($data['bus_type'] === 'aircon') {
@@ -224,19 +216,7 @@ class RouteController extends Controller
                     $data['aircon_price'] = round($routeFare * 1.18, 2);
                 }
             }
-
-            // Recompute return geometry if geometry changed
-            if (!empty($data['geometry'])) {
-                $geo = json_decode($data['geometry'], true);
-                if (isset($geo['coordinates'])) {
-                    $geo['coordinates'] = array_reverse($geo['coordinates']);
-                    $data['return_geometry'] = json_encode($geo);
-                }
-            }
-            if (isset($data['stops_data'])) {
-                $data['return_stops_data'] = array_reverse($data['stops_data'] ?? []);
-            }
-
+            
             $route->update($data);
 
             return response()->json([
@@ -614,5 +594,4 @@ class RouteController extends Controller
             ], 500);
         }
     }
-
 }

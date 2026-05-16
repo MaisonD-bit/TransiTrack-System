@@ -58,13 +58,18 @@ function normalizeLineStringGeometry(raw: unknown): { type: 'LineString'; coordi
 
 export interface LiveRoute {
   id: string;
+  baseRouteId?: string;
   scheduleId?: number; // NEW: Track which schedule this route belongs to
   name: string;
+  displayName?: string;
+  isReturnTripOption?: boolean;
   basefare: number;
   pricePerKm: number;
   geometry: any;
   return_map_geometry?: { type: 'LineString'; coordinates: number[][] } | null;
   distance_km?: number; // Route distance in kilometers
+  startLocation?: string;
+  endLocation?: string;
   // optional exact stored start/end coordinates (normalized to [lng, lat])
   startCoord?: [number, number] | null;
   endCoord?: [number, number] | null;
@@ -188,19 +193,24 @@ export class CommuterService {
               this.busType === 'aircon'
                 ? parseFloat(route.aircon_price) || 0
                 : parseFloat(route.regular_price) || 0;
+              const baseRouteId = String(route.route_id);
             return {
-              id: String(route.route_id),
+                id: baseRouteId,
+                baseRouteId,
               scheduleId:
                 route.schedule_id != null && route.schedule_id !== ''
                   ? Number(route.schedule_id)
                   : undefined,
               name: route.name,
+                displayName: route.name,
               basefare: base,
               geometry,
               return_map_geometry: returnLine,
               distance_km: route.distance_km ?? null,
               startCoord: null,
               endCoord: null,
+                startLocation: route.start_location ?? route.startLocation,
+                endLocation: route.end_location ?? route.endLocation,
               stops: route.stops || [],
               return_stops: route.return_stops ?? null,
               approval_request_id: route.approval_request_id,
@@ -240,9 +250,12 @@ export class CommuterService {
             if (line) {
               geometry = line;
             }
+            const baseRouteId = route.id.toString();
             return {
-              id: route.id.toString(),
+              id: baseRouteId,
+              baseRouteId,
               name: route.name,
+              displayName: route.name,
               basefare:
                 this.busType === 'aircon'
                   ? parseFloat(route.aircon_price) || parseFloat(route.regular_price)
@@ -251,6 +264,8 @@ export class CommuterService {
               distance_km: route.distance_km || null,
               startCoord: parseStoredCoord(route.start_coordinates ?? route.start_coordinate),
               endCoord: parseStoredCoord(route.end_coordinates ?? route.end_coordinate),
+              startLocation: route.start_location ?? route.startLocation,
+              endLocation: route.end_location ?? route.endLocation,
               stops: [],
             };
           });
@@ -334,6 +349,7 @@ export class CommuterService {
     commuter_id?: number;
     payment_method?: string;
     from_stop_index?: number;
+    to_stop_index?: number;
   }): Observable<{ success: boolean; message?: string; data?: { id: number; public_ticket_id: string; schedule_id: number } }> {
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',

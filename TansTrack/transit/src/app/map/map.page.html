@@ -29,37 +29,55 @@
 <ng-container *ngIf="selectedSegment === 'current'">
   <ion-card class="route-info-banner">
     <ion-card-content>
-      <div class="route-info" *ngIf="currentSchedule; else noCurrent">
-        <div class="route-details">
-          <h3>{{ getScheduleRoute(currentSchedule) }}</h3>
-          <p>
-            <ion-icon name="time-outline"></ion-icon>
-            {{ getScheduleTime(currentSchedule) }}
-          </p>
-          <p>
-            <ion-icon name="location-outline"></ion-icon>
-            {{ getScheduleDestination(currentSchedule) }}
-          </p>
-          <p *ngIf="mapRouteStops.length || mapBoardingPassengers.length" class="ion-margin-top map-meta">
-            <small class="ion-text-wrap">
-              <span *ngIf="mapRouteStops.length"><strong>{{ mapRouteStops.length }}</strong> bus stop{{ mapRouteStops.length === 1 ? '' : 's' }}</span>
-              <span *ngIf="mapRouteStops.length && mapBoardingPassengers.length"> · </span>
-              <span *ngIf="mapBoardingPassengers.length"><strong>{{ mapBoardingPassengers.length }}</strong> ticketed passenger{{ mapBoardingPassengers.length === 1 ? '' : 's' }}</span>
-            </small>
-          </p>
+      <div *ngIf="currentSchedule; else noCurrent">
+        <div class="route-info">
+          <div class="route-details">
+            <h3>{{ getScheduleRoute(currentSchedule) }}</h3>
+            <p>
+              <ion-icon name="time-outline"></ion-icon>
+              {{ getScheduleTime(currentSchedule) }}
+            </p>
+            <p>
+              <ion-icon name="location-outline"></ion-icon>
+              {{ getScheduleDestination(currentSchedule) }}
+            </p>
+            <p *ngIf="mapRouteStops.length || mapBoardingPassengers.length" class="ion-margin-top map-meta">
+              <small class="ion-text-wrap">
+                <span *ngIf="mapRouteStops.length"><strong>{{ mapRouteStops.length }}</strong> bus stop{{ mapRouteStops.length === 1 ? '' : 's' }}</span>
+                <span *ngIf="mapRouteStops.length && mapBoardingPassengers.length"> · </span>
+                <span *ngIf="mapBoardingPassengers.length"><strong>{{ mapBoardingPassengers.length }}</strong> ticketed passenger{{ mapBoardingPassengers.length === 1 ? '' : 's' }}</span>
+              </small>
+            </p>
+          </div>
+          <div class="route-status"></div>
         </div>
-        <div class="route-status">
-          <!-- <ion-badge [color]="getTimingStatus(currentSchedule).color">{{ getTimingStatus(currentSchedule).label }}</ion-badge> -->
-        </div>
-        <!-- Action Buttons -->
-        <div class="route-actions" style="margin-top: 1em;">
-          <ion-button *ngIf="!isReturnTrip && currentSchedule?.leg_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
+        <!-- Action Buttons — outside flex row so they stack full-width -->
+        <div style="margin-top: 12px;">
+          <!-- Accept / Decline: initial assignment OR next leg pending -->
+          <ng-container *ngIf="!currentSchedule?.leg_status || currentSchedule?.leg_status === 'pending'">
+            <ion-button expand="block" color="success" (click)="respondToSchedule(currentSchedule.id, 'accept')">
+              <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+              Accept
+            </ion-button>
+            <ion-button expand="block" color="danger" fill="outline" (click)="respondToSchedule(currentSchedule.id, 'decline')" style="margin-top: 6px;">
+              <ion-icon name="close-circle-outline" slot="start"></ion-icon>
+              Decline
+            </ion-button>
+          </ng-container>
+          <!-- Start Route: leg accepted, not yet driving -->
+          <ion-button *ngIf="currentSchedule?.leg_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
             <ion-icon name="play-circle-outline" slot="start"></ion-icon>
-            Start Route
+            {{ isReturnTrip ? 'Start Return Trip' : 'Start Route' }}
           </ion-button>
-          <ion-button *ngIf="isReturnTrip && currentSchedule?.leg_status === 'accepted'" expand="block" color="primary" (click)="startSchedule(currentSchedule)">
-            <ion-icon name="play-circle-outline" slot="start"></ion-icon>
-            Start Return Trip
+          <!-- Arrived / Complete Trip: only visible after simulation detects arrival -->
+          <ion-button *ngIf="currentSchedule?.leg_status === 'active' && isNearDestination" expand="block" color="success" (click)="completeTripLeg()">
+            <ion-icon name="checkmark-done-outline" slot="start"></ion-icon>
+            Arrived / Complete Trip
+          </ion-button>
+          <!-- End Day -->
+          <ion-button *ngIf="currentSchedule?.status === 'active'" expand="block" fill="outline" color="medium" (click)="endDayTrip()" style="margin-top: 6px;">
+            <ion-icon name="flag-outline" slot="start"></ion-icon>
+            End Day
           </ion-button>
         </div>
       </div>
@@ -76,10 +94,12 @@
         [height]="'400px'"
         [routeGeoJson]="mapRouteGeoJson"
         [routeStops]="mapRouteStops"
-        [boardingPassengers]="mapBoardingPassengers"
+        [boardingPassengers]="mapAllPassengers"
+        [simKey]="simulationKey"
         [simulate]="currentSchedule?.leg_status === 'active'"
         (positionUpdate)="onBusPositionUpdate($event)"
-        (arrivedAtDestination)="onArrivedAtDestination()">
+        (arrivedAtDestination)="onArrivedAtDestination()"
+        (passengerDropOff)="onPassengerDropOff($event)">
       </app-route-map>
     </div>
 
@@ -96,14 +116,15 @@
           <ion-item *ngFor="let p of mapBoardingPassengers; let i = index">
             <ion-avatar slot="start">
               <div style="width:36px;height:36px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center;font-weight:bold;color:#1a73e8;font-size:14px;">
-                {{ (p.commuter_name || 'G').charAt(0).toUpperCase() }}
+                {{ (p.commuter_name?.charAt(0) || '').toUpperCase() }}
               </div>
             </ion-avatar>
             <ion-label>
-              <h3>{{ p.commuter_name || 'Guest Commuter' }}</h3>
+              <h3>{{ p.commuter_name }}</h3>
               <p *ngIf="p.commuter_email">{{ p.commuter_email }}</p>
               <p class="ion-text-wrap">
                 <ion-badge color="success">₱{{ p.fare | number:'1.2-2' }}</ion-badge>
+                <ion-badge *ngIf="p.payment_status !== 'paid'" color="warning" class="ion-margin-start">Unpaid</ion-badge>
                 <small class="ion-margin-start text-muted">{{ p.public_ticket_id }}</small>
               </p>
             </ion-label>

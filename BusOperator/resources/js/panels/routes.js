@@ -183,7 +183,7 @@ function initializeMap() {
         console.log('Map clicked at:', e.lngLat);
         console.log('isAddingStop mode:', isAddingStop);
         console.log('endMarker exists:', !!endMarker);
-
+        
         if (isAddingStop) {
             console.log('Adding pathway stop...');
             addStop(e.lngLat);
@@ -194,6 +194,84 @@ function initializeMap() {
             console.log('Map click ignored - end marker already set and not in pathway mode');
         }
     });
+
+    const searchInput = document.getElementById('destinationSearch');
+    const resultsContainer = document.getElementById('geocodingResults');
+
+    if (searchInput && resultsContainer) {
+        let debounceTimer;
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            clearTimeout(debounceTimer);
+
+            if (query.length < 3) {
+                resultsContainer.style.display = 'none';
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                // ✅ USE dynamic boundary
+                const boundary = getCurrentBoundary();
+                const BBOX = `${boundary.swLng},${boundary.swLat},${boundary.neLng},${boundary.neLat}`;
+                
+                fetch(
+                    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?` +
+                    `bbox=${BBOX}&` +
+                    `country=PH&` +
+                    `types=place,locality,neighborhood,address&` +
+                    `access_token=${mapboxgl.accessToken}`
+                )
+                .then(res => res.json())
+                .then(data => {
+                    resultsContainer.innerHTML = '';
+                    if (data.features && data.features.length > 0) {
+                        data.features.forEach(feature => {
+                            const item = document.createElement('a');
+                            item.href = '#';
+                            item.className = 'list-group-item list-group-item-action';
+                            item.textContent = feature.place_name;
+                            item.onclick = (event) => {
+                                event.preventDefault();
+                                const [lng, lat] = feature.center;
+                                resultsContainer.style.display = 'none';
+                                searchInput.value = feature.place_name;
+
+                                const coords = { lng, lat };
+                                if (isPointInAllowedArea(lng, lat)) {
+                                    if (endMarker) endMarker.remove();
+                                    endMarker = new mapboxgl.Marker({ color: 'red' })
+                                        .setLngLat(coords)
+                                        .addTo(routeMap);
+                                    document.getElementById('end_location').value = feature.place_name;
+                                    document.getElementById('end_coordinates').value = `${lng},${lat}`;
+                                    autoGenerateRouteCode(feature.text);
+                                    calculateRouteWithStops();
+                                    showToast('Destination set via search!', 'success');
+                                } else {
+                                    const terminalName = (userTerminal === 'south') ? 'Southern Cebu' : 'Northern Cebu';
+                                    showToast(`Location is outside ${terminalName}`, 'error');                                }
+                            };
+                            resultsContainer.appendChild(item);
+                        });
+                        resultsContainer.style.display = 'block';
+                    } else {
+                        resultsContainer.style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    console.error('Geocoding error:', err);
+                    resultsContainer.style.display = 'none';
+                });
+            }, 300);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
+                resultsContainer.style.display = 'none';
+            }
+        });
+    }
 }
 
 function setEndPoint(coords) {
@@ -519,11 +597,6 @@ function showAddRouteForm() {
     document.getElementById('routeForm').reset();
     document.getElementById('route_id').value = '';
     document.getElementById('method_field').value = '';
-
-    const returnTripInfo = document.getElementById('returnTripInfo');
-    const returnTripInfoText = document.getElementById('returnTripInfoText');
-    if (returnTripInfo) returnTripInfo.className = 'alert alert-info mb-0 py-2 d-flex align-items-center gap-2';
-    if (returnTripInfoText) returnTripInfoText.textContent = 'A return trip route will be automatically created when you save.';
     
     // ✅ Set terminal-based start location
     const terminal = currentTerminal || TERMINALS.north;
@@ -635,78 +708,6 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Add Pathway button event listener attached');
     } else {
         console.error('Add Pathway button not found!');
-    }
-
-    // Destination search — registered once here so initializeMap() re-runs don't stack listeners
-    const searchInput = document.getElementById('destinationSearch');
-    const resultsContainer = document.getElementById('geocodingResults');
-    if (searchInput && resultsContainer) {
-        let debounceTimer;
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.trim();
-            clearTimeout(debounceTimer);
-            if (query.length < 3) { resultsContainer.style.display = 'none'; return; }
-            debounceTimer = setTimeout(() => {
-                const boundary = getCurrentBoundary();
-                const BBOX = `${boundary.swLng},${boundary.swLat},${boundary.neLng},${boundary.neLat}`;
-                fetch(
-                    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?` +
-                    `bbox=${BBOX}&country=PH&types=place,locality,neighborhood,address&access_token=${mapboxgl.accessToken}`
-                )
-                .then(res => res.json())
-                .then(data => {
-                    resultsContainer.innerHTML = '';
-                    if (data.features && data.features.length > 0) {
-                        data.features.forEach(feature => {
-                            const item = document.createElement('a');
-                            item.href = '#';
-                            item.className = 'list-group-item list-group-item-action';
-                            item.textContent = feature.place_name;
-                            item.onclick = (event) => {
-                                event.preventDefault();
-                                const [lng, lat] = feature.center;
-                                resultsContainer.style.display = 'none';
-                                searchInput.value = feature.place_name;
-                                const coords = { lng, lat };
-                                if (isPointInAllowedArea(lng, lat)) {
-                                    if (endMarker) endMarker.remove();
-                                    endMarker = new mapboxgl.Marker({ color: 'red' })
-                                        .setLngLat(coords).addTo(routeMap);
-                                    document.getElementById('end_location').value = feature.place_name;
-                                    document.getElementById('end_coordinates').value = `${lng},${lat}`;
-                                    autoGenerateRouteCode(feature.text);
-                                    calculateRouteWithStops();
-                                    showToast('Destination set via search!', 'success');
-                                } else {
-                                    const terminalName = (userTerminal === 'south') ? 'Southern Cebu' : 'Northern Cebu';
-                                    showToast(`Location is outside ${terminalName}`, 'error');
-                                }
-                            };
-                            resultsContainer.appendChild(item);
-                        });
-                        resultsContainer.style.display = 'block';
-                    } else {
-                        resultsContainer.style.display = 'none';
-                    }
-                })
-                .catch(() => { resultsContainer.style.display = 'none'; });
-            }, 300);
-        });
-        document.addEventListener('click', (e) => {
-            if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
-                resultsContainer.style.display = 'none';
-            }
-        });
-    }
-
-    // Prevent Enter key from accidentally submitting the route form
-    const routeFormEl = document.getElementById('routeForm');
-    if (routeFormEl) {
-        routeFormEl.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.type !== 'submit') {
-                e.preventDefault();
-            }
-        });
     }
 
     // Form submission handler
@@ -869,9 +870,6 @@ function editRoute(id) {
       showAddRouteForm();
 
       const r = data.route;
-      document.getElementById('formTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Route';
-      document.getElementById('saveRouteBtn').innerHTML = '<i class="fas fa-save me-2"></i>Update Route';
-
       // Set form fields
       document.getElementById('route_id').value = r.id;
       document.getElementById('method_field').value = 'PUT';
@@ -888,17 +886,6 @@ function editRoute(id) {
       document.getElementById('bus_type').value = r.bus_type || 'regular';
       document.getElementById('description').value = r.description || '';
       document.getElementById('geometry').value = r.geometry || '';
-      const returnTripInfo = document.getElementById('returnTripInfo');
-      const returnTripInfoText = document.getElementById('returnTripInfoText');
-      if (returnTripInfoText) {
-        if (r.has_return_trip) {
-          if (returnTripInfo) returnTripInfo.className = 'alert alert-success mb-0 py-2 d-flex align-items-center gap-2';
-          returnTripInfoText.textContent = 'Return trip data is stored in this route record.';
-        } else {
-          if (returnTripInfo) returnTripInfo.className = 'alert alert-info mb-0 py-2 d-flex align-items-center gap-2';
-          returnTripInfoText.textContent = 'Return trip data will be stored automatically when you save.';
-        }
-      }
       
       // Load stops data into global variable
       stops = r.stops_data || [];

@@ -11,10 +11,6 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::hasTable('manager_notifications')) {
-            return;
-        }
-
         Schema::create('manager_notifications', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('type');

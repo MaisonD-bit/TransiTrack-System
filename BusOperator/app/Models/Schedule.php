@@ -30,16 +30,7 @@ class Schedule extends Model
         'accepted_at',
         'declined_at',
         'started_at',
-        'completed_at',
-        'current_lat',
-        'current_lng',
-        'cancel_reason',
-        'cancellation_status',
-        'decline_reason',
-        'decline_status',
-        'return_trip_status',
-        'trip_leg',
-        'leg_status',
+        'completed_at'
     ];
 
     protected $casts = [
@@ -54,10 +45,7 @@ class Schedule extends Model
         'accepted_at' => 'datetime',
         'declined_at' => 'datetime',
         'started_at' => 'datetime',
-        'completed_at' => 'datetime',
-        'current_lat' => 'float',
-        'current_lng' => 'float',
-        'trip_leg' => 'integer',
+        'completed_at' => 'datetime'
     ];
 
     // Relationships

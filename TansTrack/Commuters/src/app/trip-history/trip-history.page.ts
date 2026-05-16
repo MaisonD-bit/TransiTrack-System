@@ -19,6 +19,7 @@ export interface Trip {
   tripDate: string;
   distance: number;
   duration: string;
+  transactionRef?: string;
 }
 
 @Component({

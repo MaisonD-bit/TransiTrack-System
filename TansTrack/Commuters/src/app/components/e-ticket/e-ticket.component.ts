@@ -22,6 +22,8 @@ export class ETicketComponent implements OnChanges {
   @Input() busLabel: string = '';
   @Input() discountPercent: number = 0;
   @Input() passengerType: string = '';
+  @Input() paymentCompleted: boolean = false;
+  @Input() canCancel: boolean = true;
 
   @Output() close = new EventEmitter<void>();
   @Output() share = new EventEmitter<void>();

@@ -202,7 +202,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
       let marker = this.liveBusMarkerIndex.get(key);
       if (!marker) {
-        marker = new mapboxgl.Marker({ color: b.color || '#0074D9', scale: b.selected ? 1.5 : 1.0 })
+        marker = new mapboxgl.Marker({ element: this.createBusMarkerEl(b.selected), anchor: 'center' })
           .setLngLat([b.lng, b.lat])
           .setPopup(new mapboxgl.Popup({ offset: 30 }).setHTML(`<strong>${b.label}</strong>`))
           .addTo(this.map);
@@ -384,9 +384,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           this.simulatedVehicleMarker = null;
         }
         if (!this.disableSimulator && this.busSimulatorService && numericCoords && numericCoords.length) {
-          this.simulatedVehicleMarker = new mapboxgl.Marker({
-            color: '#1E90FF',
-          }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
+          this.simulatedVehicleMarker = new mapboxgl.Marker({ element: this.createBusMarkerEl(), anchor: 'center' })
+            .setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
 
           this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800, 0, this.stopPins).subscribe((pos: { lng: number; lat: number; index: number }) => {
             try {
@@ -498,6 +497,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         .addTo(this.map);
       this.stopPinMarkers.push(mk);
     });
+  }
+
+  private createBusMarkerEl(selected: boolean = false): HTMLElement {
+    const el = document.createElement('div');
+    const size = selected ? '34px' : '28px';
+    el.style.cssText = `font-size:${size};line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));cursor:default;`;
+    el.textContent = '🚌';
+    return el;
   }
 
   addRouteMarkers(numericCoords: number[][], providedStart?: [number, number] | null, providedEnd?: [number, number] | null) {

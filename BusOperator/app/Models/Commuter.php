@@ -18,17 +18,9 @@ class Commuter extends Authenticatable // Extend Authenticatable
      */
     protected $fillable = [
         'name',
-        'first_name',
-        'middle_name',
-        'last_name',
         'email',
-        'address',
-        'contact_number',
-        'gender',
-        'photo_url',
-        'passenger_type',
-        'status',
         'password',
+        'passenger_type',
     ];
 
     /**

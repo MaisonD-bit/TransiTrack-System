@@ -192,8 +192,8 @@
                     <div class="col-md-3 mb-3">
                         <label for="route_status" class="form-label">Status <span class="text-danger">*</span></label>
                         <select id="route_status" name="status" class="form-select" required>
-                            <option value="inactive">Inactive</option>
                             <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
                         </select>
                         <div class="invalid-feedback" id="status_error"></div>
                     </div>
@@ -204,14 +204,6 @@
                             <option value="aircon">Air-Conditioned</option>
                         </select>
                         <div class="invalid-feedback" id="bus_type_error"></div>
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label">Return Trip Route</label>
-                    <div id="returnTripInfo" class="alert alert-info mb-0 py-2 d-flex align-items-center gap-2">
-                        <i class="fas fa-exchange-alt"></i>
-                        <span id="returnTripInfoText">A return trip route will be automatically created when you save.</span>
                     </div>
                 </div>
 
@@ -250,7 +242,6 @@
                             <th>Distance</th>
                             <th>Bus Type</th>
                             <th>Status</th>
-                            <th>Return Trip</th>
                             <th width="140px">Actions</th>
                         </tr>
                     </thead>
@@ -277,19 +268,6 @@
                             @else
                                 <span class="badge bg-secondary">Inactive</span>
                             @endif
-                            </td>
-                            <td>
-                                @if($route->return_geometry)
-                                    @php
-                                        $returnFrom = trim(explode(',', $route->end_location)[0]);
-                                        $returnTo   = trim(explode(' ', $route->start_location)[0]);
-                                    @endphp
-                                    <span class="badge bg-primary">
-                                        <i class="fas fa-exchange-alt me-1"></i>{{ $returnFrom }} to {{ $returnTo }}
-                                    </span>
-                                @else
-                                    <span class="text-muted small">—</span>
-                                @endif
                             </td>
                             <td>
                                 <div class="btn-group" role="group">

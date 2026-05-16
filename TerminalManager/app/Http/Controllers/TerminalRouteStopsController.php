@@ -160,16 +160,6 @@ class TerminalRouteStopsController extends Controller
             $g = json_decode($g, true);
         }
 
-        // Extract last geometry coordinate as the route endpoint
-        $endCoords = null;
-        $coords = $g['coordinates'] ?? ($g['geometry']['coordinates'] ?? null);
-        if (is_array($coords) && count($coords) >= 2) {
-            $last = end($coords);
-            if (is_array($last) && count($last) >= 2) {
-                $endCoords = [(float) $last[0], (float) $last[1]];
-            }
-        }
-
         return [
             'id' => $r->id,
             'name' => $r->name,
@@ -179,8 +169,6 @@ class TerminalRouteStopsController extends Controller
             'regular_price' => (float) ($r->regular_price ?? $r->route_fare ?? 0),
             'aircon_price' => (float) ($r->aircon_price ?? $r->route_fare ?? 0),
             'bus_type' => $r->bus_type ?? 'regular',
-            'end_location' => $r->end_location ?? null,
-            'end_coords' => $endCoords,
         ];
     }
 

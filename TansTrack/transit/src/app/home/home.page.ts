@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   AlertController,
@@ -80,7 +80,7 @@ interface Notification {
   styleUrls: ['home.page.scss'],
   standalone: false,
 })
-export class HomePage implements OnInit, ViewWillEnter {
+export class HomePage implements OnInit, OnDestroy, ViewWillEnter {
   currentTime: string = '';
   /** Passengers with tickets for the current schedule’s bus/route */
   currentPassengers: number = 0;
@@ -93,6 +93,7 @@ export class HomePage implements OnInit, ViewWillEnter {
   recentNotifications: Notification[] = []; 
   unreadNotificationsCount: number = 0;
   private schedulePoll?: ReturnType<typeof setInterval>;
+  private positionInterval: ReturnType<typeof setInterval> | null = null;
   private lastScheduleId: number | null = null;
   private lastScheduleRouteId: number | null = null;
   private lastScheduleStatus: string | null = null;
@@ -173,6 +174,43 @@ export class HomePage implements OnInit, ViewWillEnter {
     this.lastScheduleStatus = null;
     this.loadDriverSchedules();
     this.loadTerminalParking();
+  }
+
+  ngOnDestroy() {
+    if (this.schedulePoll) clearInterval(this.schedulePoll);
+    if (this.positionInterval) clearInterval(this.positionInterval);
+  }
+
+  private syncPositionPush(): void {
+    if (this.legStatus === 'active') {
+      if (!this.positionInterval) {
+        this.positionInterval = setInterval(() => this.pushGpsPosition(), 8000);
+      }
+    } else {
+      if (this.positionInterval) {
+        clearInterval(this.positionInterval);
+        this.positionInterval = null;
+      }
+    }
+  }
+
+  private pushGpsPosition(): void {
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId || this.legStatus !== 'active') {
+      if (this.positionInterval) clearInterval(this.positionInterval);
+      this.positionInterval = null;
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.apiService.updateSchedulePosition(
+          scheduleId, pos.coords.latitude, pos.coords.longitude
+        ).subscribe({ error: () => {} });
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 10000 }
+    );
   }
 
   async loadRecentNotifications() {
@@ -354,6 +392,7 @@ export class HomePage implements OnInit, ViewWillEnter {
         const toast = await this.toastController.create({ message: 'Schedule accepted.', duration: 2000, color: 'success' });
         await toast.present();
         await this.loadDriverSchedules();
+        this.router.navigate(['/tabs/routes']);
       } else {
         throw new Error(response?.message || 'Failed');
       }
@@ -447,35 +486,41 @@ export class HomePage implements OnInit, ViewWillEnter {
       );
 
       const merged = [...todayList, ...upcomingList, ...recentActive].filter(usable);
-      merged.sort((a, b) => this.scheduleSortKey(a) - this.scheduleSortKey(b));
+      const seen = new Set<number>();
+      const unique = merged.filter((s) => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
+      unique.sort((a, b) => this.scheduleSortKey(a) - this.scheduleSortKey(b));
 
       const now = new Date();
 
       let current: Schedule | null =
-        merged.find((s) => s.status === 'active') ?? null;
+        unique.find((s) => s.status === 'active') ?? null;
 
       if (!current) {
         current =
-          merged.find((s) => this.isScheduleInProgress(s, now)) ?? null;
+          unique.find((s) => this.isScheduleInProgress(s, now)) ?? null;
       }
 
       if (!current) {
         current =
-          merged.find((s) => { const d = this.scheduleStartDate(s); return d !== null && d > now; }) ?? null;
+          unique.find((s) => { const d = this.scheduleStartDate(s); return d !== null && d > now; }) ?? null;
       }
 
       if (!current) {
-        current = merged[0] ?? null;
+        current = unique[0] ?? null;
       }
 
       let next: Schedule | null = null;
       if (current) {
-        const idx = merged.indexOf(current);
-        if (idx >= 0 && idx < merged.length - 1) {
-          next = merged[idx + 1];
+        const idx = unique.indexOf(current);
+        if (idx >= 0 && idx < unique.length - 1) {
+          next = unique[idx + 1];
         }
       } else {
-        next = merged[0] ?? null;
+        next = unique[0] ?? null;
       }
 
       this.currentSchedule = current;
@@ -484,6 +529,7 @@ export class HomePage implements OnInit, ViewWillEnter {
       this.applyPassengerCounts(current);
       this.detectScheduleChanges(current);
       this.loadPassengerManifest();
+      this.syncPositionPush();
     } catch (error) {
       console.error('Error loading driver schedules:', error);
       this.presentToast('Error loading schedules.', 'danger');
@@ -1077,6 +1123,7 @@ export class HomePage implements OnInit, ViewWillEnter {
       const label = this.legDirection === 'outbound' ? 'Return trip accepted.' : 'Outbound trip accepted.';
       await this.presentToast(label, 'success');
       await this.loadDriverSchedules();
+      this.router.navigate(['/tabs/routes']);
     } catch (e: any) {
       await this.presentToast(e?.error?.message || e?.message || 'Could not accept leg.', 'danger');
     }
@@ -1108,9 +1155,29 @@ export class HomePage implements OnInit, ViewWillEnter {
     await alert.present();
   }
 
+  async completeTripLeg() {
+    if (!this.currentSchedule) return;
+    const scheduleId = this.currentSchedule.id;
+    try {
+      await firstValueFrom(this.apiService.completeSchedule(scheduleId));
+      await this.presentToast('Trip leg completed. Accept the next leg to continue.', 'success');
+      await this.loadDriverSchedules();
+    } catch (e: any) {
+      await this.presentToast(e?.error?.message || e?.message || 'Could not complete trip.', 'danger');
+    }
+  }
+
+  private shortLocation(loc: string): string {
+    const beforeComma = loc.split(',')[0].trim();
+    return beforeComma.includes(' ') ? beforeComma.split(' ')[0] : beforeComma;
+  }
+
   getScheduleRoute(schedule: Schedule | null): string {
     if (!schedule || !schedule.route) return 'N/A';
-    return schedule.route.name || `${schedule.route.start_location} to ${schedule.route.end_location}`;
+    const r = schedule.route;
+    return r.start_location && r.end_location
+      ? `${this.shortLocation(r.start_location)} to ${this.shortLocation(r.end_location)}`
+      : r.name;
   }
 
   getScheduleDestination(schedule: Schedule | null): string {
@@ -1123,9 +1190,11 @@ export class HomePage implements OnInit, ViewWillEnter {
     const r = this.currentSchedule?.route;
     if (!r) return 'N/A';
     if (this.legDirection === 'return') {
-      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+      return r.end_location && r.start_location
+        ? `${this.shortLocation(r.end_location)} to ${this.shortLocation(r.start_location)}` : r.name;
     }
-    return r.name || `${r.start_location} to ${r.end_location}`;
+    return r.start_location && r.end_location
+      ? `${this.shortLocation(r.start_location)} to ${this.shortLocation(r.end_location)}` : r.name;
   }
 
   /** Destination for the CURRENT active leg. */
@@ -1140,9 +1209,11 @@ export class HomePage implements OnInit, ViewWillEnter {
     const r = this.currentSchedule?.route;
     if (!r) return 'N/A';
     if (this.nextLegDirection === 'return') {
-      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
+      return r.end_location && r.start_location
+        ? `${this.shortLocation(r.end_location)} to ${this.shortLocation(r.start_location)}` : r.name;
     }
-    return r.name || `${r.start_location} to ${r.end_location}`;
+    return r.start_location && r.end_location
+      ? `${this.shortLocation(r.start_location)} to ${this.shortLocation(r.end_location)}` : r.name;
   }
 
   /** Destination for the NEXT upcoming leg. */
@@ -1235,6 +1306,10 @@ export class HomePage implements OnInit, ViewWillEnter {
       return '';
     }
     return schedule.status.charAt(0).toUpperCase() + schedule.status.slice(1);
+  }
+
+  get todayFormatted(): string {
+    return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   getScheduleDate(schedule: Schedule | null): string {
