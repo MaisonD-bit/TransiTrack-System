@@ -25,6 +25,15 @@ class NotificationsController extends Controller
         'other' => 'Other incident',
     ];
 
+    private function scopeReceivedForOperator($query, int $userId)
+    {
+        return $query->where('recipient_id', $userId)
+            ->where(function ($q) {
+                $q->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            });
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -33,10 +42,10 @@ class NotificationsController extends Controller
         }
 
         // ✅ FIXED: Get RECEIVED notifications (from drivers to me, where sender_id is NULL and I'm the recipient)
-        $receivedQuery = Notification::with(['sender', 'driver', 'schedule.route', 'bus', 'routeApprovalRequest'])
-            ->where('recipient_id', $user->id)
-            ->whereNull('sender_id') // Only notifications FROM drivers (sender_id is null)
-            ->orderBy('created_at', 'desc');
+        $receivedQuery = $this->scopeReceivedForOperator(
+            Notification::with(['sender', 'driver', 'schedule.route', 'bus', 'routeApprovalRequest']),
+            (int) $user->id
+        )->orderBy('created_at', 'desc');
 
         // ✅ FIXED: Get SENT notifications (from me to drivers, where I am the sender)
         $sentQuery = Notification::with(['driver', 'schedule.route', 'bus'])
@@ -63,8 +72,7 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only count received notifications (from drivers)
-        $count = Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id') // Only from drivers
+        $count = $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)
             ->where('is_read', false)
             ->count();
 
@@ -79,10 +87,10 @@ class NotificationsController extends Controller
         }
 
         // Received: driver alerts and system types (e.g. route_approval) both use sender_id = null
-        $notifications = Notification::with(['driver', 'sender', 'schedule', 'bus'])
-            ->where('recipient_id', $user->id)
-            ->whereNull('sender_id')
-            ->orderBy('created_at', 'desc')
+        $notifications = $this->scopeReceivedForOperator(
+            Notification::with(['driver', 'sender', 'schedule', 'bus']),
+            (int) $user->id
+        )->orderBy('created_at', 'desc')
             ->limit(5)
             ->get()
             ->map(function ($notification) {
@@ -121,8 +129,7 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only mark received notifications (from drivers) as read
-        Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id')
+        $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)
             ->where('is_read', false)
             ->update(['is_read' => true, 'read_at' => now()]);
 
@@ -137,9 +144,7 @@ class NotificationsController extends Controller
         }
 
         // ✅ Only clear received notifications (from drivers)
-        Notification::where('recipient_id', $user->id)
-            ->whereNull('sender_id')
-            ->delete();
+        $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)->delete();
 
         return response()->json(['success' => true]);
     }
@@ -155,6 +160,10 @@ class NotificationsController extends Controller
                 'message' => 'required|string|max:1000',
                 'issue_type' => 'required_if:type,issue_report|nullable|in:mechanical,traffic,accident',
                 'emergency_type' => 'required_if:type,emergency|nullable|string|max:255',
+                'latitude' => 'required_if:type,emergency|nullable|numeric|between:-90,90',
+                'longitude' => 'required_if:type,emergency|nullable|numeric|between:-180,180',
+                'location_label' => 'nullable|string|max:512',
+                'schedule_id' => 'nullable|exists:schedules,id',
             ]);
 
             if ($validator->fails()) {
@@ -190,11 +199,53 @@ class NotificationsController extends Controller
                 $message = "Emergency Alert ({$request->emergency_type}): " . $message;
             }
 
+            $scheduleId = $request->input('schedule_id');
+            $busId = null;
+            $schedule = null;
+            if ($scheduleId) {
+                $schedule = Schedule::with(['route', 'bus'])->find((int) $scheduleId);
+                if (! $schedule || (int) $schedule->driver_id !== (int) $driver->id) {
+                    return response()->json(['success' => false, 'message' => 'Invalid schedule for this driver'], 422);
+                }
+                if ((int) $schedule->user_id !== (int) $recipientId) {
+                    return response()->json(['success' => false, 'message' => 'Invalid schedule for this operator'], 422);
+                }
+                $busId = $schedule->bus_id;
+            }
+
+            $latitude = $request->filled('latitude') ? (float) $request->latitude : null;
+            $longitude = $request->filled('longitude') ? (float) $request->longitude : null;
+            $locationLabel = $request->input('location_label');
+
+            if ($request->type === 'emergency' && $latitude !== null && $longitude !== null) {
+                $loc = $request->filled('location_label')
+                    ? trim((string) $locationLabel)
+                    : sprintf('%.5f°, %.5f°', $latitude, $longitude);
+                $at = Carbon::now(config('app.timezone'));
+                $message .= " at {$loc} at ".$at->format('M j Y').' on '.$at->format('g:i A');
+
+                $ctx = ['Driver: '.$driver->name];
+                if ($schedule) {
+                    if ($schedule->route) {
+                        $ctx[] = 'Route: '.$schedule->route->name;
+                    }
+                    if ($schedule->bus) {
+                        $bn = $schedule->bus->bus_number ?? '';
+                        $ctx[] = $schedule->bus->model
+                            ? 'Bus: '.$bn.' — '.$schedule->bus->model
+                            : 'Bus: '.$bn;
+                    }
+                }
+                $message .= ' · '.implode(' · ', $ctx);
+            }
+
             Log::info('Creating notification', [
                 'type' => $request->type,
                 'message' => $message,
                 'recipient_id' => $recipientId,
-                'driver_id' => $driver->id
+                'driver_id' => $driver->id,
+                'latitude' => $latitude,
+                'longitude' => $longitude,
             ]);
 
             // ✅ sender_id is NULL for driver-to-operator notifications
@@ -204,6 +255,11 @@ class NotificationsController extends Controller
                 'sender_id' => null, // NULL indicates message FROM driver
                 'recipient_id' => $recipientId, // The operator who receives it
                 'driver_id' => $driver->id,
+                'schedule_id' => $scheduleId,
+                'bus_id' => $busId,
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'location_label' => $locationLabel,
             ]);
 
             Log::info('Notification created successfully', ['notification_id' => $notification->id]);
@@ -539,6 +595,9 @@ class NotificationsController extends Controller
     {
         if ($notification->type === 'route_approval') {
             return 'TransiTrack Sysadmin';
+        }
+        if ($notification->type === 'manager_announcement') {
+            return 'TransiTrack Terminal Manager';
         }
         if ($notification->driver) {
             return $notification->driver->name.' (Driver)';

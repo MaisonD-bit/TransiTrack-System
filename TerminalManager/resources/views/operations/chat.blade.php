@@ -4,21 +4,78 @@
 
 @section('content')
 <style>
+    .chat-member-picker {
+        max-height: 220px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        background: #fff;
+    }
+
+    .chat-member-picker-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        padding: 0.45rem 0.5rem;
+        margin: 0;
+        border-radius: 0.35rem;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .chat-member-picker-item:hover {
+        background: #f8f9fa;
+    }
+
+    .chat-member-picker-item .form-check-input {
+        margin-top: 0.2rem;
+        flex-shrink: 0;
+    }
+
+    .chat-member-picker-label {
+        line-height: 1.35;
+        font-size: 0.9rem;
+    }
+
+    .chat-member-picker-empty {
+        padding: 0.35rem 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    #terminal-chat-page .col-md-9 > .card {
+        min-width: 0;
+    }
+
+    #messages-container {
+        overflow-x: hidden;
+        overflow-wrap: anywhere;
+    }
+
     .message-item {
         margin-bottom: 1rem;
         display: flex;
         align-items: flex-start;
+        max-width: 100%;
+        min-width: 0;
     }
 
     .message-item.own {
         flex-direction: row-reverse;
+        align-items: flex-end;
+        gap: 0.15rem;
+        justify-content: flex-start;
     }
 
     .message-bubble {
-        max-width: 70%;
+        max-width: min(70%, 100%);
+        min-width: 0;
+        flex: 0 1 auto;
         padding: 0.75rem 1rem;
         border-radius: 1rem;
         position: relative;
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }
 
     .message-item.own .message-bubble {
@@ -28,9 +85,19 @@
     }
 
     .message-item:not(.own) .message-bubble {
-        background: #f1f3f5;
-        color: #333;
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
         border-bottom-left-radius: 0.25rem;
+        box-shadow: 0 2px 8px rgba(17, 153, 142, 0.2);
+    }
+
+    .message-item:not(.own) .message-attachment {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .message-item:not(.own) .message-attachment a,
+    .message-item:not(.own) .message-link a {
+        color: inherit;
     }
 
     .message-author {
@@ -41,13 +108,107 @@
 
     .message-text {
         margin: 0;
-        word-wrap: break-word;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        white-space: pre-wrap;
     }
 
     .message-time {
         font-size: 0.75rem;
         opacity: 0.7;
         margin-top: 0.25rem;
+    }
+
+    .message-bubble {
+        position: relative;
+    }
+
+    .message-menu {
+        position: relative;
+        flex-shrink: 0;
+        align-self: center;
+    }
+
+    .message-menu-trigger {
+        border: none;
+        background: transparent;
+        color: #6c757d;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        font-size: 0.95rem;
+        line-height: 1;
+    }
+
+    .message-menu-trigger:hover,
+    .message-menu.open .message-menu-trigger {
+        background: rgba(0, 0, 0, 0.06);
+        color: #495057;
+    }
+
+    .message-menu-dropdown {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        min-width: 128px;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+        z-index: 20;
+        overflow: hidden;
+        padding: 0.25rem 0;
+    }
+
+    .message-menu-item {
+        display: block;
+        width: 100%;
+        border: none;
+        background: none;
+        text-align: left;
+        padding: 0.45rem 0.85rem;
+        font-size: 0.85rem;
+        color: #212529;
+        cursor: pointer;
+    }
+
+    .message-menu-item:hover {
+        background: #f1f3f5;
+    }
+
+    .message-menu-item-danger {
+        color: #dc3545;
+    }
+
+    .message-menu-item-danger:hover {
+        background: #fdecea;
+    }
+
+    .message-edit-form {
+        margin-bottom: 0.35rem;
+    }
+
+    .message-edit-input {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        border-radius: 0.5rem;
+        padding: 0.5rem;
+        font-size: 0.9rem;
+        resize: vertical;
+        background: rgba(255, 255, 255, 0.95);
+        color: #212529;
+    }
+
+    .message-edit-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.35rem;
+        margin-top: 0.35rem;
     }
 
     .channel-item {
@@ -234,10 +395,10 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Select Members</label>
-                        <select class="form-select" id="members-select" multiple size="5" required>
-                            <option value="">Loading users...</option>
-                        </select>
-                        <small class="text-muted">Hold Ctrl/Cmd to select multiple users</small>
+                        <div id="members-select" class="chat-member-picker" role="group" aria-label="Select members">
+                            <p class="chat-member-picker-empty text-muted mb-0">Loading users...</p>
+                        </div>
+                        <small class="text-muted">Check each person you want in this channel.</small>
                     </div>
                 </form>
             </div>
@@ -261,10 +422,10 @@
                 <form id="add-members-form">
                     <div class="mb-3">
                         <label class="form-label">Select Members to Add</label>
-                        <select class="form-select" id="new-members-select" multiple size="5" required>
-                            <option value="">Loading users...</option>
-                        </select>
-                        <small class="text-muted">Hold Ctrl/Cmd to select multiple users. Only users from your terminal are shown.</small>
+                        <div id="new-members-select" class="chat-member-picker" role="group" aria-label="Select members to add">
+                            <p class="chat-member-picker-empty text-muted mb-0">Loading users...</p>
+                        </div>
+                        <small class="text-muted">Check each person to add. Only users from your terminal are shown.</small>
                     </div>
                 </form>
             </div>
@@ -286,6 +447,8 @@
     window.streamToken = @json($streamToken ?? '');
     window.userName = @json($userName ?? '');
     window.streamUnavailable = @json(!empty($streamUnavailable));
+    window.terminalManagerAppUrl = @json(rtrim(config('services.terminal_manager.url', config('app.url')), '/'));
+    window.busOperatorAppUrl = @json(rtrim(config('services.bus_operator.url', 'http://localhost:8000'), '/'));
 </script>
 <script src="{{ asset('js/chat.js') }}"></script>
 @endpush

@@ -42,4 +42,12 @@ return [
         'callback_url'  => env('MAYA_CALLBACK_URL', env('APP_URL')),
     ],
 
+    'bus_operator' => [
+        'url' => env('BUS_OPERATOR_URL', env('APP_URL', 'http://localhost:8000')),
+    ],
+
+    'terminal_manager' => [
+        'url' => env('TERMINAL_MANAGER_URL', 'http://localhost:8001'),
+    ],
+
 ];

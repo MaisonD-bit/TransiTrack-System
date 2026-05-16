@@ -148,6 +148,7 @@
 <script>
 (function () {
     const token = @json(config('services.mapbox.token'));
+    const terminalKey = @json(strtolower((string) ($routeApprovalRequest->terminal ?? 'north')));
     const layersEl = document.getElementById('sysadmin-review-layers-json');
     const warnEl = document.getElementById('sysadmin-review-map-warning');
     const routeHintEl = document.getElementById('sysadmin-review-route-hint');
@@ -162,6 +163,10 @@
     const ROUTE_LINE_SRC = 'sysadmin-active-route';
     const ROUTE_LINE_LAYER = 'sysadmin-active-route-line';
     const LINE_COLOR = '#c0392b';
+    const TERMINALS = {
+        north: { coordinates: [123.920994, 10.311008], name: 'Cebu North Bus Terminal' },
+        south: { coordinates: [123.893356, 10.298361], name: 'Cebu South Bus Terminal' },
+    };
     let markers = [];
 
     function escapeHtml(str) {
@@ -170,6 +175,42 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    function parseLngLatPair(str) {
+        if (!str || typeof str !== 'string') return null;
+        const parts = str.split(',').map(function (s) { return parseFloat(String(s).trim()); });
+        if (parts.length < 2 || parts.some(function (n) { return Number.isNaN(n); })) return null;
+        return [parts[0], parts[1]];
+    }
+
+    function getRouteStartPoint(layer, coords) {
+        if (!layer) return null;
+        const fromField = parseLngLatPair(layer.start_coordinates);
+        if (fromField) {
+            return { lngLat: fromField, label: (layer.start_location || 'Start').trim() || 'Start' };
+        }
+        const term = TERMINALS[terminalKey] || TERMINALS.north;
+        if (term) {
+            return { lngLat: term.coordinates, label: term.name };
+        }
+        if (coords && coords.length) {
+            return { lngLat: coords[0], label: (layer.start_location || 'Start').trim() || 'Start' };
+        }
+        return null;
+    }
+
+    function getRouteEndPoint(layer, coords) {
+        if (!layer) return null;
+        const label = (layer.end_location || 'End point').trim() || 'End point';
+        const fromField = parseLngLatPair(layer.end_coordinates);
+        if (fromField) {
+            return { lngLat: fromField, label: label };
+        }
+        if (coords && coords.length) {
+            return { lngLat: coords[coords.length - 1], label: label };
+        }
+        return null;
     }
 
     function normalizeLineString(geometry) {
@@ -290,6 +331,24 @@
             routeHintEl.classList.remove('d-none');
         }
 
+        const startPt = getRouteStartPoint(layer, coords);
+        if (startPt) {
+            const startMk = new mapboxgl.Marker({ color: '#2ecc71' })
+                .setLngLat(startPt.lngLat)
+                .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<strong>' + escapeHtml(startPt.label) + '</strong><br><span class="small text-muted">Route start</span>'))
+                .addTo(map);
+            markers.push(startMk);
+        }
+
+        const endPt = getRouteEndPoint(layer, coords);
+        if (endPt) {
+            const endMk = new mapboxgl.Marker({ color: '#e74c3c' })
+                .setLngLat(endPt.lngLat)
+                .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<strong>' + escapeHtml(endPt.label) + '</strong><br><span class="small text-muted">Route end</span>'))
+                .addTo(map);
+            markers.push(endMk);
+        }
+
         (layer.stops || []).forEach(function (s, idx) {
             const lng = parseFloat(s.lng);
             const lat = parseFloat(s.lat);
@@ -313,6 +372,8 @@
         });
 
         const bounds = new mapboxgl.LngLatBounds();
+        if (startPt) bounds.extend(startPt.lngLat);
+        if (endPt) bounds.extend(endPt.lngLat);
         if (hasLine) {
             coords.forEach(function (pt) {
                 bounds.extend(pt);

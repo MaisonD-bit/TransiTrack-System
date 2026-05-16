@@ -154,15 +154,30 @@ class NorthTerminalSpaceController extends Controller
             Log::info('Occupy request received:', $request->all());
 
             $request->validate([
-                'space_id' => 'required|exists:north_terminal_spaces,space_id',
+                'space_id' => 'required|string|max:16',
                 'driver_id' => 'required|exists:drivers,id',
                 'operator_id' => 'required|exists:users,id',
                 'duration_minutes' => 'required|integer|between:1,360',
                 'route_name' => 'nullable|string',
-                'accommodation_type' => 'nullable|string'
+                'accommodation_type' => 'nullable|string',
             ]);
 
-            $space = NorthTerminalSpace::findOrFail($request->space_id);
+            $spaceId = strtoupper(trim((string) $request->space_id));
+            $position = match (true) {
+                str_starts_with($spaceId, 'T') => 'TOP',
+                str_starts_with($spaceId, 'R') => 'RIGHT',
+                default => 'LEFT',
+            };
+
+            $space = NorthTerminalSpace::firstOrCreate(
+                ['space_id' => $spaceId],
+                [
+                    'position' => $position,
+                    'position_order' => (int) preg_replace('/\D/', '', $spaceId) ?: 1,
+                    'is_occupied' => false,
+                    'status' => 'available',
+                ]
+            );
             $driver = Driver::with('user')->findOrFail($request->driver_id);
             $operator = DB::table('users')->find($request->operator_id);
 

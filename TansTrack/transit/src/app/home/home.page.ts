@@ -877,6 +877,20 @@ export class HomePage implements OnInit, ViewWillEnter {
     await alert.present();
   }
 
+  private async getDevicePosition(): Promise<GeolocationPosition | null> {
+    return new Promise<GeolocationPosition | null>((resolve) => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve(p),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 22000, maximumAge: 0 }
+      );
+    });
+  }
+
   private async submitIncidentWithGps(
     incidentType: string,
     details: string
@@ -893,17 +907,7 @@ export class HomePage implements OnInit, ViewWillEnter {
     await loading.present();
 
     try {
-      const pos = await new Promise<GeolocationPosition | null>((resolve) => {
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (p) => resolve(p),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 22000, maximumAge: 0 }
-        );
-      });
+      const pos = await this.getDevicePosition();
 
       if (!pos) {
         await loading.dismiss();
@@ -942,6 +946,71 @@ export class HomePage implements OnInit, ViewWillEnter {
       await loading.dismiss();
       await this.presentToast(
         'Could not send incident. Check connection and try again.',
+        'danger'
+      );
+    }
+  }
+
+  private async submitEmergencyWithGps(emergencyType: string): Promise<void> {
+    const driverIdNum = Number(this.authService.getDriverId());
+    if (isNaN(driverIdNum)) {
+      await this.presentToast('Invalid driver ID', 'danger');
+      return;
+    }
+
+    const loading = await this.loadingController.create({
+      message: 'Getting location…',
+    });
+    await loading.present();
+
+    try {
+      const pos = await this.getDevicePosition();
+
+      if (!pos) {
+        await loading.dismiss();
+        await this.presentToast(
+          'Location required. Enable GPS and try again.',
+          'danger'
+        );
+        return;
+      }
+
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const locationLabel = await this.reverseGeocode(lng, lat);
+      const scheduleId = this.currentSchedule?.id;
+      const message = `EMERGENCY: ${emergencyType}.`;
+
+      const response = await firstValueFrom(
+        this.apiService.sendEmergencyAlert({
+          driver_id: driverIdNum,
+          emergency_type: emergencyType,
+          message,
+          latitude: lat,
+          longitude: lng,
+          location_label: locationLabel,
+          ...(scheduleId ? { schedule_id: scheduleId } : {}),
+        })
+      );
+
+      await loading.dismiss();
+
+      if (response?.success) {
+        await this.presentToast(
+          'Emergency alert sent with your location. Your operator can see it on the map.',
+          'danger'
+        );
+      } else {
+        await this.presentToast(
+          response?.message || 'Error sending emergency alert.',
+          'danger'
+        );
+      }
+    } catch (error) {
+      console.error('Emergency alert error:', error);
+      await loading.dismiss();
+      await this.presentToast(
+        'Could not send emergency alert. Check connection and try again.',
         'danger'
       );
     }
@@ -1012,14 +1081,7 @@ export class HomePage implements OnInit, ViewWillEnter {
   async presentEmergencyConfirmation(emergencyType: string) {
     const alert = await this.alertController.create({
       header: '⚠️ Confirm Emergency',
-      message: `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>This will immediately notify your operator and emergency services. Are you sure?`,
-      inputs: [
-        {
-          name: 'location',
-          type: 'textarea',
-          placeholder: 'Your current location (optional)',
-        },
-      ],
+      message: `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>Your current GPS location will be sent to your operator immediately.`,
       buttons: [
         {
           text: 'Cancel',
@@ -1028,31 +1090,8 @@ export class HomePage implements OnInit, ViewWillEnter {
         {
           text: 'Send Alert',
           cssClass: 'alert-button-confirm',
-          handler: async (data) => {
-            try {
-              const driverId = this.authService.getDriverId();
-              const driverIdNum = Number(driverId);
-              
-              if (isNaN(driverIdNum)) {
-                console.error('Invalid driver ID');
-                this.presentToast('Invalid driver ID', 'danger');
-                return;
-              }
-
-              const location = data.location ? ` Location: ${data.location}` : '';
-              const message = `EMERGENCY: ${emergencyType}.${location}`;
-              
-              const response = await this.apiService.sendEmergencyAlert(driverIdNum, emergencyType, message).toPromise();
-              
-              if (response.success) {
-                this.presentToast('🚨 Emergency alert sent!', 'danger');
-              } else {
-                this.presentToast(response.message || 'Error sending emergency alert.', 'danger');
-              }
-            } catch (error) {
-              console.error('Error sending emergency alert:', error);
-              this.presentToast('Error sending emergency alert.', 'danger');
-            }
+          handler: async () => {
+            await this.submitEmergencyWithGps(emergencyType);
           },
         },
       ],

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\HandlerStack;
+use App\Support\PublicMediaUrl;
 use GuzzleHttp\Handler\CurlHandler;
 
 class ChatController extends Controller
@@ -205,7 +206,7 @@ class ChatController extends Controller
                             'id' => 'm_'.$mgr->id,
                             'name' => $mgr->name ?? trim(($mgr->first_name ?? '').' '.($mgr->last_name ?? '')),
                             'role' => 'user',
-                            'image' => $mgr->photo_url ?? null,
+                            'image' => PublicMediaUrl::forProfilePhoto($mgr->photo_url),
                         ];
                     }
                 }
@@ -285,7 +286,7 @@ class ChatController extends Controller
                 $busOperators[] = [
                     'id' => 'u_'.$user->id,
                     'name' => $user->name ?? 'Unknown',
-                    'photo_url' => $user->photo_url,
+                    'photo_url' => PublicMediaUrl::forProfilePhoto($user->photo_url),
                     'role' => $user->role,
                     'formatted_role' => 'Bus Operator',
                     'source' => 'bus_operator',
@@ -303,7 +304,7 @@ class ChatController extends Controller
                 $managers[] = [
                     'id' => 'm_'.$mgr->id,
                     'name' => $mgr->name ?? trim(($mgr->first_name ?? '').' '.($mgr->last_name ?? '')),
-                    'photo_url' => $mgr->photo_url ?? null,
+                    'photo_url' => PublicMediaUrl::forProfilePhoto($mgr->photo_url),
                     'role' => $mgr->role ?? 'terminalManager',
                     'formatted_role' => 'Terminal Manager',
                     'source' => 'manager',
@@ -353,6 +354,7 @@ class ChatController extends Controller
                 'id'   => $streamUserId,
                 'name' => $driver->name,
                 'role' => 'user',
+                'image' => PublicMediaUrl::forProfilePhoto($driver->photo_url),
             ]);
 
             // Also ensure the operator is in Stream
@@ -422,7 +424,7 @@ class ChatController extends Controller
                             'id' => 'm_'.$mgr->id,
                             'name' => $mgr->name ?? trim(($mgr->first_name ?? '').' '.($mgr->last_name ?? '')),
                             'role' => 'user',
-                            'image' => $mgr->photo_url ?? null,
+                            'image' => PublicMediaUrl::forProfilePhoto($mgr->photo_url),
                         ];
                     }
                 }

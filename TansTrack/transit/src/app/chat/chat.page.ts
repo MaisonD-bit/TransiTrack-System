@@ -72,9 +72,14 @@ export class ChatPage implements OnInit, OnDestroy {
       const channelId = `driver${driverId}-op${tokenData.operator_id}`;
       this.channel = this.client.channel('messaging', channelId, {
         members: [tokenData.user_id, tokenData.operator_id],
+        name: tokenData.user_name,
       } as any);
 
       await this.channel.watch();
+
+      if (!(this.channel.data?.name || '').trim()) {
+        await this.channel.update({ name: tokenData.user_name } as any);
+      }
 
       // Load existing messages
       this.messages = (this.channel.state.messages || []).map((m: LocalMessage) => this.formatMsg(m));

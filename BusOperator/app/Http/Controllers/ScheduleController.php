@@ -749,8 +749,8 @@ class ScheduleController extends Controller
 
     /**
      * Human-readable trip window for messages (12-hour clock, AM/PM).
-     * Same calendar day: "May 15, 2026 2:56 AM to 4:15 AM".
-     * Spans midnight: includes full end date when different from start day.
+     * Same calendar day: "2:56 AM to 4:15 AM" (date is stated separately in the message).
+     * Spans midnight: includes full start/end dates when different days.
      */
     private function formatScheduleClockRangeForMessage(Schedule $schedule): string
     {
@@ -766,12 +766,12 @@ class ScheduleController extends Controller
             (bool) ($schedule->ends_next_day ?? false)
         );
 
-        $startPart = $startAt->format('F j, Y').' '.$startAt->format('g:i A');
         if ($startAt->isSameDay($endAt)) {
-            return $startPart.' to '.$endAt->format('g:i A');
+            return $startAt->format('g:i A').' to '.$endAt->format('g:i A');
         }
 
-        return $startPart.' to '.$endAt->format('F j, Y').' '.$endAt->format('g:i A');
+        return $startAt->format('F j, Y').' '.$startAt->format('g:i A')
+            .' to '.$endAt->format('F j, Y').' '.$endAt->format('g:i A');
     }
 
     private function busOverlapMessage(string $action, Schedule $conflict, string $newDateYmd): string

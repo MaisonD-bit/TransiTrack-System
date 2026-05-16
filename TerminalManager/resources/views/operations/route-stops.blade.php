@@ -39,7 +39,20 @@
 <script>
 (function () {
     const root = document.getElementById('route-stops-live');
-    if (!root || !root.dataset.pollUrl) return;
+    if (!root) return;
+
+    root.addEventListener('submit', async (e) => {
+        const form = e.target.closest('.js-tm-submit-sysadmin');
+        if (!form) return;
+        e.preventDefault();
+        const message = form.dataset.confirm || 'Send this submission to sysadmin for approval?';
+        const confirmed = typeof showSpaceConfirm === 'function'
+            ? await showSpaceConfirm(message, 'Send', 'Cancel')
+            : confirm(message);
+        if (confirmed) form.submit();
+    });
+
+    if (!root.dataset.pollUrl) return;
     let lastChecksum = root.dataset.initialChecksum || '';
     const pollUrl = root.dataset.pollUrl;
     const intervalMs = 6000;

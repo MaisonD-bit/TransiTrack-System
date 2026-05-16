@@ -224,10 +224,25 @@
         .logo h1 {
             font-size: 22px;
             font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        .logo small {
+            display: block;
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
         }
 
         .content-wrapper {
             padding-left: 2rem;
+        }
+
+        .main-content--chat {
+            padding-left: 20px;
+        }
+
+        .content-wrapper--chat {
+            padding-left: 0;
         }
 
         .logo-img {
@@ -272,7 +287,10 @@
     <div class="sidebar">
         <div class="logo">
             <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
-            <h1>TransiTrack</h1>
+            <div>
+                <h1>TransiTrack</h1>
+                <small>Terminal Manager</small>
+            </div>
         </div>
 
         <div class="sidebar-section">
@@ -332,9 +350,9 @@
         </div>
     </div>
 
-    <div class="main-content flex-grow-1">
+    <div class="main-content flex-grow-1{{ request()->routeIs('chat') ? ' main-content--chat' : '' }}">
         @include('layouts.topbar')
-        <div class="content-wrapper">
+        <div class="content-wrapper{{ request()->routeIs('chat') ? ' content-wrapper--chat' : '' }}">
             @yield('content')
         </div>
     </div>
@@ -342,6 +360,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/stream-chat@8"></script>
+    <script src="{{ asset('js/space-feedback.js') }}"></script>
     @stack('scripts')
 
 </body>

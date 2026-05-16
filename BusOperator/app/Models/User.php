@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Support\PublicMediaUrl;
 use GetStream\StreamChat\Client as StreamChat;
 
 class User extends Authenticatable
@@ -28,6 +29,9 @@ class User extends Authenticatable
         'routes_served',
         'photo_url',
         'status',
+        'status_reason',
+        'status_reason_action',
+        'status_reason_at',
     ];
 
     protected $hidden = [
@@ -37,6 +41,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'status_reason_at' => 'datetime',
         'password' => 'hashed',
     ];
 
@@ -96,7 +101,7 @@ class User extends Authenticatable
             'id' => $this->streamUserId(),
             'name' => $this->name,
             'role' => $streamRole,
-            'image' => $this->photo_url ?? null,
+            'image' => PublicMediaUrl::forProfilePhoto($this->photo_url),
         ];
     }
 }

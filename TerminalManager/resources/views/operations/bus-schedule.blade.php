@@ -144,8 +144,9 @@
                             <td>
                                 @switch($schedule->status)
                                     @case('active')
+                                    @case('accepted')
                                         <span class="badge bg-success">
-                                            <i class="fas fa-play me-1"></i>Active
+                                            <i class="fas fa-play me-1"></i>{{ $schedule->status === 'accepted' ? 'Accepted' : 'Active' }}
                                         </span>
                                         @break
                                     @case('scheduled')

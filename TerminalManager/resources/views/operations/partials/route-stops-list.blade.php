@@ -14,6 +14,13 @@
         </div>
         <div class="card-body">
             @foreach($operatorRequests as $req)
+                @php
+                    $statusLabel = match ($req->status) {
+                        'pending_sysadmin' => 'pending',
+                        'pending_stops' => 'pending stops',
+                        default => $req->status,
+                    };
+                @endphp
                 <div class="border rounded p-3 mb-3 @if(!$loop->last) mb-3 @endif">
                     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
                         <div>
@@ -22,7 +29,7 @@
                                 @if($req->status === 'approved') bg-success
                                 @elseif($req->status === 'declined') bg-danger
                                 @elseif($req->status === 'pending_sysadmin') bg-warning text-dark
-                                @else bg-info text-dark @endif">{{ $req->status }}</span>
+                                @else bg-info text-dark @endif">{{ $statusLabel }}</span>
                         </div>
                         <small class="text-muted">#{{ $req->id }} · {{ $req->created_at->diffForHumans() }}</small>
                     </div>
@@ -43,7 +50,7 @@
                     </div>
 
                     @if($req->status === 'pending_stops')
-                        <form method="post" action="{{ route('terminal.route-stops.submit', $req) }}" class="d-inline" onsubmit="return confirm('Send this submission to sysadmin for approval?');">
+                        <form method="post" action="{{ route('terminal.route-stops.submit', $req) }}" class="d-inline js-tm-submit-sysadmin" data-confirm="Send this submission to sysadmin for approval?">
                             @csrf
                             <button type="submit" class="btn btn-sm btn-warning text-dark" @if(empty($req->stop_configuration)) disabled title="Save stops for each route first" @endif>
                                 <i class="fas fa-user-shield me-1"></i> Send submission #{{ $req->id }} to sysadmin

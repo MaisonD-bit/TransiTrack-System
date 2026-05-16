@@ -57,6 +57,10 @@ class ApprovalController extends Controller
                 'name' => $route->name,
                 'code' => $route->code,
                 'geometry' => $g,
+                'start_location' => $route->start_location ?? '',
+                'end_location' => $route->end_location ?? '',
+                'start_coordinates' => $route->start_coordinates ?? '',
+                'end_coordinates' => $route->end_coordinates ?? '',
                 'stops' => $block['stops'] ?? [],
             ];
         }
@@ -96,7 +100,9 @@ class ApprovalController extends Controller
             'is_read' => false,
         ]);
 
-        return back()->with('success', 'Approved. The bus operator was notified in their Notifications panel.');
+        return redirect()
+            ->route('sysadmin.approvals')
+            ->with('success', 'Approved. The bus operator was notified in their Notifications panel.');
     }
 
     public function decline(Request $request, RouteApprovalRequest $routeApprovalRequest)
@@ -130,7 +136,9 @@ class ApprovalController extends Controller
             'is_read' => false,
         ]);
 
-        return back()->with('success', 'Declined. The bus operator was notified.');
+        return redirect()
+            ->route('sysadmin.approvals')
+            ->with('success', 'Declined. The bus operator was notified.');
     }
 
     private function pendingItems(): Collection
