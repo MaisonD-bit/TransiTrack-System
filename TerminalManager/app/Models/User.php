@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Support\PublicMediaUrl;
 use GetStream\StreamChat\Client as StreamChat;
 
 class User extends Authenticatable
@@ -18,6 +19,7 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $fillable = [
+        'user_id',
         'name',
         'first_name',
         'last_name',
@@ -110,6 +112,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Stream Chat id for terminal manager rows (`managers` table). Prefixed so it never collides with `users.id`.
+     */
+    public function streamUserId(): string
+    {
+        return 'm_'.$this->id;
+    }
+
+    /**
      * Generate a Stream Chat token for the user
      */
     public function getStreamToken(): string
@@ -119,7 +129,7 @@ class User extends Authenticatable
             env('STREAM_API_SECRET')
         );
 
-        return $client->createToken((string)$this->id);
+        return $client->createToken($this->streamUserId());
     }
 
     /**
@@ -129,17 +139,17 @@ class User extends Authenticatable
     {
         // Map your app roles to Stream Chat roles
         $streamRole = match ($this->role) {
-            'admin', 'northBusManager', 'southBusManager' => 'admin',
+            'admin', 'northBusManager', 'southBusManager', 'terminalManager' => 'admin',
             'bus_operator' => 'user',
             'driver' => 'driver',
             default => 'user',
         };
 
         return [
-            'id' => (string) $this->id,
+            'id' => $this->streamUserId(),
             'name' => $this->name,
             'role' => $streamRole,
-            'image' => $this->photo_url ?? null,
+            'image' => PublicMediaUrl::forProfilePhoto($this->photo_url),
         ];
     }
 }

@@ -67,6 +67,13 @@ function clearDateFilter() {
     window.location.href = `/panel/profile/${driverId}`;
 }
 
+function toggleProfileSuspensionDaysField() {
+    const status = document.getElementById('edit_status')?.value;
+    const wrap = document.getElementById('profileSuspensionDaysWrap');
+    if (!wrap) return;
+    wrap.style.display = status === 'suspended' ? 'block' : 'none';
+}
+
 // Edit driver function
 function editDriver(id) {
     const modal = new bootstrap.Modal(document.getElementById('editDriverModal'));
@@ -174,6 +181,7 @@ function performToggleStatus() {
 function saveDriverChanges() {
     const form = document.getElementById('editDriverForm');
     const formData = new FormData(form);
+    formData.append('_method', 'PUT');
     const driverId = document.getElementById('edit_driver_id').value;
     
     const saveBtn = document.getElementById('saveDriverBtn');
@@ -261,6 +269,7 @@ window.performDeleteDriver = performDeleteDriver;
 window.toggleDriverStatus = toggleDriverStatus;
 window.performToggleStatus = performToggleStatus;
 window.saveDriverChanges = saveDriverChanges;
+window.toggleProfileSuspensionDaysField = toggleProfileSuspensionDaysField;
 window.applyDateFilter = applyDateFilter;
 window.clearDateFilter = clearDateFilter;
 
@@ -295,6 +304,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    document.getElementById('editDriverModal')?.addEventListener('shown.bs.modal', toggleProfileSuspensionDaysField);
+
+    document.getElementById('edit_status')?.addEventListener('change', toggleProfileSuspensionDaysField);
+
     // Save button click handler
     document.getElementById('saveDriverBtn')?.addEventListener('click', saveDriverChanges);
     

@@ -28,18 +28,28 @@
     </div>
 
     <div class="route-card">
+      <ion-note color="warning" class="ion-padding-vertical" *ngIf="isRouteSelectionLocked">
+        <ion-icon name="lock-closed-outline"></ion-icon>
+        You have an unpaid ticket. Complete payment to book another trip.
+      </ion-note>
+
       <ion-select
         class="route-select"
         [(ngModel)]="commuterTerminal"
         (ionChange)="onTerminalChange()"
         interface="popover"
         label="Service area (terminal)"
-        labelPlacement="stacked">
+        labelPlacement="stacked"
+        [disabled]="isRouteSelectionLocked">
         <ion-select-option value="north">North terminal</ion-select-option>
         <ion-select-option value="south">South terminal</ion-select-option>
       </ion-select>
 
-      <ion-segment [(ngModel)]="busType" (ionChange)="onBusTypeChange()" class="ion-margin-top">
+      <ion-segment
+        [(ngModel)]="busType"
+        (ionChange)="onBusTypeChange()"
+        class="ion-margin-top"
+        [disabled]="isRouteSelectionLocked">
         <ion-segment-button value="regular">
           <ion-label>Regular</ion-label>
         </ion-segment-button>
@@ -55,7 +65,8 @@
         placeholder="Select your destination"
         interface="popover"
         label="Route"
-        labelPlacement="stacked">
+        labelPlacement="stacked"
+        [disabled]="isRouteSelectionLocked">
         <ion-select-option *ngFor="let route of routes" [value]="route.id">
           {{ route.displayName || route.name }}
         </ion-select-option>
@@ -68,13 +79,18 @@
           (ionChange)="onSegmentStopsChange()"
           interface="popover"
           label="Board at"
-          labelPlacement="stacked">
-          <ion-select-option
-            *ngFor="let s of stopsForSelection; let i = index"
-            [value]="i"
-            [disabled]="stopEtas[i]?.isPassed">
-            {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
-          </ion-select-option>
+          labelPlacement="stacked"
+          [disabled]="isRouteSelectionLocked">
+
+          <ng-container *ngFor="let s of stopsForSelection; let i = index">
+            <ion-select-option
+              *ngIf="i < stopsForSelection.length - 1"
+              [value]="i"
+              [disabled]="stopEtas[i]?.isPassed">
+              {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
+            </ion-select-option>
+          </ng-container>
+
         </ion-select>
 
         <ion-select
@@ -83,13 +99,18 @@
           (ionChange)="onSegmentStopsChange()"
           interface="popover"
           label="Drop off"
-          labelPlacement="stacked">
-          <ion-select-option
-            *ngFor="let s of stopsForSelection; let i = index"
-            [value]="i"
-            [disabled]="i === fromStopIndex || stopEtas[i]?.isPassed">
-            {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
-          </ion-select-option>
+          labelPlacement="stacked"
+          [disabled]="isRouteSelectionLocked">
+
+          <ng-container *ngFor="let s of stopsForSelection; let i = index">
+            <ion-select-option
+              *ngIf="i > 0"
+              [value]="i"
+              [disabled]="i === fromStopIndex || stopEtas[i]?.isPassed">
+              {{ stopLabel(s, i) }}{{ stopEtas[i]?.isPassed ? ' (passed)' : '' }}
+            </ion-select-option>
+          </ng-container>
+
         </ion-select>
       </ng-container>
 
@@ -149,8 +170,10 @@
         </ion-list>
       </div>
 
-      <!-- Boarding request status (auto-created when board-at stop is selected) -->
-      <div class="ion-margin-top boarding-status-wrapper" *ngIf="boardingRequested">
+      <!-- Boarding request status (auto-created when board-at stop is selected).
+           Only relevant pre-booking — once a ticket is generated the commuter is on
+           the manifest via that ticket, not via a "waiting" boarding-request row. -->
+      <div class="ion-margin-top boarding-status-wrapper" *ngIf="boardingRequested && !showTicket">
         <ion-chip color="warning">
           <ion-icon name="time-outline"></ion-icon>
           <ion-label>Waiting at {{ boardingRequestStopName }}…</ion-label>
@@ -176,7 +199,7 @@
   </div>
 
   <!-- Map Section -->
-  <div class="section-wrapper" *ngIf="selectedRoute">
+  <div class="section-wrapper" *ngIf="selectedRoute && !showTripComplete">
     <div class="section-label">
       <ion-icon name="location-outline"></ion-icon>
       <span>Route Map</span>
@@ -215,7 +238,7 @@
   </div>
 
   <!-- Fare & E-Ticket -->
-  <div class="section-wrapper" *ngIf="selectedRoute && !paymentCompleted && selectedScheduleId != null">
+  <div class="section-wrapper" *ngIf="selectedRoute && !paymentCompleted && (selectedScheduleId != null || alightStopReached) && !showTripComplete">
     <div class="routes-card">
       <div class="checkout-fare" *ngIf="selectedRoute && !showTicket">
         <p class="checkout-fare-label">Total Fare</p>
@@ -254,45 +277,50 @@
     </div>
   </div>
 
-  <!-- Trip Complete Card -->
-  <div class="section-wrapper" *ngIf="showTripComplete">
-    <div class="route-card trip-complete-card">
-      <ion-icon name="checkmark-circle" color="success" class="trip-complete-icon"></ion-icon>
-      <h2 class="trip-complete-title">Trip Completed!</h2>
-      <p class="trip-complete-route">{{ completedTripInfo?.routeName }}</p>
-
-      <div class="trip-complete-details">
-        <div class="trip-detail-row" *ngIf="completedTripInfo?.boardStopName || completedTripInfo?.alightStopName">
-          <ion-icon name="navigate-outline" color="primary" class="trip-detail-icon"></ion-icon>
-          <div>
-            <small class="trip-detail-meta">Journey</small>
-            <strong>{{ completedTripInfo?.boardStopName || '—' }} → {{ completedTripInfo?.alightStopName || '—' }}</strong>
-          </div>
-        </div>
-        <div class="trip-detail-row">
-          <ion-icon name="cash-outline" color="success" class="trip-detail-icon"></ion-icon>
-          <div>
-            <small class="trip-detail-meta">Fare Paid</small>
-            <strong>₱{{ (completedTripInfo?.fare ?? 0) | number:'1.2-2' }}</strong>
-          </div>
-        </div>
-        <div class="trip-detail-row" *ngIf="completedTripInfo?.driverName">
-          <ion-icon name="person-outline" color="primary" class="trip-detail-icon"></ion-icon>
-          <div>
-            <small class="trip-detail-meta">Driver</small>
-            <strong>{{ completedTripInfo!.driverName }}</strong>
-          </div>
-        </div>
-      </div>
-
-      <ion-button expand="block" color="primary" (click)="bookAnotherTrip()">
-        <ion-icon slot="start" name="bus-outline"></ion-icon>
-        Book Another Trip
-      </ion-button>
-    </div>
-  </div>
 
 </ion-content>
+
+<!-- Trip Complete Modal -->
+<ion-modal [isOpen]="showTripComplete" [backdropDismiss]="false">
+  <ng-template>
+    <ion-content class="ion-padding">
+      <div class="trip-complete-card" style="padding-top: 48px;">
+        <ion-icon name="checkmark-circle" color="success" class="trip-complete-icon"></ion-icon>
+        <h2 class="trip-complete-title">Trip Completed!</h2>
+        <p class="trip-complete-route">{{ completedTripInfo?.routeName }}</p>
+
+        <div class="trip-complete-details">
+          <div class="trip-detail-row" *ngIf="completedTripInfo?.boardStopName || completedTripInfo?.alightStopName">
+            <ion-icon name="navigate-outline" color="primary" class="trip-detail-icon"></ion-icon>
+            <div>
+              <small class="trip-detail-meta">Journey</small>
+              <strong>{{ completedTripInfo?.boardStopName || '—' }} → {{ completedTripInfo?.alightStopName || '—' }}</strong>
+            </div>
+          </div>
+          <div class="trip-detail-row">
+            <ion-icon name="cash-outline" color="success" class="trip-detail-icon"></ion-icon>
+            <div>
+              <small class="trip-detail-meta">Fare Paid</small>
+              <strong>₱{{ (completedTripInfo?.fare ?? 0) | number:'1.2-2' }}</strong>
+            </div>
+          </div>
+          <div class="trip-detail-row" *ngIf="completedTripInfo?.driverName">
+            <ion-icon name="person-outline" color="primary" class="trip-detail-icon"></ion-icon>
+            <div>
+              <small class="trip-detail-meta">Driver</small>
+              <strong>{{ completedTripInfo!.driverName }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <ion-button expand="block" color="primary" (click)="bookAnotherTrip()">
+          <ion-icon slot="start" name="bus-outline"></ion-icon>
+          Book Another Trip
+        </ion-button>
+      </div>
+    </ion-content>
+  </ng-template>
+</ion-modal>
 
 <!-- Driver Rating Modal -->
 <ion-modal [isOpen]="showRatingModal" [backdropDismiss]="false">

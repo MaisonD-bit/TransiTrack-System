@@ -70,19 +70,35 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   private busSimulationSubscription: Subscription | null = null;
   /** Avoid duplicate POST /commuter/alight for the same ride. */
   private alightNotified: boolean = false;
-  /** Prevents re-triggering the stop arrival when bus lingers near the stop. */
-  private alightStopReached: boolean = false;
+  /** Prevents re-triggering the stop arrival when bus lingers near the stop.
+   *  Public so the template can keep the e-ticket section visible at an unpaid
+   *  arrival (after the bus disappears from the live-buses list). */
+  alightStopReached: boolean = false;
   /** Pending payment waiting for Maya popup result. */
-  private pendingMayaPayment: { payment: ScannedPayment; fare: number; referenceNumber?: string } | null = null;
+  private pendingMayaPayment: { payment: ScannedPayment; fare: number; referenceNumber?: string; checkoutId?: string } | null = null;
   /** Avoid spamming unpaid reminders when approaching the stop. */
   private paymentReminderShown: boolean = false;
   /** True once the selected bus reaches the boarding stop (commuter can board). */
   private boardingStopReached: boolean = false;
   /** Exposed to template so e-ticket can lock the cancel button once boarded */
   get isBoarded(): boolean { return this.boardingStopReached; }
+  /** Lock the route picker only when the commuter has actually arrived at their
+   *  drop-off without paying. Pre-arrival they can still browse routes (and the
+   *  ticket sits dormant on the home tab); locking earlier was firing prematurely
+   *  for tickets whose bus hadn't even started its leg yet. */
+  get isRouteSelectionLocked(): boolean {
+    return this.alightStopReached && !this.paymentCompleted;
+  }
+  /** True whenever the commuter has any in-flight trip state — booked, paid en-route,
+   *  or arrived. Used as the cleanup guard so transient poll misses don't wipe state. */
+  private get isTripActive(): boolean {
+    return this.showTicket || this.paymentCompleted || this.alightStopReached;
+  }
   private paymentNagInterval: any = null;
   private destPaymentReminderShown = false;
   private terminalDepartReminderShown = false;
+  /** True once we've notified the commuter they missed the bus at the terminal. */
+  private missedBusReminderShown = false;
   // Post-trip UI state
   showRatingModal: boolean = false;
   showTripComplete: boolean = false;
@@ -215,55 +231,105 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       boardingRequested: this.boardingRequested,
       boardingRequestStopName: this.boardingRequestStopName,
       ticketPersistedToBackend: this.ticketPersistedToBackend,
+      alightStopReached: this.alightStopReached,
+      completedTripInfo: this.completedTripInfo,
     }));
   }
 
   private restoreActiveTrip(): void {
+    if (!this.routes.length) return;
+
     const raw = localStorage.getItem(this.getTripStateKey());
-    if (!raw) {
-      // No saved state — cancel any orphaned boarding requests only once routes are loaded.
-      // If routes haven't arrived yet (empty BehaviorSubject emission), skip and wait.
-      if (this.routes.length > 0) {
-        this.cancelStaleMyBoardingRequests();
+    if (raw) {
+      try {
+        const s = JSON.parse(raw);
+        const route = this.routes.find(r => String(r.id) === String(s.selectedRouteId));
+        if (route) {
+          this.applyTripState(s, route);
+          // Reconcile with backend in the background. If the backend has alighted
+          // (or never knew about) this ticket — e.g. the driver ended the leg or
+          // a Maya webhook flipped payment to paid — sync to the authoritative state
+          // so the commuter isn't stuck on a stale local snapshot.
+          this.reconcileTripStateWithBackend();
+          return;
+        }
+      } catch {
+        localStorage.removeItem(this.getTripStateKey());
       }
-      return;
     }
-    if (!this.routes.length) {
-      // Saved state exists but routes haven't loaded yet — wait for next emission.
-      return;
-    }
-    try {
-      const s = JSON.parse(raw);
-      const route = this.routes.find(r => String(r.id) === String(s.selectedRouteId));
-      if (!route) return;
-      this.selectedRouteId = s.selectedRouteId;
-      this.selectedRoute = route;
-      this.isSelectedBusReturn = !!route.isReturnTripOption;
-      this.ticketId = s.ticketId || '';
-      this.ticketFare = s.ticketFare ?? null;
-      this.showTicket = s.showTicket ?? false;
-      this.paymentCompleted = s.paymentCompleted ?? false;
-      this.selectedScheduleId = s.selectedScheduleId ?? null;
-      this.toStopIndex = s.toStopIndex ?? 0;
-      this.fromStopIndex = s.fromStopIndex ?? 0;
-      this.ticketDestination = s.ticketDestination ?? null;
-      this.discountPercent = s.discountPercent ?? 0;
-      this.discountAmount = s.discountAmount ?? 0;
-      this.ticketOperatorCompany = s.ticketOperatorCompany || '';
-      this.ticketBusLabel = s.ticketBusLabel || '';
-      this.boardingRequestId = s.boardingRequestId ?? null;
-      this.boardingRequested = s.boardingRequested ?? false;
-      this.boardingRequestStopName = s.boardingRequestStopName || '';
-      this.ticketPersistedToBackend = s.ticketPersistedToBackend ?? false;
-      this.syncStopPinsForMap();
-      this.updateMapDirectionAssets();
-      this.startLiveBusPoll();
-      if (this.showTicket) {
-        this.startBusSimulation();
-      }
-    } catch {
-      localStorage.removeItem(this.getTripStateKey());
+
+    // localStorage empty or route not found — recover from backend
+    const commuterId = this.getCommuterId();
+    if (!commuterId) {
       this.cancelStaleMyBoardingRequests();
+      return;
+    }
+    this.commuterService.getActiveTicket(commuterId).subscribe({
+      next: (res) => {
+        if (!res?.ticket) {
+          this.cancelStaleMyBoardingRequests();
+          return;
+        }
+        const t = res.ticket;
+        const route = this.routes.find(r => String(r.id) === String(t.route_id));
+        if (!route) return;
+        this.applyTripState({
+          selectedRouteId: String(t.route_id),
+          ticketId: t.public_ticket_id,
+          ticketFare: t.fare,
+          showTicket: true,
+          paymentCompleted: false,
+          selectedScheduleId: t.schedule_id,
+          fromStopIndex: t.from_stop_index ?? 0,
+          toStopIndex: t.to_stop_index ?? 0,
+          ticketDestination: route.name ?? null,
+          discountPercent: 0,
+          discountAmount: 0,
+          ticketOperatorCompany: '',
+          ticketBusLabel: '',
+          boardingRequestId: null,
+          boardingRequested: false,
+          boardingRequestStopName: '',
+          ticketPersistedToBackend: true,
+        }, route);
+        this.saveActiveTrip();
+      },
+      error: () => this.cancelStaleMyBoardingRequests(),
+    });
+  }
+
+  private applyTripState(s: any, route: any): void {
+    this.selectedRouteId = s.selectedRouteId;
+    this.selectedRoute = route;
+    this.isSelectedBusReturn = !!route.isReturnTripOption;
+    this.ticketId = s.ticketId || '';
+    this.ticketFare = s.ticketFare ?? null;
+    this.showTicket = s.showTicket ?? false;
+    this.paymentCompleted = s.paymentCompleted ?? false;
+    this.selectedScheduleId = s.selectedScheduleId ?? null;
+    const routeStopCount = (route.stops?.length ?? 0);
+    this.fromStopIndex = s.fromStopIndex ?? 0;
+    this.toStopIndex = (s.toStopIndex != null && s.toStopIndex > 0)
+      ? s.toStopIndex
+      : Math.max(1, routeStopCount - 1);
+    this.ticketDestination = s.ticketDestination ?? null;
+    this.discountPercent = s.discountPercent ?? 0;
+    this.discountAmount = s.discountAmount ?? 0;
+    this.ticketOperatorCompany = s.ticketOperatorCompany || '';
+    this.ticketBusLabel = s.ticketBusLabel || '';
+    this.boardingRequestId = s.boardingRequestId ?? null;
+    this.boardingRequested = s.boardingRequested ?? false;
+    this.boardingRequestStopName = s.boardingRequestStopName || '';
+    this.ticketPersistedToBackend = s.ticketPersistedToBackend ?? false;
+    this.alightStopReached = !!s.alightStopReached;
+    if (s.completedTripInfo) {
+      this.completedTripInfo = s.completedTripInfo;
+    }
+    this.syncStopPinsForMap();
+    this.updateMapDirectionAssets();
+    this.startLiveBusPoll();
+    if (this.showTicket) {
+      this.startBusSimulation();
     }
   }
 
@@ -412,25 +478,57 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.autoAdvanceBoardingStop();
   }
 
-  /** If the bus has passed the commuter's currently-selected Board At stop, silently advance
-   *  to the next available (non-passed, non-last) stop so the selection stays valid. */
+  /** If the bus has passed the commuter's currently-selected Board At stop, advance
+   *  to the next available (non-passed, non-last) stop so the selection stays valid.
+   *  Special cases:
+   *   - Terminal stop (index 0): never auto-shift; surface as missed bus.
+   *   - No valid next stop (current is the last intermediate before the destination):
+   *     surface as missed bus and cancel the stale boarding request. */
   private autoAdvanceBoardingStop(): void {
-    if (this.showTicket || this.paymentCompleted) return; // already boarded — don't change
+    if (this.showTicket || this.paymentCompleted) return; // already booked — don't change
     if (!this.stopEtas.length) return;
     const stops = this.getStopsForSelection();
     if (!stops || stops.length < 2) return;
     if (!this.stopEtas[this.fromStopIndex]?.isPassed) return; // current stop still ahead
 
-    // Find the first stop that is neither passed nor the last stop (last = terminus/destination)
+    if (this.fromStopIndex === 0) {
+      this.notifyMissedBus(
+        'The bus has departed the terminal without you. Please wait for the next bus or pick a stop further down the route.'
+      );
+      return;
+    }
+
     const nextIdx = this.stopEtas.findIndex(
       (e, i) => !e.isPassed && i < stops.length - 1
     );
-    if (nextIdx < 0 || nextIdx === this.fromStopIndex) return;
+    if (nextIdx < 0 || nextIdx === this.fromStopIndex) {
+      this.notifyMissedBus(
+        'The bus has passed your stop and there are no more stops where you can board. Please wait for the next bus.'
+      );
+      return;
+    }
 
     this.fromStopIndex = nextIdx;
-    // Ensure toStopIndex is always strictly after fromStopIndex
     if (this.toStopIndex <= this.fromStopIndex) {
       this.toStopIndex = Math.min(this.fromStopIndex + 1, stops.length - 1);
+    }
+    // Re-flag the boarding request against the new stop so the driver's waiting marker moves with us.
+    if (this.selectedScheduleId && this.boardingRequested) {
+      this.autoFlagForBoarding();
+    }
+  }
+
+  /** Shared missed-bus handler: popup + clean up the orphaned waiting boarding request. */
+  private notifyMissedBus(message: string): void {
+    if (this.missedBusReminderShown) return;
+    this.missedBusReminderShown = true;
+    void this.presentBusArrivedAlert('You Missed the Bus', message);
+    if (this.boardingRequestId) {
+      this.commuterService.cancelBoardingRequest(this.boardingRequestId).subscribe({ error: () => {} });
+      this.boardingRequestId = null;
+      this.boardingRequested = false;
+      this.boardingRequestStopName = '';
+      this.saveActiveTrip();
     }
   }
 
@@ -590,6 +688,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.paymentReminderShown = false;
     this.destPaymentReminderShown = false;
     this.terminalDepartReminderShown = false;
+    this.missedBusReminderShown = false;
     this.alightStopReached = false;
     this.alightNotified = false;
     this.boardingStopReached = false;
@@ -673,6 +772,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const stops = this.getStopsForSelection();
     if (!stops.length) return;
     this.boardingStopReached = false;
+    this.missedBusReminderShown = false;
     const max = stops.length - 1;
     if (this.fromStopIndex < 0) this.fromStopIndex = 0;
     if (this.fromStopIndex > max) this.fromStopIndex = max;
@@ -752,7 +852,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.liveBusMapPins = [];
       return;
     }
-    this.commuterService.getLiveBuses(String(apiRouteId), this.commuterTerminal).subscribe({
+    const direction: 'outbound' | 'return' = this.selectedRoute?.isReturnTripOption ? 'return' : 'outbound';
+    this.commuterService.getLiveBuses(String(apiRouteId), this.commuterTerminal, direction).subscribe({
       next: (res) => {
         if (!res.success || !Array.isArray(res.buses)) {
           this.liveBuses = [];
@@ -767,13 +868,18 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
         this.checkBoardingFromLivePosition();
         if (
           this.selectedScheduleId != null &&
-          !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId)
+          !this.liveBuses.some((b) => b.schedule_id === this.selectedScheduleId) &&
+          !this.isTripActive
         ) {
+          // Only clear the selection when no active trip state remains. isTripActive
+          // covers all three failure modes that previously caused silent wipes:
+          //   - en-route booked unpaid (showTicket=true)
+          //   - paid mid-trip (paymentCompleted=true, showTicket=false)
+          //   - arrived unpaid (alightStopReached=true)
           this.selectedScheduleId = null;
           this.updateSelectedBusDirection();
           this.updateMapDirectionAssets();
           this.boardingStopReached = false;
-          this.showTicket = false;
           this.updateLiveBusMapPins();
           this.saveActiveTrip();
         }
@@ -830,6 +936,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     }
     this.selectedScheduleId = b.schedule_id;
     this.showTicket = true;
+    this.boardingStopReached = false;
+    this.missedBusReminderShown = false;
     this.updateLiveBusMapPins();
     this.updateSelectedBusDirection();
     this.updateMapDirectionAssets();
@@ -891,6 +999,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   private autoFlagForBoarding(): void {
     if (!this.selectedRoute || !this.selectedScheduleId) return;
+    // Once a ticket has been persisted, the commuter is on the driver manifest via
+    // the ticket itself — they don't need (and must NOT have) a separate "waiting"
+    // boarding-request row. Creating one here after booking was the source of the
+    // phantom purple marker that lingered even though the commuter was aboard.
+    if (this.ticketPersistedToBackend) return;
     const stops = this.getStopsForSelection();
     if (stops && stops.length >= 2 && this.fromStopIndex === this.toStopIndex) return;
 
@@ -1034,6 +1147,17 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       position: 'top'
     });
     toast.present();
+  }
+
+  /** Blocking popup shown when the live bus reaches the commuter's boarding or drop-off stop. */
+  private async presentBusArrivedAlert(header: string, message: string): Promise<void> {
+    const alert = await this.alertController.create({
+      header,
+      message,
+      backdropDismiss: false,
+      buttons: [{ text: 'OK', role: 'cancel' }],
+    });
+    await alert.present();
   }
 
   /** Confirm route, fare, and payment before calling the booking APIs. */
@@ -1194,7 +1318,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
     this.alightNotified = true;
-    this.commuterService.alight(this.ticketId).subscribe({
+    this.commuterService.alight(this.ticketId, this.getCommuterId()).subscribe({
       error: (err) => console.warn('alight request failed', err),
     });
   }
@@ -1236,12 +1360,20 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           this.discountPercent = discountPercent;
           this.discountAmount = discountAmount;
           this.ticketPersistedToBackend = true;
+          // Clear the "waiting at stop" frontend state — the backend just transitioned
+          // any matching BoardingRequest from 'waiting' to 'boarded' inside bookTicket(),
+          // and the commuter is now on the manifest via the ticket itself. Leaving the
+          // flag set would keep the chip + driver's purple marker active.
+          this.boardingRequested = false;
+          this.boardingRequestId = null;
+          this.boardingRequestStopName = '';
+          this.boardingReqInFlight = false;
+          this.boardingReqPendingRetry = false;
           this.syncTicketBusLabelsForETicket();
           this.saveInProgressTripSnapshot(finalFare);
           this.showTicket = true;
           this.saveActiveTrip();
           this.startBusSimulation();
-          this.startPaymentNag();
           let message = `e-Ticket generated! Fare: ₱${finalFare.toFixed(2)}`;
           if (discountAmount > 0) {
             message += ` (${passengerType} discount: -₱${discountAmount})`;
@@ -1362,10 +1494,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private async openMayaCheckout(payment: ScannedPayment, fare: number) {
-    // CRITICAL: Open blank popup NOW while in user gesture context
-    // Then navigate to checkout URL after fetching it (avoids browser popup blocking)
+    // Open the popup synchronously inside the user gesture; navigate it later
+    // once we have the Maya checkout URL (avoids browser popup blocking).
     const popup = window.open('', 'maya_payment', 'width=520,height=680,left=200,top=100');
-    
+
     if (!popup || popup.closed) {
       void this.showToast('Popup blocked. Please allow popups for this site and try again.', 'warning');
       return;
@@ -1384,8 +1516,6 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       commuter_name: commuterName,
     });
 
-    console.log('[PayMaya] createCheckout response:', result);
-
     await loading.dismiss();
 
     if (!result.success || !result.checkout_url) {
@@ -1395,66 +1525,186 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       return;
     }
 
-    // Store app origin in localStorage so the callback page can redirect back if popup is blocked
     localStorage.setItem('transittrack_app_origin', window.location.origin);
 
-    // Remove any previous listener
-    if (this.mayaMessageHandler) {
-      window.removeEventListener('message', this.mayaMessageHandler);
-    }
-
-    this.pendingMayaPayment = { payment, fare, referenceNumber: result.reference_number };
-
-    // Listen for the result posted by the Maya callback page
-    this.mayaMessageHandler = (event: MessageEvent) => {
-      if (event.data?.type !== 'MAYA_PAYMENT_RESULT') return;
-      window.removeEventListener('message', this.mayaMessageHandler!);
-      this.mayaMessageHandler = null;
-
-      this.ngZone.run(async () => {
-        const { status } = event.data;
-        const pending = this.pendingMayaPayment;
-        this.pendingMayaPayment = null;
-
-        if (status === 'success' && pending) {
-          await this.completeBooking(pending.payment, 'paymaya', pending.fare, pending.referenceNumber ?? null);
-        } else if (status === 'cancelled') {
-          void this.showPaymentFailedAlert('Payment cancelled', 'Your PayMaya payment was cancelled. You can try again or choose a different payment method.');
-        } else {
-          void this.showPaymentFailedAlert('Payment not completed', 'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.');
-        }
-      });
-    };
-
-    window.addEventListener('message', this.mayaMessageHandler);
-
-    // Navigate the already-open popup to the checkout URL
-    console.log('[PayMaya] Navigating popup to:', result.checkout_url);
-    popup.location.href = result.checkout_url;
-
-    // Poll popup.closed as fallback — handles the case where the callback page
-    // closes the window without postMessage getting through
     const ticketRef = payment.ticketIdOverride || this.ticketId;
-    const pollInterval = setInterval(() => {
-      if (!popup.closed) return;
-      clearInterval(pollInterval);
+    const checkoutId = result.checkout_id;
+    const referenceNumber = result.reference_number;
+
+    this.pendingMayaPayment = { payment, fare, referenceNumber, checkoutId };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Single-resolve pattern: three potential success/failure signals
+    // (postMessage, popup-closed poll + localStorage / backend / Maya query)
+    // race each other. Only the first wins; the rest see `resolved` and exit.
+    // This kills the bug where postMessage said success but the poll had
+    // already cleared `pendingMayaPayment` and showed the failure alert.
+    // ─────────────────────────────────────────────────────────────────────
+    let resolved = false;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
       if (this.mayaMessageHandler) {
         window.removeEventListener('message', this.mayaMessageHandler);
         this.mayaMessageHandler = null;
       }
-      const pending = this.pendingMayaPayment;
-      this.pendingMayaPayment = null;
-      if (!pending) return;
-
-      // Check localStorage flag set by the callback page
-      const paidTicket = localStorage.getItem('maya_paid_ticket');
-      if (paidTicket === ticketRef) {
-        localStorage.removeItem('maya_paid_ticket');
-        this.ngZone.run(() => this.completeBooking(pending.payment, 'paymaya', pending.fare, pending.referenceNumber ?? null));
-      } else {
-        this.ngZone.run(() => this.showPaymentFailedAlert('Payment not completed', 'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.'));
+      if (pollInterval !== null) {
+        clearInterval(pollInterval);
+        pollInterval = null;
       }
+    };
+
+    const resolveSuccess = async (source: string) => {
+      if (resolved) return;
+      resolved = true;
+      console.log('[PayMaya] resolved success via', source);
+      cleanup();
+      const pending = this.pendingMayaPayment ?? { payment, fare, referenceNumber, checkoutId };
+      this.pendingMayaPayment = null;
+      await this.completeBooking(pending.payment, 'paymaya', pending.fare, pending.referenceNumber ?? null);
+    };
+
+    const resolveFailure = (reason: 'cancelled' | 'failed', source: string) => {
+      if (resolved) return;
+      resolved = true;
+      console.log('[PayMaya] resolved failure via', source, 'reason:', reason);
+      cleanup();
+      this.pendingMayaPayment = null;
+      if (reason === 'cancelled') {
+        void this.showPaymentFailedAlert(
+          'Payment cancelled',
+          'Your PayMaya payment was cancelled. You can try again or choose a different payment method.'
+        );
+      } else {
+        void this.showPaymentFailedAlert(
+          'Payment not completed',
+          'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.'
+        );
+      }
+    };
+
+    // Two-stage reconciliation: ask our backend first (cheap, fast). If our DB
+    // hasn't been updated (the success callback never reached us — common when
+    // APP_URL is wrong or the user closed the popup before the redirect fired),
+    // ask Maya directly via the checkout-status endpoint, which also flips
+    // our DB if Maya reports paid.
+    const verifyOrQueryMaya = async (): Promise<boolean> => {
+      if (await this.verifyMayaPaymentSettled(ticketRef)) return true;
+      if (!checkoutId) return false;
+      const status = await this.paymentService.getMayaCheckoutStatus(checkoutId);
+      return status.paid;
+    };
+
+    // Drop any stale handler from a previous attempt, then install ours.
+    if (this.mayaMessageHandler) {
+      window.removeEventListener('message', this.mayaMessageHandler);
+    }
+    this.mayaMessageHandler = (event: MessageEvent) => {
+      if (event.data?.type !== 'MAYA_PAYMENT_RESULT') return;
+      const { status } = event.data;
+      this.ngZone.run(async () => {
+        if (status === 'success') {
+          await resolveSuccess('postMessage:success');
+        } else if (status === 'cancelled') {
+          resolveFailure('cancelled', 'postMessage:cancelled');
+        } else {
+          // 'failed' / unknown — still verify with backend + Maya before declaring failure.
+          if (await verifyOrQueryMaya()) {
+            await resolveSuccess('postMessage:failed→verify');
+          } else {
+            resolveFailure('failed', 'postMessage:failed');
+          }
+        }
+      });
+    };
+    window.addEventListener('message', this.mayaMessageHandler);
+
+    console.log('[PayMaya] Navigating popup to:', result.checkout_url);
+    popup.location.href = result.checkout_url;
+
+    // Poll for popup close. We don't tear down the postMessage handler here —
+    // it stays alive so a slightly-late success message can still win.
+    pollInterval = setInterval(() => {
+      if (!popup.closed || resolved) return;
+
+      // 2.5s grace gives postMessage / Maya's webhook / our success endpoint
+      // time to land before we resort to verify+Maya-query.
+      setTimeout(async () => {
+        if (resolved) return;
+
+        const paidTicket = localStorage.getItem('maya_paid_ticket');
+        if (paidTicket === ticketRef) {
+          localStorage.removeItem('maya_paid_ticket');
+          await resolveSuccess('poll:localStorage');
+          return;
+        }
+
+        if (await verifyOrQueryMaya()) {
+          await resolveSuccess('poll:verify');
+        } else {
+          resolveFailure('failed', 'poll:verify-failed');
+        }
+      }, 2500);
     }, 800);
+  }
+
+  /**
+   * Last-chance check after the Maya popup closes: ask the backend whether this ticket
+   * actually settled. Closes the race where Maya succeeded but postMessage / localStorage
+   * never reached the parent before the failure alert would fire.
+   */
+  /**
+   * After applying localStorage trip state, reconcile with the backend.
+   *   - If the backend has no active ticket (or a different one) for this commuter,
+   *     wipe local state — the trip ended somewhere else (driver completed the leg,
+   *     ticket was force-alighted, etc.) and we shouldn't keep the stale home-tab UI.
+   *   - If the backend says payment_status is paid but locally we still think it's
+   *     unpaid (e.g. a Maya webhook landed between sessions), sync the flag so the
+   *     route picker unlocks and the trip can complete normally.
+   */
+  private reconcileTripStateWithBackend(): void {
+    if (!this.ticketId) return;
+    const commuterId = this.getCommuterId();
+    if (!commuterId) return;
+
+    this.commuterService.getActiveTicket(commuterId).subscribe({
+      next: (res) => {
+        const t = res?.ticket;
+        if (!t || t.public_ticket_id !== this.ticketId) {
+          // Backend doesn't recognize this trip anymore — clear without firing the rating flow.
+          this.completePostArrivalCleanup({ silent: true });
+          return;
+        }
+        if (t.payment_status === 'paid' && !this.paymentCompleted) {
+          // Payment landed out-of-band — adopt it so the lock lifts.
+          this.paymentCompleted = true;
+          if (this.alightStopReached) {
+            setTimeout(() => this.completePostArrivalCleanup(), 1500);
+          } else {
+            this.showTicket = false;
+          }
+          this.saveActiveTrip();
+        }
+      },
+      error: () => { /* backend unreachable — keep local snapshot */ },
+    });
+  }
+
+  private verifyMayaPaymentSettled(ticketRef: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const commuterId = this.getCommuterId();
+      if (!commuterId || !ticketRef) {
+        resolve(false);
+        return;
+      }
+      this.commuterService.getActiveTicket(commuterId).subscribe({
+        next: (res) => {
+          const t = res?.ticket;
+          resolve(!!(t && t.public_ticket_id === ticketRef && t.payment_status === 'paid'));
+        },
+        error: () => resolve(false),
+      });
+    });
   }
 
   private async showPaymentFailedAlert(header: string, message: string): Promise<void> {
@@ -1497,7 +1747,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
     // Mark the ticket as paid on the backend so the driver manifest reflects it
     if (ticketId && methodType !== 'cash') {
-      this.commuterService.markTicketPaid(ticketId, methodType).subscribe({
+      this.commuterService.markTicketPaid(ticketId, methodType, this.getCommuterId()).subscribe({
         error: (err) => console.warn('markTicketPaid failed', err)
       });
     }
@@ -1535,17 +1785,24 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       }
     }
 
-    // Hide fare/ticket UI but keep route so the map stays visible
     this.stopPaymentNag();
-    this.showTicket = false;
     this.paymentCompleted = true;
     this.paymentReminderShown = false;
-    this.ticketFare = null;
-    this.ticketId = '';
     this.saveActiveTrip(); // persist so refresh doesn't re-show the payment screen
 
     const label = methodType === 'card' ? 'Card' : methodType === 'gcash' ? 'GCash' : methodType === 'paymaya' ? 'PayMaya' : 'Cash';
     void this.showToast(`Payment confirmed via ${label}. Check Trip History for your receipt.`, 'success');
+
+    // If the commuter already arrived at their drop-off but couldn't proceed because
+    // the trip was unpaid, run the post-arrival cleanup now that payment cleared.
+    // (ticketId is kept above so notifyAlighted() inside the cleanup still has a value.)
+    if (this.alightStopReached) {
+      setTimeout(() => this.completePostArrivalCleanup(), 1500);
+      return;
+    }
+
+    // Paid mid-trip — hide the e-ticket card; route/map stay visible until drop-off.
+    this.showTicket = false;
   }
 
   async closeTicket() {
@@ -1587,20 +1844,24 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   /** Completes local trip + notifies operator; call when commuter confirms they have alighted. */
   private finalizeTripFromTicket(): void {
     const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
+    // Use getStopsForSelection() so return-trip commuters get the reversed/return stop list
+    // — selectedRoute.stops is always the outbound order and would mislabel both ends.
+    const displayStops = this.getStopsForSelection();
     this.completedTripInfo = {
       routeName: this.selectedRoute?.name || '',
       fare: this.ticketFare ?? this.selectedRoute?.basefare ?? 0,
       driverName: bus?.driver_name || 'Your Driver',
       scheduleId: this.selectedScheduleId,
       ticketId: this.ticketId,
-      boardStopName: this.selectedRoute?.stops?.[this.fromStopIndex]?.name || '',
-      alightStopName: this.selectedRoute?.stops?.[this.toStopIndex]?.name || '',
+      boardStopName: displayStops?.[this.fromStopIndex]?.name || '',
+      alightStopName: displayStops?.[this.toStopIndex]?.name || '',
     };
 
     this.resetBoardingRequest();
     this.stopPaymentNag();
     this.destPaymentReminderShown = false;
     this.terminalDepartReminderShown = false;
+    this.missedBusReminderShown = false;
     this.notifyAlighted();
     if (this.ticketId) {
       const arrived = new Date().toISOString();
@@ -1880,13 +2141,25 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (!this.showTicket && !this.paymentCompleted) return;
     if (!this.selectedScheduleId) return;
 
-    const destStop = this.selectedRoute?.stops?.[this.toStopIndex];
+    // CRITICAL: use the displayed stop list (which is reversed for return-trip selections),
+    // NOT selectedRoute.stops (always outbound order). Otherwise a commuter on a return
+    // option ("Liloan → Cebu") with drop-off = Cebu would resolve to Liloan instead, and
+    // the bus sitting at Liloan (pre-return-leg start) would fire a false "arrived" popup.
+    const displayStops = this.getStopsForSelection();
+    const destStop = displayStops?.[this.toStopIndex];
     if (!destStop) return;
     const dLng = Number(destStop.lng), dLat = Number(destStop.lat);
     if (isNaN(dLng) || isNaN(dLat)) return;
 
     const selectedBus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
     if (!selectedBus?.position) return;
+
+    // Don't fire arrival logic until the bus's leg is actually active. A schedule that
+    // just finished its outbound leg sits at the terminus with status='active' but
+    // leg_status='pending' until the driver taps Start Return Trip — its reported
+    // position is stale (the terminus) and would trigger spurious "near destination" /
+    // "arrived" popups for commuters whose ticket was for the still-not-started leg.
+    if ((selectedBus.leg_status ?? 'pending') !== 'active') return;
 
     const dist = new mapboxgl.LngLat(selectedBus.position.lng, selectedBus.position.lat)
       .distanceTo(new mapboxgl.LngLat(dLng, dLat));
@@ -1898,47 +2171,90 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       this.startPaymentNag();
     }
 
+    if (dist > 500) return; // bus still en route
+
+    // Within 500m — bus has arrived at the commuter's drop-off stop
+    this.alightStopReached = true;
+
+    const arrivedBus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
+    this.completedTripInfo = {
+      routeName: this.selectedRoute?.name || '',
+      fare: this.ticketFare ?? this.selectedRoute?.basefare ?? 0,
+      driverName: arrivedBus?.driver_name || 'Your Driver',
+      scheduleId: this.selectedScheduleId,
+      ticketId: this.ticketId,
+      boardStopName: displayStops?.[this.fromStopIndex]?.name || '',
+      alightStopName: displayStops?.[this.toStopIndex]?.name || '',
+    };
+
+    this.stopLiveBusPoll();
+    const dropName = this.completedTripInfo.alightStopName || 'your destination';
+
     if (!this.paymentCompleted) {
-      this.ensurePaymentBeforeAlight();
+      // UNPAID arrival: keep the e-ticket on the home tab, lock the route picker,
+      // and persist the arrived state so it survives a refresh. The trip ends only
+      // when the commuter pays — completeBooking() will then run completePostArrivalCleanup().
+      void this.presentBusArrivedAlert(
+        'Arrived — Payment Required',
+        `The bus has reached ${dropName}. Please complete your fare payment now. You cannot book another trip until this ticket is paid.`
+      );
+      this.startPaymentNag();
+      this.saveActiveTrip();
       return;
     }
 
-    if (dist <= 500) { // within 500 m of the terminal-defined stop
-      this.alightStopReached = true;
+    // PAID arrival: standard post-trip flow.
+    void this.presentBusArrivedAlert(
+      'Arrived at Your Destination',
+      `The bus has arrived at ${dropName}. Please prepare to alight.`
+    );
+    setTimeout(() => this.completePostArrivalCleanup(), 5000);
+  }
 
-      // Capture trip info before clearing state
-      const arrivedBus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
-      this.completedTripInfo = {
-        routeName: this.selectedRoute?.name || '',
-        fare: this.ticketFare ?? this.selectedRoute?.basefare ?? 0,
-        driverName: arrivedBus?.driver_name || 'Your Driver',
-        scheduleId: this.selectedScheduleId,
-        ticketId: this.ticketId,
-        boardStopName: this.selectedRoute?.stops?.[this.fromStopIndex]?.name || '',
-        alightStopName: this.selectedRoute?.stops?.[this.toStopIndex]?.name || '',
-      };
-
-      this.stopLiveBusPoll(); // freeze the marker for 5 seconds
-      void this.showToast('Arriving at your stop! Please prepare to get off.', 'warning');
-      setTimeout(() => {
-        this.notifyAlighted();
-        void this.showToast('You have arrived at your stop. Have a safe trip!', 'success');
-        // Clear active trip state — map/ticket sections disappear via *ngIf="selectedRoute"
-        this.showTicket = false;
-        this.paymentCompleted = false;
-        this.selectedRoute = null;
-        this.selectedRouteId = '';
-        this.ticketFare = null;
-        this.ticketId = '';
-        this.stopBusSimulation();
-        this.liveBuses = [];
-        this.liveBusMapPins = [];
-        this.syncStopPinsForMap();
-        localStorage.removeItem(this.getTripStateKey());
-        this.selectedRating = 0;
-        this.ratingComment = '';
-        this.showRatingModal = true;
-      }, 5000);
+  /** Tear down the active trip after a paid arrival. Triggered either by the 5-second
+   *  delay after arrival, or by completeBooking() once a delayed payment lands.
+   *  Mirrors finalizeTripFromTicket() so both code paths leave state in the same
+   *  shape — otherwise leftover flags from this path break the next trip. */
+  private completePostArrivalCleanup(options: { silent?: boolean } = {}): void {
+    const arrivedTicketId = this.ticketId;
+    this.notifyAlighted();
+    if (!options.silent) {
+      void this.showToast('You have arrived at your stop. Have a safe trip!', 'success');
+    }
+    if (arrivedTicketId) {
+      const arrived = new Date().toISOString();
+      this.tripHistoryService.updateLocalTrip(arrivedTicketId, {
+        status: 'completed',
+        arrivalTime: arrived,
+        duration: this.computeTripDurationLabel(arrived),
+      });
+    }
+    this.resetBoardingRequest();
+    this.stopPaymentNag();
+    this.stopLiveBusPoll();
+    this.stopBusSimulation();
+    this.showTicket = false;
+    this.paymentCompleted = false;
+    this.paymentReminderShown = false;
+    this.destPaymentReminderShown = false;
+    this.terminalDepartReminderShown = false;
+    this.missedBusReminderShown = false;
+    this.boardingStopReached = false;
+    this.selectedRoute = null;
+    this.selectedRouteId = '';
+    this.ticketFare = null;
+    this.ticketId = '';
+    this.ticketPersistedToBackend = false;
+    this.alightStopReached = false;
+    this.alightNotified = false;
+    this.liveBuses = [];
+    this.liveBusMapPins = [];
+    this.syncStopPinsForMap();
+    localStorage.removeItem(this.getTripStateKey());
+    this.selectedRating = 0;
+    this.ratingComment = '';
+    if (!options.silent) {
+      this.showRatingModal = true;
     }
   }
 
@@ -1947,15 +2263,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     if (this.boardingStopReached) return;
     if (!this.selectedScheduleId) return;
 
+    // Terminal passengers (fromStopIndex===0) are already at the bus —
+    // no arrival popup needed; payment reminders are handled near drop-off.
     if (this.fromStopIndex === 0) {
-      // Terminal passenger: notify when bus departs unpaid
-      if (!this.showTicket || this.paymentCompleted || this.terminalDepartReminderShown) return;
-      const bus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
-      if (bus?.status === 'active') {
-        this.terminalDepartReminderShown = true;
-        void this.showToast('The bus has departed. Please complete your payment now.', 'danger');
-        this.startPaymentNag();
-      }
       return;
     }
 
@@ -1968,11 +2278,31 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const selectedBus = this.liveBuses.find(b => b.schedule_id === this.selectedScheduleId);
     if (!selectedBus?.position) return;
 
+    // Only fire boarding arrival when the leg is actually active. Otherwise a bus
+    // sitting at the terminus between legs would falsely trigger "bus arrived"
+    // for any commuter whose ticket points to a stop near that idle position.
+    if ((selectedBus.leg_status ?? 'pending') !== 'active') return;
+
     const dist = new mapboxgl.LngLat(selectedBus.position.lng, selectedBus.position.lat)
       .distanceTo(new mapboxgl.LngLat(bLng, bLat));
 
     if (dist <= 500) {
       this.boardingStopReached = true;
+      const stopName = boardStop?.name || this.stopLabel(boardStop, this.fromStopIndex) || 'your stop';
+      if (this.showTicket) {
+        // Booked ticket — they're already on the manifest, just need to physically board.
+        void this.presentBusArrivedAlert(
+          'Your Bus Has Arrived',
+          `The bus has arrived at ${stopName}. Please board now.`
+        );
+      } else {
+        // No ticket yet — the boarding request alone won't put them on the driver's aboard list.
+        // Prompt them to tap "Get E-Ticket" before the bus leaves.
+        void this.presentBusArrivedAlert(
+          'Your Bus Has Arrived',
+          `The bus has arrived at ${stopName}. Tap "Get E-Ticket" now to book before it leaves.`
+        );
+      }
     }
   }
 

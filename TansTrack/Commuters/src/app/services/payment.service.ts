@@ -53,18 +53,42 @@ export class PaymentService {
     amount: number;
     route_name?: string;
     commuter_name?: string;
-  }): Promise<{ success: boolean; checkout_url?: string; reference_number?: string; message?: string }> {
+  }): Promise<{ success: boolean; checkout_url?: string; checkout_id?: string; reference_number?: string; message?: string }> {
     try {
       console.log('[PaymentService] Creating Maya checkout with payload:', payload);
       const res: any = await firstValueFrom(
         this.http.post(`${environment.apiUrl}/payments/maya/checkout`, payload)
       );
       console.log('[PaymentService] Maya checkout response:', res);
-      return { success: true, checkout_url: res.checkout_url, reference_number: res.reference_number };
+      return {
+        success: true,
+        checkout_url: res.checkout_url,
+        checkout_id: res.checkout_id,
+        reference_number: res.reference_number,
+      };
     } catch (err: any) {
       const msg = err?.error?.message ?? 'Could not start Maya payment.';
       console.error('[PaymentService] Maya checkout error:', err, 'Message:', msg);
       return { success: false, message: msg };
+    }
+  }
+
+  /**
+   * Ask the backend (which queries Maya directly) whether a checkout has actually
+   * been paid. Used as a last-chance reconciliation when the redirect-based callback
+   * never reached our server (wrong APP_URL, the user closed the popup mid-redirect,
+   * etc.). If Maya reports paid, the backend updates the ticket so the next
+   * getActiveTicket() poll will also see the paid state.
+   */
+  async getMayaCheckoutStatus(checkoutId: string): Promise<{ success: boolean; paid: boolean; payment_status?: string; ticket_id?: string }> {
+    try {
+      const res: any = await firstValueFrom(
+        this.http.get(`${environment.apiUrl}/payments/maya/checkout/${encodeURIComponent(checkoutId)}/status`)
+      );
+      return { success: !!res?.success, paid: !!res?.paid, payment_status: res?.payment_status, ticket_id: res?.ticket_id };
+    } catch (err) {
+      console.warn('[PaymentService] Maya checkout status query failed', err);
+      return { success: false, paid: false };
     }
   }
 

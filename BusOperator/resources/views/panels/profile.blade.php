@@ -41,12 +41,27 @@
                             <span class="badge bg-danger fs-5">
                                 <i class="fas fa-circle me-1" style="font-size: 8px;"></i>Inactive
                             </span>
-                        @else
-                            <span class="badge bg-warning fs-5">
+                        @elseif($driver->status == 'suspended')
+                            <span class="badge bg-dark fs-5">
+                                <i class="fas fa-ban me-1" style="font-size: 8px;"></i>Suspended
+                            </span>
+                        @elseif($driver->status == 'pending')
+                            <span class="badge bg-secondary fs-5">
+                                <i class="fas fa-clock me-1" style="font-size: 8px;"></i>Pending
+                            </span>
+                        @elseif($driver->status == 'on_leave')
+                            <span class="badge bg-warning text-dark fs-5">
                                 <i class="fas fa-circle me-1" style="font-size: 8px;"></i>On Leave
+                            </span>
+                        @else
+                            <span class="badge bg-secondary fs-5">
+                                <i class="fas fa-circle me-1" style="font-size: 8px;"></i>{{ ucfirst(str_replace('_', ' ', $driver->status ?? 'Unknown')) }}
                             </span>
                         @endif
                     </div>
+                    @if($driver->status === 'suspended' && $driver->suspended_until)
+                        <p class="text-muted small text-center mt-2 mb-0 px-1">Suspended until {{ $driver->suspended_until->format('M j, Y g:i A') }}</p>
+                    @endif
                 </div>
 
                 <!-- Name & ID -->
@@ -451,9 +466,17 @@
                                         <select id="edit_status" name="status" class="form-select" required>
                                             <option value="active" {{ $driver->status === 'active' ? 'selected' : '' }}>Active</option>
                                             <option value="inactive" {{ $driver->status === 'inactive' ? 'selected' : '' }}>Inactive</option>
-                                            <option value="on-leave" {{ $driver->status === 'on-leave' ? 'selected' : '' }}>On Leave</option>
+                                            <option value="pending" {{ $driver->status === 'pending' ? 'selected' : '' }}>Pending</option>
+                                            <option value="on_leave" {{ $driver->status === 'on_leave' ? 'selected' : '' }}>On Leave</option>
+                                            <option value="suspended" {{ $driver->status === 'suspended' ? 'selected' : '' }}>Suspended</option>
                                         </select>
                                         <div class="invalid-feedback" id="edit_status_error"></div>
+                                    </div>
+                                    <div class="col-12 mb-3" id="profileSuspensionDaysWrap" style="display: {{ $driver->status === 'suspended' ? 'block' : 'none' }};">
+                                        <label for="edit_suspension_days" class="form-label">Suspension length (days) <span class="text-danger">*</span></label>
+                                        <input type="number" id="edit_suspension_days" name="suspension_days" class="form-control" min="1" max="365" placeholder="e.g. 7" value="">
+                                        <small class="text-muted">Required when setting status to Suspended (first time or to reset the period). Driver is notified; access is restored automatically when the period ends.</small>
+                                        <div class="invalid-feedback" id="edit_suspension_days_error"></div>
                                     </div>
                                 </div>
                             </div>

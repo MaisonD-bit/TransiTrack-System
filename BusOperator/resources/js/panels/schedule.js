@@ -180,7 +180,106 @@ function validateBulkScheduleRowsBeforeSave() {
         }
     }
 
+    const byBusDate = {};
+    for (let kb = 0; kb < rows.length; kb++) {
+        const busSel = rows[kb].querySelector('.bus-select');
+        const dateIn = rows[kb].querySelector('.date-input');
+        if (!busSel || !dateIn) continue;
+        const busId = busSel.value;
+        const d = dateIn.value;
+        if (!busId || !d) continue;
+        const key = busId + '|' + d;
+        if (!byBusDate[key]) byBusDate[key] = [];
+        byBusDate[key].push(kb + 1);
+    }
+    for (const key of Object.keys(byBusDate)) {
+        const nums = byBusDate[key];
+        if (nums.length > 1) {
+            return `Schedule ${nums[0]} and Schedule ${nums[1]} use the same bus on the same date. Each bus can only run one trip per calendar day — change the bus or the date.`;
+        }
+    }
+
+    const byBus = {};
+    for (let kb = 0; kb < rows.length; kb++) {
+        const busSel = rows[kb].querySelector('.bus-select');
+        const dateIn = rows[kb].querySelector('.date-input');
+        const startIn = rows[kb].querySelector('.start-time-input');
+        const endIn = rows[kb].querySelector('.end-time-input');
+        if (!busSel || !dateIn || !startIn || !endIn) continue;
+        const busId = busSel.value;
+        const d = dateIn.value;
+        const s = startIn.value;
+        const e = endIn.value;
+        const endsNext = rows[kb].querySelector('.ends-next-day-hidden')?.value === '1';
+        const n = kb + 1;
+        if (!busId || !d || !s || !e) continue;
+        const ra = scheduleRowEpochRange(d, s, e, endsNext);
+        if (ra.end <= ra.start) continue;
+        if (!byBus[busId]) byBus[busId] = [];
+        byBus[busId].push({ n, start: ra.start, end: ra.end });
+    }
+    for (const busId of Object.keys(byBus)) {
+        const list = byBus[busId];
+        for (let a = 0; a < list.length; a++) {
+            for (let b = a + 1; b < list.length; b++) {
+                if (list[a].start < list[b].end && list[a].end > list[b].start) {
+                    return `Schedule ${list[a].n} and Schedule ${list[b].n} use the same bus with overlapping times. Choose a different bus or adjust the schedule.`;
+                }
+            }
+        }
+    }
+
     return null;
+}
+
+function scheduleWindowsOverlap(aStart, aEnd, bStart, bEnd) {
+    return aStart < bEnd && aEnd > bStart;
+}
+
+function readScheduleRowWindow(row) {
+    const dateIn = row.querySelector('.date-input');
+    const startIn = row.querySelector('.start-time-input');
+    const endIn = row.querySelector('.end-time-input');
+    const endsNext = row.querySelector('.ends-next-day-hidden')?.value === '1';
+    if (!dateIn || !startIn || !endIn) return null;
+    const d = dateIn.value;
+    const s = startIn.value;
+    const e = endIn.value;
+    if (!d || !s || !e) return null;
+    const r = scheduleRowEpochRange(d, s, e, endsNext);
+    if (r.end <= r.start) return null;
+    return { start: r.start, end: r.end };
+}
+
+/** Grey out buses already picked in another row when windows overlap (same form). */
+function syncBulkBusSelectOptions() {
+    const container = document.getElementById('schedulesContainer');
+    if (!container) return;
+    const rows = [...container.querySelectorAll('.schedule-row')];
+    rows.forEach((row, i) => {
+        const sel = row.querySelector('.bus-select');
+        if (!sel) return;
+        const selfWin = readScheduleRowWindow(row);
+        [...sel.options].forEach((opt) => {
+            if (!opt.value) {
+                opt.disabled = false;
+                return;
+            }
+            let disabled = false;
+            for (let j = 0; j < rows.length; j++) {
+                if (i === j) continue;
+                const otherSel = rows[j].querySelector('.bus-select');
+                if (!otherSel || otherSel.value !== opt.value) continue;
+                const otherWin = readScheduleRowWindow(rows[j]);
+                if (!selfWin || !otherWin) continue;
+                if (scheduleWindowsOverlap(selfWin.start, selfWin.end, otherWin.start, otherWin.end)) {
+                    disabled = true;
+                    break;
+                }
+            }
+            opt.disabled = disabled;
+        });
+    });
 }
 
 function toggleScheduleForm() {
@@ -748,11 +847,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const scheduleForm = document.getElementById('scheduleForm');
     if (scheduleForm) {
         scheduleForm.addEventListener('submit', function(e) {
+            e.preventDefault();
             const error = validateScheduleForm();
             if (error) {
-                e.preventDefault();
                 showScheduleFeedbackModal(error, 'error');
-                return false;
+                return;
             }
             submitScheduleForm(e);
         });
@@ -875,10 +974,10 @@ document.getElementById('driverSelectionForm')?.addEventListener('submit', funct
 
     // Clear any existing rows first
     document.getElementById('schedulesContainer').innerHTML = '';
-    
+
     // Add the first empty schedule row
     addScheduleRow();
-    
+
     scheduleSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
@@ -941,30 +1040,43 @@ function addScheduleRow() {
     // Add the row to container
     container.appendChild(newRow);
 
+    const dateInput = newRow.querySelector('.date-input');
+    if (dateInput) {
+        const allRowsNow = container.querySelectorAll('.schedule-row');
+        if (allRowsNow.length > 1) {
+            const prevRow = allRowsNow[allRowsNow.length - 2];
+            const prevDateEl = prevRow.querySelector('.date-input');
+            if (prevDateEl && prevDateEl.value) {
+                const d = new Date(`${prevDateEl.value}T12:00:00`);
+                d.setDate(d.getDate() + 1);
+                dateInput.value = d.toISOString().slice(0, 10);
+            }
+        }
+        dateInput.addEventListener('change', () => {
+            applyScheduleRowConstraints(newRow);
+            syncBulkBusSelectOptions();
+        });
+    }
+
     // Get elements from the newly added row
     const routeSelect = newRow.querySelector('.route-select');
     const startTimeInput = newRow.querySelector('.start-time-input');
     const endTimeInput = newRow.querySelector('.end-time-input');
     const busSelect = newRow.querySelector('.bus-select');
-    const dateInput = newRow.querySelector('.date-input');
     const removeBtn = newRow.querySelector('.remove-schedule-row');
-
-    if (dateInput) {
-        dateInput.addEventListener('change', () => {
-            applyScheduleRowConstraints(newRow);
-        });
-    }
 
     //   Auto-calculate end time when start time or route changes
     if (routeSelect && startTimeInput && endTimeInput) {
         routeSelect.addEventListener('change', () => {
             calculateEndTime(routeSelect, startTimeInput, endTimeInput);
             updateFareInputs(newRow, routeSelect, busSelect);
+            syncBulkBusSelectOptions();
         });
         
         startTimeInput.addEventListener('change', () => {
             applyScheduleRowConstraints(newRow);
             calculateEndTime(routeSelect, startTimeInput, endTimeInput);
+            syncBulkBusSelectOptions();
         });
     }
 
@@ -974,6 +1086,7 @@ function addScheduleRow() {
     if (busSelect && routeSelect) {
         busSelect.addEventListener('change', () => {
             updateFareInputs(newRow, routeSelect, busSelect);
+            syncBulkBusSelectOptions();
         });
     }
 
@@ -983,12 +1096,14 @@ function addScheduleRow() {
             const rows = container.querySelectorAll('.schedule-row');
             if (rows.length > 1) {
                 newRow.remove();
-                showScheduleFeedbackModal('Schedule row removed', 'info');
+                syncBulkBusSelectOptions();
             } else {
                 showScheduleFeedbackModal('At least one schedule row is required', 'warning');
             }
         });
     }
+
+    syncBulkBusSelectOptions();
 }
 
 //   Function to update hidden fare inputs
@@ -1153,7 +1268,7 @@ async function saveAllSchedules() {
         const result = await response.json();
         
         if (result.success) {
-            showScheduleFeedbackModal(result.message || `Successfully created ${result.count} schedule(s)!`, 'success', {
+            showScheduleFeedbackModal(result.message || 'Schedules saved.', 'success', {
                 onOk: () => {
                     const card = document.getElementById('scheduleFormCard');
                     if (card) card.style.display = 'none';

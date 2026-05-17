@@ -58,12 +58,6 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
     this.subscriptions.push(routesSub);
   }
 
-  getCurrentLocation() {
-    // This method is no longer needed - Mapbox GeolocateControl handles location tracking
-    // Kept for backwards compatibility but can be removed
-    // The GeolocateControl in initializeMap() now handles all location tracking
-  }
-
   initializeMap() {
     const el = this.mapHost?.nativeElement;
     if (!el) {

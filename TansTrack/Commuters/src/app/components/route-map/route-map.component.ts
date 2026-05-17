@@ -64,9 +64,9 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
     // One-shot locate only — continuous tracking + heading is heavy on mobile WebViews.
     const geolocateControl = new mapboxgl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: false },
-      trackUserLocation: false,
-      showUserHeading: false,
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserHeading: true,
       showUserLocation: true,
     });
 

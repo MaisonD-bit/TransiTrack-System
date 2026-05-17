@@ -83,6 +83,7 @@ body {
 .logo h1 {
     font-size: 22px;
     font-weight: 600;
+    margin-bottom: 0;
 }
 
 .sidebar .logo-img {

@@ -32,6 +32,14 @@ return [
         'token' => env('MAPBOX_TOKEN'),
     ],
 
+    'bus_operator' => [
+        'url' => env('BUS_OPERATOR_URL', 'http://localhost:8000'),
+    ],
+
+    'terminal_manager' => [
+        'url' => env('TERMINAL_MANAGER_URL', 'http://localhost:8001'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

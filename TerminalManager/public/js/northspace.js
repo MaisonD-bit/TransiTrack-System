@@ -329,7 +329,7 @@ function updateTooltipTimer(spaceId, timeEl) {
 function completeSpaceFromTooltip(e) {
     if (e) e.preventDefault();
     if (!currentSpace) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -353,7 +353,7 @@ function completeSpaceFromTooltip(e) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('✓ Space marked as COMPLETE');
+                showSpaceAlert('✓ Space marked as COMPLETE');
                 if (spaceElement) {
                     spaceElement.classList.remove('occupied-bay');
                     spaceElement.setAttribute('fill', '#35d335');
@@ -364,12 +364,12 @@ function completeSpaceFromTooltip(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Complete error:', error);
-            alert('Error completing occupancy: ' + error.message);
+            showSpaceAlert('Error completing occupancy: ' + error.message);
         });
     });
 }
@@ -522,7 +522,7 @@ function editSpaceMode(e) {
     const accommodationType = currentSpace.getAttribute('data-accommodation-type');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -591,7 +591,7 @@ function occupySpace(e) {
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -681,14 +681,15 @@ function updateCountdownDisplay() {
 
 function markSpaceComplete() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
     if (!spaceId) return;
 
-    if (confirm('Mark this space as complete and available?')) {
+    showSpaceConfirm('Mark this space as complete and available?').then((confirmed) => {
+        if (!confirmed) return;
         fetch('/api/north-terminal/release', {
             method: 'POST',
             headers: {
@@ -701,22 +702,22 @@ function markSpaceComplete() {
         .then(data => {
             if (data.success) {
                 console.log('Space marked as complete');
-                alert('Space is now available!');
+                showSpaceAlert('Space is now available!', 'success');
                 selectedSpaceElement.classList.remove('occupied-bay');
                 selectedSpaceElement.style.fill = '#35d335'; // Green
                 closePanel();
                 loadHistoryFromDatabase(currentHistoryPage);
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message, 'error');
             }
         })
         .catch(error => console.error('Complete error:', error));
-    }
+    });
 }
 
 function saveSpaceOccupancy() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -730,7 +731,7 @@ function saveSpaceOccupancy() {
     if (isEditMode && isOccupied) {
         // ADD TIME TO OCCUPIED SPACE
         if (mins < 1) {
-            alert('Please enter at least 1 minute');
+            showSpaceAlert('Please enter at least 1 minute');
             return;
         }
 
@@ -756,16 +757,16 @@ function saveSpaceOccupancy() {
                         updateTooltip(currentSpace);
                     }
                 }
-                alert(`✓ Added ${mins} minutes to space`);
+                showSpaceAlert(`✓ Added ${mins} minutes to space`);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to add time'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to add time'));
             }
         })
         .catch(error => {
             console.error('Error adding time:', error);
-            alert('Error adding time: ' + error.message);
+            showSpaceAlert('Error adding time: ' + error.message);
         });
     } else if (isEditMode && !isOccupied) {
         // EDIT SPACE DETAILS (for available space)
@@ -773,7 +774,7 @@ function saveSpaceOccupancy() {
         const accType = document.getElementById('panelAccommodationType').value;
         
         if (!newRouteName && !accType) {
-            alert('Please enter at least a route name or accommodation type');
+            showSpaceAlert('Please enter at least a route name or accommodation type');
             return;
         }
 
@@ -794,16 +795,16 @@ function saveSpaceOccupancy() {
             if (data.success) {
                 selectedSpaceElement.setAttribute('data-route', newRouteName);
                 selectedSpaceElement.setAttribute('data-accommodation-type', accType);
-                alert('Space updated successfully!');
+                showSpaceAlert('Space updated successfully!');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to update space'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to update space'));
             }
         })
         .catch(error => {
             console.error('Error updating space:', error);
-            alert('Error updating space: ' + error.message);
+            showSpaceAlert('Error updating space: ' + error.message);
         });
     } else {
         // OCCUPY MODE
@@ -811,17 +812,17 @@ function saveSpaceOccupancy() {
         const operatorId = document.getElementById('panelOperator').value;
         
         if (!driverId) {
-            alert('Please select a driver');
+            showSpaceAlert('Please select a driver');
             return;
         }
 
         if (!operatorId) {
-            alert('Please select an operator');
+            showSpaceAlert('Please select an operator');
             return;
         }
 
         if (!spaceId) {
-            alert('Invalid space selected');
+            showSpaceAlert('Invalid space selected');
             return;
         }
 
@@ -859,7 +860,7 @@ function saveSpaceOccupancy() {
                     spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
                 }
                 
-                alert('Space occupied successfully!');
+                showSpaceAlert('Space occupied successfully!', 'success');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
@@ -868,12 +869,12 @@ function saveSpaceOccupancy() {
                     console.error('Validation errors:', data.errors);
                     errorMsg += '\n' + Object.entries(data.errors).map(([key, msgs]) => `${key}: ${msgs.join(', ')}`).join('\n');
                 }
-                alert('Error: ' + errorMsg);
+                showSpaceAlert('Error: ' + errorMsg);
             }
         })
         .catch(error => {
             console.error('Error occupying space:', error);
-            alert('Error: ' + error.message);
+            showSpaceAlert('Error: ' + error.message);
         });
     }
 }
@@ -938,7 +939,7 @@ function cancelSpaceOccupancy(e) {
         })
         .then(data => {
             if (data.success) {
-                alert('✓ Occupancy CANCELLED');
+                showSpaceAlert('Occupancy cancelled.', 'success');
                 if (spaceElement) {
                     spaceElement.setAttribute('fill', '#35d335');
                     spaceElement.classList.remove('occupied-bay');
@@ -949,12 +950,12 @@ function cancelSpaceOccupancy(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Cancel error:', error);
-            alert('Error cancelling occupancy: ' + error.message);
+            showSpaceAlert('Error cancelling occupancy: ' + error.message);
         });
     });
 }

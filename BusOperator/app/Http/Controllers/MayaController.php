@@ -107,10 +107,67 @@ class MayaController extends Controller
         ]);
 
         return response()->json([
-            'success'          => true,
-            'checkout_id'      => $body['checkoutId'] ?? null,
-            'checkout_url'     => $body['redirectUrl'] ?? null,
-            'reference_number' => $payload['requestReferenceNumber'],
+            'success'      => true,
+            'checkout_id'  => $body['checkoutId'] ?? null,
+            'checkout_url' => $body['redirectUrl'] ?? null,
+        ]);
+    }
+
+    /**
+     * Query Maya directly for the current status of a checkout. Used as a
+     * last-chance reconciliation when the commuter app's local verify fails
+     * (e.g. the popup closed before the success redirect reached our backend,
+     * or APP_URL is misconfigured so Maya's redirect never landed here).
+     * If Maya reports PAYMENT_SUCCESS we flip the ticket to paid right here so
+     * the commuter app sees a paid state on its next poll.
+     */
+    public function checkoutStatus(Request $request, string $checkoutId)
+    {
+        if (! $this->secretKey) {
+            return response()->json(['success' => false, 'message' => 'Maya is not configured.'], 500);
+        }
+
+        $response = Http::withoutVerifying()->withHeaders([
+            'Authorization' => 'Basic ' . base64_encode($this->secretKey . ':'),
+            'Content-Type'  => 'application/json',
+        ])->get("{$this->baseUrl}/checkout/v1/checkouts/{$checkoutId}");
+
+        if (! $response->successful()) {
+            Log::warning('[Maya] checkoutStatus query failed', [
+                'checkoutId' => $checkoutId,
+                'status'     => $response->status(),
+                'body'       => $response->body(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not reach Maya.',
+            ], 502);
+        }
+
+        $body          = $response->json();
+        $paymentStatus = strtoupper((string) ($body['paymentStatus'] ?? 'UNKNOWN'));
+        // Maya's items[0].code is the public_ticket_id we passed at createCheckout time.
+        $ticketRef     = $body['items'][0]['code'] ?? null;
+
+        $paid = in_array($paymentStatus, ['PAYMENT_SUCCESS', 'PAID'], true);
+
+        if ($paid && $ticketRef && $ticketRef !== 'VERIFY') {
+            // Idempotent: only update if not already marked paid.
+            Ticket::where('public_ticket_id', $ticketRef)
+                ->where(function ($q) {
+                    $q->whereNull('payment_status')->orWhere('payment_status', '!=', 'paid');
+                })
+                ->update([
+                    'payment_status' => 'paid',
+                    'payment_method' => 'paymaya',
+                ]);
+        }
+
+        return response()->json([
+            'success'        => true,
+            'paid'           => $paid,
+            'payment_status' => $paymentStatus,
+            'ticket_id'      => $ticketRef,
         ]);
     }
 

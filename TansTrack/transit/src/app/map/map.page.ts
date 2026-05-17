@@ -624,8 +624,13 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter {
       p => p.public_ticket_id !== event.ticketId
     );
 
-    // Notify the backend
-    this.apiService.post('commuter/alight', { public_ticket_id: event.ticketId }).subscribe({
+    // Notify the backend — driver_id proves authority over this schedule's tickets.
+    const driverId = Number(this.authService.getDriverId());
+    const body: { public_ticket_id: string; driver_id?: number } = { public_ticket_id: event.ticketId };
+    if (Number.isFinite(driverId) && driverId > 0) {
+      body.driver_id = driverId;
+    }
+    this.apiService.post('commuter/alight', body).subscribe({
       error: (err) => console.warn('driver-side alight failed', err),
     });
 

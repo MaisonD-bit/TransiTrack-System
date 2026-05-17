@@ -75,7 +75,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th>#</th>
-                                <th>Subject</th>
+                                <th class="text-center">Subject</th>
                                 <th>Category</th>
                                 <th>Commuter</th>
                                 <th>Priority</th>
@@ -88,14 +88,16 @@
                             @foreach($tickets as $ticket)
                             <tr>
                                 <td class="text-muted small">{{ $ticket->id }}</td>
-                                <td>
-                                    <span class="fw-semibold">{{ $ticket->subject }}</span>
-                                    <div class="text-muted small text-truncate" style="max-width:200px">{{ $ticket->description }}</div>
+                                <td class="text-center align-middle">
+                                    <div class="ticket-subject-stack mx-auto text-center" style="max-width: 240px;">
+                                        <div class="fw-semibold">{{ $ticket->subject }}</div>
+                                        <div class="text-muted small text-truncate">{{ $ticket->description }}</div>
+                                    </div>
                                 </td>
                                 <td><span class="badge bg-secondary">{{ ucfirst($ticket->category) }}</span></td>
                                 <td class="small">
                                     @if($ticket->commuter)
-                                        {{ $ticket->commuter->first_name }} {{ $ticket->commuter->last_name }}<br>
+                                        {{ $ticket->commuter->display_name }}<br>
                                         <span class="text-muted">{{ $ticket->commuter->email }}</span>
                                     @else
                                         <span class="text-muted">Guest</span>

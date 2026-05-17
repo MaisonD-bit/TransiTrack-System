@@ -87,6 +87,12 @@ export interface LiveRoute {
 export interface LiveBusTrip {
   schedule_id: number;
   status: string;
+  /** Current leg status: 'pending' | 'accepted' | 'active' | 'completed'. The schedule
+   *  can be `status='active'` while `leg_status='pending'` (the previous leg just ended
+   *  and the driver hasn't tapped Start on the next leg yet) — arrival/proximity logic
+   *  must gate on leg_status, not schedule status. */
+  leg_status?: string;
+  trip_leg?: number;
   is_return_trip?: boolean;
   bus_number: string;
   plate_number: string;
@@ -341,6 +347,26 @@ export class CommuterService {
   /**
    * Register e-ticket with the operator (trip logs + driver boarding list).
    */
+  getActiveTicket(commuterId: number): Observable<{
+    success: boolean;
+    ticket: {
+      public_ticket_id: string;
+      fare: number;
+      payment_status: string;
+      payment_method: string;
+      route_id: number;
+      schedule_id: number;
+      from_stop_index: number | null;
+      to_stop_index: number | null;
+    } | null;
+  }> {
+    const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
+    return this.http.get<any>(
+      `${this.apiUrl}/commuter/active-ticket?commuter_id=${commuterId}`,
+      { headers }
+    );
+  }
+
   bookTicket(payload: {
     route_id: number;
     schedule_id?: number;
@@ -360,7 +386,8 @@ export class CommuterService {
 
   getLiveBuses(
     routeId: string,
-    terminal: 'north' | 'south'
+    terminal: 'north' | 'south',
+    direction?: 'outbound' | 'return'
   ): Observable<{ success: boolean; buses?: LiveBusTrip[]; message?: string; updated_at?: string }> {
     const headers = new HttpHeaders({ 'ngrok-skip-browser-warning': 'true' });
     const params = new URLSearchParams({
@@ -368,6 +395,9 @@ export class CommuterService {
       terminal,
       bus_type: this.busType,
     });
+    if (direction) {
+      params.set('direction', direction);
+    }
     return this.http.get<any>(`${this.apiUrl}/commuter/live-buses?${params.toString()}`, { headers });
   }
 
@@ -393,14 +423,16 @@ export class CommuterService {
   }
 
   /** Tell the backend the commuter has left the bus (aboard count drops; revenue unchanged). */
-  alight(publicTicketId: string): Observable<{ success: boolean; message?: string }> {
+  alight(publicTicketId: string, commuterId?: number | null): Observable<{ success: boolean; message?: string }> {
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
     });
-    return this.http.post<any>(`${this.apiUrl}/commuter/alight`, { public_ticket_id: publicTicketId }, {
-      headers,
-    });
+    const body: { public_ticket_id: string; commuter_id?: number } = { public_ticket_id: publicTicketId };
+    if (typeof commuterId === 'number' && !Number.isNaN(commuterId)) {
+      body.commuter_id = commuterId;
+    }
+    return this.http.post<any>(`${this.apiUrl}/commuter/alight`, body, { headers });
   }
 
   /** Register intent to board at a stop — creates a marker on the driver map before payment. */
@@ -449,14 +481,18 @@ export class CommuterService {
   }
 
   /** Mark a ticket as paid after a successful e-wallet or card payment. */
-  markTicketPaid(publicTicketId: string, paymentMethod: string): Observable<any> {
+  markTicketPaid(publicTicketId: string, paymentMethod: string, commuterId?: number | null): Observable<any> {
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
     });
+    const body: { payment_method: string; commuter_id?: number } = { payment_method: paymentMethod };
+    if (typeof commuterId === 'number' && !Number.isNaN(commuterId)) {
+      body.commuter_id = commuterId;
+    }
     return this.http.patch(
       `${this.apiUrl}/commuter/tickets/${encodeURIComponent(publicTicketId)}/mark-paid`,
-      { payment_method: paymentMethod },
+      body,
       { headers }
     );
   }

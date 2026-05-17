@@ -9,7 +9,7 @@ class SupportTicketWebController extends Controller
 {
     public function index()
     {
-        $tickets = SupportTicket::with('commuter:id,first_name,last_name,email')
+        $tickets = SupportTicket::with('commuter:id,name,email')
             ->orderByDesc('created_at')
             ->get();
 

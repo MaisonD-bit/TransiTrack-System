@@ -7,6 +7,7 @@ let selectedSpaceElement = null;
 let expirationCheckInterval = null;
 let tooltipCountdownTimer = null;
 let currentHistoryPage = 1; // Track current history page for smooth updates
+let originalSpaceRouteName = null; // Store original space route name to prevent overwriting
 const occupiedSpaces = new Map();
 const spaceExpirationTimes = new Map(); // Track expiration times for each space
 const historyRecords = [];
@@ -328,7 +329,7 @@ function updateTooltipTimer(spaceId, timeEl) {
 function completeSpaceFromTooltip(e) {
     if (e) e.preventDefault();
     if (!currentSpace) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -352,7 +353,7 @@ function completeSpaceFromTooltip(e) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('✓ Space marked as COMPLETE');
+                showSpaceAlert('✓ Space marked as COMPLETE');
                 if (spaceElement) {
                     spaceElement.classList.remove('occupied-bay');
                     spaceElement.setAttribute('fill', '#35d335');
@@ -363,12 +364,12 @@ function completeSpaceFromTooltip(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Complete error:', error);
-            alert('Error completing occupancy: ' + error.message);
+            showSpaceAlert('Error completing occupancy: ' + error.message);
         });
     });
 }
@@ -460,25 +461,34 @@ function fillCompanyOperator() {
         fetch(`/api/terminal/driver-routes/${driverId}`)
             .then(response => response.json())
             .then(data => {
+                // PRESERVE the original space route name instead of overwriting it
+                // Only update if no original route name was set
                 if (data.success && data.routes.length > 0) {
-                    // Set the first route as the selected route
                     const selectedRoute = data.routes[0];
-                    document.getElementById('panelRouteName').value = selectedRoute.name;
+                    if (!originalSpaceRouteName) {
+                        document.getElementById('panelRouteName').value = selectedRoute.name;
+                    }
                     window.selectedDriverRoute = selectedRoute.name;
                 } else {
-                    document.getElementById('panelRouteName').value = '';
+                    if (!originalSpaceRouteName) {
+                        document.getElementById('panelRouteName').value = '';
+                    }
                     window.selectedDriverRoute = null;
                 }
             })
             .catch(error => {
                 console.error('Error fetching driver routes:', error);
-                document.getElementById('panelRouteName').value = '';
+                if (!originalSpaceRouteName) {
+                    document.getElementById('panelRouteName').value = '';
+                }
                 window.selectedDriverRoute = null;
             });
     } else {
         document.getElementById('panelOperator').innerHTML = '<option value="">-- Select Operator --</option>';
         document.getElementById('panelCompany').value = '';
-        document.getElementById('panelRouteName').value = '';
+        if (!originalSpaceRouteName) {
+            document.getElementById('panelRouteName').value = '';
+        }
         window.selectedDriverRoute = null;
     }
 }
@@ -511,7 +521,7 @@ function editSpaceMode(e) {
     const accommodationType = currentSpace.getAttribute('data-accommodation-type');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -617,23 +627,24 @@ function approveExtensionRequest(e) {
                 if (data.expiration_time) {
                     spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
                 }
-                alert('Extension approved.');
+                showSpaceAlert('Extension approved.');
                 refreshExtensionBanner(spaceId);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert(data.message || 'Failed to approve extension');
+                showSpaceAlert(data.message || 'Failed to approve extension');
             }
         })
-        .catch(err => alert('Error: ' + err.message));
+        .catch(err => showSpaceAlert('Error: ' + err.message));
 }
 
 function denyExtensionRequest(e) {
     if (e) e.preventDefault();
     const spaceId = selectedSpaceElement && selectedSpaceElement.getAttribute('data-space-id');
     if (!spaceId) return;
-    if (!confirm('Decline this extension request?')) return;
-    fetch('/api/terminal/deny-extension', {
+    showSpaceConfirm('Decline this extension request?').then((confirmed) => {
+        if (!confirmed) return;
+        fetch('/api/terminal/deny-extension', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -644,15 +655,16 @@ function denyExtensionRequest(e) {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                alert('Extension request declined.');
+                showSpaceAlert('Extension request declined.');
                 refreshExtensionBanner(spaceId);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert(data.message || 'Failed to deny extension');
+                showSpaceAlert(data.message || 'Failed to deny extension');
             }
         })
-        .catch(err => alert('Error: ' + err.message));
+        .catch(err => showSpaceAlert('Error: ' + err.message));
+    });
 }
 
 function occupySpace(e) {
@@ -663,7 +675,7 @@ function occupySpace(e) {
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -675,10 +687,12 @@ function occupySpace(e) {
         return;
     }
 
-    routeNameEl.value = selectedSpaceElement.getAttribute('data-route') || '';
+    // Store and preserve the original space route name
+    originalSpaceRouteName = selectedSpaceElement.getAttribute('data-route') || '';
+    routeNameEl.value = originalSpaceRouteName;
     spaceIdEl.value = spaceId;
 
-    document.getElementById('panelRouteName').value = selectedSpaceElement.getAttribute('data-route') || '';
+    document.getElementById('panelRouteName').value = originalSpaceRouteName;
     document.getElementById('panelSpaceId').value = spaceId;
     document.getElementById('panelDriver').value = '';
     document.getElementById('panelCompany').value = '';
@@ -739,6 +753,7 @@ function closePanel() {
     currentSpace = null;
     selectedSpaceElement = null;
     isEditMode = false;
+    originalSpaceRouteName = null;
     closeTooltip();
 }
 
@@ -753,14 +768,15 @@ function updateCountdownDisplay() {
 
 function markSpaceComplete() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
     if (!spaceId) return;
 
-    if (confirm('Mark this space as complete and available?')) {
+    showSpaceConfirm('Mark this space as complete and available?').then((confirmed) => {
+        if (!confirmed) return;
         fetch('/api/terminal/release', {
             method: 'POST',
             headers: {
@@ -773,22 +789,22 @@ function markSpaceComplete() {
         .then(data => {
             if (data.success) {
                 console.log('Space marked as complete');
-                alert('Space is now available!');
+                showSpaceAlert('Space is now available!', 'success');
                 selectedSpaceElement.classList.remove('occupied-bay');
                 selectedSpaceElement.style.fill = '#35d335'; // Green
                 closePanel();
                 loadHistoryFromDatabase(currentHistoryPage);
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message, 'error');
             }
         })
         .catch(error => console.error('Complete error:', error));
-    }
+    });
 }
 
 function saveSpaceOccupancy() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -802,7 +818,7 @@ function saveSpaceOccupancy() {
     if (isEditMode && isOccupied) {
         // ADD TIME TO OCCUPIED SPACE
         if (mins < 1) {
-            alert('Please enter at least 1 minute');
+            showSpaceAlert('Please enter at least 1 minute');
             return;
         }
 
@@ -828,16 +844,16 @@ function saveSpaceOccupancy() {
                         updateTooltip(currentSpace);
                     }
                 }
-                alert(`✓ Added ${mins} minutes to space`);
+                showSpaceAlert(`✓ Added ${mins} minutes to space`);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to add time'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to add time'));
             }
         })
         .catch(error => {
             console.error('Error adding time:', error);
-            alert('Error adding time: ' + error.message);
+            showSpaceAlert('Error adding time: ' + error.message);
         });
     } else if (isEditMode && !isOccupied) {
         // EDIT SPACE DETAILS (for available space)
@@ -845,7 +861,7 @@ function saveSpaceOccupancy() {
         const accType = document.getElementById('panelAccommodationType').value;
         
         if (!newRouteName && !accType) {
-            alert('Please enter at least a route name or accommodation type');
+            showSpaceAlert('Please enter at least a route name or accommodation type');
             return;
         }
 
@@ -866,16 +882,16 @@ function saveSpaceOccupancy() {
             if (data.success) {
                 selectedSpaceElement.setAttribute('data-route', newRouteName);
                 selectedSpaceElement.setAttribute('data-accommodation-type', accType);
-                alert('Space updated successfully!');
+                showSpaceAlert('Space updated successfully!');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to update space'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to update space'));
             }
         })
         .catch(error => {
             console.error('Error updating space:', error);
-            alert('Error updating space: ' + error.message);
+            showSpaceAlert('Error updating space: ' + error.message);
         });
     } else {
         // OCCUPY MODE
@@ -883,17 +899,17 @@ function saveSpaceOccupancy() {
         const operatorId = document.getElementById('panelOperator').value;
         
         if (!driverId) {
-            alert('Please select a driver');
+            showSpaceAlert('Please select a driver');
             return;
         }
 
         if (!operatorId) {
-            alert('Please select an operator');
+            showSpaceAlert('Please select an operator');
             return;
         }
 
         if (!spaceId) {
-            alert('Invalid space selected');
+            showSpaceAlert('Invalid space selected');
             return;
         }
 
@@ -902,7 +918,7 @@ function saveSpaceOccupancy() {
             driver_id: parseInt(driverId),
             operator_id: parseInt(operatorId),
             duration_minutes: mins,
-            route_name: window.selectedDriverRoute || null,
+            route_name: document.getElementById('panelRouteName').value || null,
             accommodation_type: document.getElementById('panelAccommodationType').value || null
         };
 
@@ -931,7 +947,7 @@ function saveSpaceOccupancy() {
                     spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
                 }
                 
-                alert('Space occupied successfully!');
+                showSpaceAlert('Space occupied successfully!', 'success');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
@@ -940,12 +956,12 @@ function saveSpaceOccupancy() {
                     console.error('Validation errors:', data.errors);
                     errorMsg += '\n' + Object.entries(data.errors).map(([key, msgs]) => `${key}: ${msgs.join(', ')}`).join('\n');
                 }
-                alert('Error: ' + errorMsg);
+                showSpaceAlert('Error: ' + errorMsg);
             }
         })
         .catch(error => {
             console.error('Error occupying space:', error);
-            alert('Error: ' + error.message);
+            showSpaceAlert('Error: ' + error.message);
         });
     }
 }
@@ -1010,7 +1026,7 @@ function cancelSpaceOccupancy(e) {
         })
         .then(data => {
             if (data.success) {
-                alert('✓ Occupancy CANCELLED');
+                showSpaceAlert('Occupancy cancelled.', 'success');
                 if (spaceElement) {
                     spaceElement.setAttribute('fill', '#35d335');
                     spaceElement.classList.remove('occupied-bay');
@@ -1021,12 +1037,12 @@ function cancelSpaceOccupancy(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Cancel error:', error);
-            alert('Error cancelling occupancy: ' + error.message);
+            showSpaceAlert('Error cancelling occupancy: ' + error.message);
         });
     });
 }

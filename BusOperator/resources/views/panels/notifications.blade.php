@@ -124,7 +124,7 @@
                                     </div>
                                     <p class="mb-2">{{ $notification->message }}</p>
 
-                                    @if($notification->type === 'incident' && $notification->latitude !== null && $notification->longitude !== null)
+                                    @if(in_array($notification->type, ['incident', 'emergency'], true) && $notification->latitude !== null && $notification->longitude !== null)
                                         <div class="notif-incident-map rounded border mb-2" style="height:220px;width:100%;"
                                              data-lng="{{ $notification->longitude }}" data-lat="{{ $notification->latitude }}"></div>
                                     @endif
@@ -150,7 +150,7 @@
                                         </div>
                                     @endif
 
-                                    @if($notification->type === 'incident' && $notification->latitude !== null && $notification->longitude !== null)
+                                    @if(in_array($notification->type, ['incident', 'emergency'], true) && $notification->latitude !== null && $notification->longitude !== null)
                                         <p class="small text-muted mb-2 font-monospace">
                                             {{ number_format((float) $notification->latitude, 6) }}, {{ number_format((float) $notification->longitude, 6) }}
                                             @if($notification->location_label)

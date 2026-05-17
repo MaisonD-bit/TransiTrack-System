@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Schedule;
+use App\Models\BoardingRequest;
+use App\Models\Ticket;
 use App\Support\TicketBoarding;
 use App\Models\Driver;
+use App\Models\DriverLocation;
+use App\Models\Notification;
 use App\Models\Route;
 use App\Models\RouteApprovalRequest;
 use App\Models\Bus;
@@ -29,7 +33,9 @@ class ScheduleController extends Controller
             $routes = Route::where('user_id', $userId)
                 ->whereIn('id', $approvedRouteIds)
                 ->get();
-            $buses = Bus::where('user_id', $userId)->get();
+            $buses = Bus::where('terminal', auth()->user()->terminal)
+                ->where('bus_company', auth()->user()->company_name)
+                ->get();
             $drivers = Driver::where('user_id', auth()->id())->get();
 
             // Start query builder for schedules
@@ -136,6 +142,7 @@ class ScheduleController extends Controller
             $this->assertScheduleTimeOrder($validated['date'], $validated['start_time'], $validated['end_time'], $endsNext);
 
             $this->assertScheduleStartNotInPast($validated['date'], $validated['start_time']);
+            $this->assertSingleDailyCycle((int) $validated['driver_id'], (string) $validated['date']);
 
             // Check for overlapping schedules
             $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -157,6 +164,37 @@ class ScheduleController extends Controller
                 }
 
                 return redirect()->back()->with('error', $msg)->withInput();
+            }
+
+            $busOverlap = $this->checkForOverlappingBusSchedules(
+                (int) $validated['bus_id'],
+                $validated['date'],
+                $validated['start_time'],
+                $validated['end_time'],
+                null,
+                $endsNext
+            );
+            if ($busOverlap) {
+                $msg = $this->busOverlapMessage('create', $busOverlap, (string) $validated['date']);
+                if ($request->expectsJson()) {
+                    return response()->json(['success' => false, 'message' => $msg], 422);
+                }
+
+                return redirect()->back()->with('error', $msg)->withInput();
+            }
+
+            $exactDuplicate = Schedule::where('driver_id', $validated['driver_id'])
+                ->where('route_id', $validated['route_id'])
+                ->where('bus_id', $validated['bus_id'])
+                ->where('date', $validated['date'])
+                ->where('start_time', $validated['start_time'])
+                ->whereNotIn('status', ['cancelled', 'declined'])
+                ->exists();
+            if ($exactDuplicate) {
+                if ($request->expectsJson()) {
+                    return response()->json(['success' => false, 'message' => 'This schedule already exists for the selected driver, route, bus, date and time.'], 422);
+                }
+                return redirect()->back()->with('error', 'This schedule already exists for the selected driver, route, bus, date and time.')->withInput();
             }
 
             $this->ensureRouteApprovedForOperator((int) $validated['route_id'], (int) auth()->id());
@@ -185,7 +223,7 @@ class ScheduleController extends Controller
             }
 
             $schedule = Schedule::create([
-                'user_id' => auth()->id(), // ✅ Add user_id
+                'user_id' => auth()->id(),
                 'driver_id' => $validated['driver_id'],
                 'route_id' => $validated['route_id'],
                 'bus_id' => $validated['bus_id'],
@@ -196,8 +234,20 @@ class ScheduleController extends Controller
                 'status' => 'scheduled',
                 'fare_regular' => $fare_regular,
                 'fare_aircon' => $fare_aircon,
+                'trip_leg' => 1,
+                'leg_status' => 'pending',
+                'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
                 'created_at' => now(),
                 'updated_at' => now()
+            ]);
+
+            Notification::create([
+                'type'        => 'schedule_update',
+                'message'     => 'You have been assigned a new schedule: ' . ($route->name ?? 'Unknown Route') . ' on ' . $validated['date'] . ' from ' . $validated['start_time'] . ' to ' . $validated['end_time'] . '.',
+                'sender_id'   => auth()->id(),
+                'driver_id'   => $validated['driver_id'],
+                'schedule_id' => $schedule->id,
+                'is_read'     => false,
             ]);
 
             if ($request->expectsJson()) {
@@ -252,8 +302,6 @@ class ScheduleController extends Controller
     {
         try {
             $schedule = Schedule::where('user_id', auth()->id())->findOrFail($id);
-            $before = $schedule->loadMissing(['driver', 'route', 'bus']);
-
             $validated = $request->validate([
                 'driver_id' => 'required|exists:drivers,id',
                 'route_id' => 'required|exists:routes,id',
@@ -283,6 +331,7 @@ class ScheduleController extends Controller
             if ($validated['date'] >= $todayStr) {
                 $this->assertScheduleStartNotInPast($validated['date'], $validated['start_time']);
             }
+            $this->assertSingleDailyCycle((int) $validated['driver_id'], (string) $validated['date'], (int) $schedule->id);
 
             // Check for overlapping schedules (exclude current schedule)
             $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -301,6 +350,23 @@ class ScheduleController extends Controller
                         'success' => false,
                         'message' => $msg,
                     ], 422);
+                }
+
+                return redirect()->back()->with('error', $msg)->withInput();
+            }
+
+            $busOverlap = $this->checkForOverlappingBusSchedules(
+                (int) $validated['bus_id'],
+                $validated['date'],
+                $validated['start_time'],
+                $validated['end_time'],
+                (int) $schedule->id,
+                $endsNext
+            );
+            if ($busOverlap) {
+                $msg = $this->busOverlapMessage('update', $busOverlap, (string) $validated['date']);
+                if ($request->expectsJson()) {
+                    return response()->json(['success' => false, 'message' => $msg], 422);
                 }
 
                 return redirect()->back()->with('error', $msg)->withInput();
@@ -338,52 +404,6 @@ class ScheduleController extends Controller
             $validated['fare_aircon'] = $fare_aircon;
 
             $schedule->update($validated);
-
-            // Auto-notify the assigned driver about schedule changes.
-            try {
-                $after = $schedule->fresh()->loadMissing(['driver', 'route', 'bus']);
-                $driverId = (int) ($after->driver_id ?? $validated['driver_id']);
-
-                $oldRoute = $before->route?->name ?? 'Route';
-                $newRoute = $after->route?->name ?? 'Route';
-                $oldBus = $before->bus?->bus_number ?? 'Bus';
-                $newBus = $after->bus?->bus_number ?? 'Bus';
-
-                $oldDate = $before->date instanceof \Carbon\CarbonInterface ? $before->date->format('Y-m-d') : (string) $before->date;
-                $newDate = (string) ($validated['date'] ?? $oldDate);
-
-                $oldStart = $before->start_time instanceof \Carbon\CarbonInterface ? $before->start_time->format('H:i') : (string) $before->start_time;
-                $oldEnd = $before->end_time instanceof \Carbon\CarbonInterface ? $before->end_time->format('H:i') : (string) $before->end_time;
-                $newStart = (string) ($validated['start_time'] ?? $oldStart);
-                $newEnd = (string) ($validated['end_time'] ?? $oldEnd);
-
-                $changedParts = [];
-                if ($oldRoute !== $newRoute) $changedParts[] = "Route: {$oldRoute} → {$newRoute}";
-                if ($oldBus !== $newBus) $changedParts[] = "Bus: {$oldBus} → {$newBus}";
-                if ($oldDate !== $newDate) $changedParts[] = "Date: {$oldDate} → {$newDate}";
-                if ($oldStart !== $newStart || $oldEnd !== $newEnd) $changedParts[] = "Time: {$oldStart}-{$oldEnd} → {$newStart}-{$newEnd}";
-                if ((string) $before->status !== (string) ($validated['status'] ?? $before->status)) {
-                    $changedParts[] = "Status: {$before->status} → {$validated['status']}";
-                }
-
-                $summary = $changedParts
-                    ? implode(' | ', $changedParts)
-                    : 'Your schedule details were updated.';
-
-                Notification::create([
-                    'type' => 'schedule_update',
-                    'message' => $summary,
-                    'sender_id' => auth()->id(),
-                    'recipient_id' => null,
-                    'driver_id' => $driverId,
-                    'schedule_id' => $schedule->id,
-                    'bus_id' => (int) ($after->bus_id ?? $validated['bus_id']),
-                    'is_read' => false,
-                ]);
-            } catch (\Exception $e) {
-                // Don't block the update if notification fails.
-                Log::warning('Failed to auto-notify driver schedule_update', ['error' => $e->getMessage()]);
-            }
 
             if ($request->expectsJson()) {
                 return response()->json([
@@ -508,6 +528,12 @@ class ScheduleController extends Controller
                 'message' => $overlapMsg,
             ], 422);
         }
+        if ($overlapMsg = $this->bulkBusSchedulesOverlapInBatch($schedulesData)) {
+            return response()->json([
+                'success' => false,
+                'message' => $overlapMsg,
+            ], 422);
+        }
         $createdSchedules = [];
         DB::beginTransaction();
         try {
@@ -542,6 +568,7 @@ class ScheduleController extends Controller
                 }
                 
                 $endsNextBulk = filter_var($scheduleData['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $this->assertSingleDailyCycle((int) $scheduleData['driver_id'], (string) $scheduleData['date']);
 
                 // Check for overlapping schedules
                 $overlappingSchedule = $this->checkForOverlappingSchedules(
@@ -554,6 +581,18 @@ class ScheduleController extends Controller
                 );
                 if ($overlappingSchedule) {
                     throw new \Exception($this->scheduleOverlapMessage('create', $overlappingSchedule));
+                }
+
+                $busOverlap = $this->checkForOverlappingBusSchedules(
+                    (int) $scheduleData['bus_id'],
+                    $scheduleData['date'],
+                    $scheduleData['start_time'],
+                    $scheduleData['end_time'],
+                    null,
+                    $endsNextBulk
+                );
+                if ($busOverlap) {
+                    throw new \Exception($this->busOverlapMessage('create', $busOverlap, (string) $scheduleData['date']));
                 }
                 
                 // ✅ Create the schedule WITHOUT notes field
@@ -569,17 +608,35 @@ class ScheduleController extends Controller
                     'status' => 'scheduled',
                     'fare_regular' => $fare_regular,
                     'fare_aircon' => $fare_aircon,
+                    'trip_leg' => 1,
+                    'leg_status' => 'pending',
+                    'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
                     // ✅ REMOVED: 'notes' => $scheduleData['notes'] ?? null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
+                Notification::create([
+                    'type'        => 'schedule_update',
+                    'message'     => 'You have been assigned a new schedule: ' . ($route->name ?? 'Unknown Route') . ' on ' . $scheduleData['date'] . ' from ' . $scheduleData['start_time'] . ' to ' . $scheduleData['end_time'] . '.',
+                    'sender_id'   => auth()->id(),
+                    'driver_id'   => $scheduleData['driver_id'],
+                    'schedule_id' => $schedule->id,
+                    'is_read'     => false,
+                ]);
+
                 $createdSchedules[] = $schedule;
             }
             DB::commit();
+
+            $count = count($createdSchedules);
+            $message = $count === 1
+                ? 'Schedule created successfully'
+                : $count.' schedules created successfully';
+
             return response()->json([
                 'success' => true,
-                'message' => count($createdSchedules) . ' schedule(s) created successfully!',
-                'count' => count($createdSchedules)
+                'message' => $message,
+                'count' => $count
             ], 201);
         } catch (ValidationException $e) {
             DB::rollBack();
@@ -677,6 +734,210 @@ class ScheduleController extends Controller
         return "Cannot {$verb}: {$driverName} already has a {$status} trip ({$routeName}) from {$conflict->start_time} to {$conflict->end_time} on {$conflict->date}. Choose a different time, or finish or cancel the existing trip first.";
     }
 
+    private function scheduleDateYmd(Schedule $schedule): string
+    {
+        $d = $schedule->date instanceof \Carbon\CarbonInterface
+            ? $schedule->date->format('Y-m-d')
+            : Carbon::parse((string) $schedule->date)->format('Y-m-d');
+
+        return $d;
+    }
+
+    /** e.g. May 15, 2026 */
+    private function formatHumanCalendarDate(string $ymd): string
+    {
+        return Carbon::parse(trim($ymd))->format('F j, Y');
+    }
+
+    /**
+     * Human-readable trip window for messages (12-hour clock, AM/PM).
+     * Same calendar day: "2:56 AM to 4:15 AM" (date is stated separately in the message).
+     * Spans midnight: includes full start/end dates when different days.
+     */
+    private function formatScheduleClockRangeForMessage(Schedule $schedule): string
+    {
+        $d = $this->scheduleDateYmd($schedule);
+        $rawSt = $schedule->getRawOriginal('start_time') ?? ($schedule->getAttributes()['start_time'] ?? '00:00:00');
+        $rawEn = $schedule->getRawOriginal('end_time') ?? ($schedule->getAttributes()['end_time'] ?? '00:00:00');
+        $st = substr(Carbon::parse($rawSt)->format('H:i:s'), 0, 5);
+        $en = substr(Carbon::parse($rawEn)->format('H:i:s'), 0, 5);
+        [$startAt, $endAt] = $this->resolveScheduleWindowBounds(
+            $d,
+            $st,
+            $en,
+            (bool) ($schedule->ends_next_day ?? false)
+        );
+
+        if ($startAt->isSameDay($endAt)) {
+            return $startAt->format('g:i A').' to '.$endAt->format('g:i A');
+        }
+
+        return $startAt->format('F j, Y').' '.$startAt->format('g:i A')
+            .' to '.$endAt->format('F j, Y').' '.$endAt->format('g:i A');
+    }
+
+    private function busOverlapMessage(string $action, Schedule $conflict, string $newDateYmd): string
+    {
+        $verb = $action === 'update' ? 'save' : 'create';
+        $busNo = $conflict->bus?->bus_number ?? 'This bus';
+        $driverName = $conflict->driver?->name ?? 'another driver';
+        $routeName = $conflict->route?->name ?? 'a route';
+        $conflictDate = $this->scheduleDateYmd($conflict);
+        $assignedOn = $this->formatHumanCalendarDate($conflictDate);
+        $timeWindow = $this->formatScheduleClockRangeForMessage($conflict);
+
+        if ($conflictDate === $newDateYmd) {
+            return "Cannot {$verb} this schedule: Bus {$busNo} is already assigned on {$assignedOn} to {$driverName} ({$routeName}) from {$timeWindow}. Each bus can only run one trip per calendar day. Pick a different bus or change the date.";
+        }
+
+        return "Cannot {$verb} this schedule: Bus {$busNo} is already assigned to {$driverName} ({$routeName}) from {$timeWindow}. That overlaps your chosen time window. Pick a different bus or non-overlapping times.";
+    }
+
+    /**
+     * Same bus cannot have two held trips on the same schedule `date` (departure day),
+     * even when clock times do not overlap.
+     */
+    private function checkBusBookedOnSameCalendarDate(int $busId, string $dateYmd, ?int $excludeScheduleId = null): ?Schedule
+    {
+        $q = Schedule::query()
+            ->where('bus_id', $busId)
+            ->whereDate('date', $dateYmd)
+            ->whereNotIn('status', ['completed', 'cancelled', 'declined']);
+
+        if ($excludeScheduleId) {
+            $q->where('id', '!=', $excludeScheduleId);
+        }
+
+        return $q->with(['driver', 'route', 'bus'])->orderBy('id')->first();
+    }
+
+    /**
+     * Same physical bus: at most one held trip per calendar `date`, and no overlapping time windows.
+     */
+    private function checkForOverlappingBusSchedules(int $busId, string $date, string $startTime, string $endTime, ?int $excludeScheduleId = null, bool $endsNextDay = false): ?Schedule
+    {
+        $dateYmd = Carbon::parse(trim((string) $date))->format('Y-m-d');
+        if ($existing = $this->checkBusBookedOnSameCalendarDate($busId, $dateYmd, $excludeScheduleId)) {
+            return $existing;
+        }
+
+        [$newStart, $newEnd] = $this->resolveScheduleWindowBounds((string) $date, (string) $startTime, (string) $endTime, $endsNextDay);
+
+        $from = $newStart->copy()->subDay()->format('Y-m-d');
+        $to = $newEnd->copy()->format('Y-m-d');
+
+        $candidates = Schedule::query()
+            ->where('bus_id', $busId)
+            ->whereBetween('date', [$from, $to])
+            ->whereNotIn('status', ['completed', 'cancelled', 'declined']);
+
+        if ($excludeScheduleId) {
+            $candidates->where('id', '!=', $excludeScheduleId);
+        }
+
+        foreach ($candidates->cursor() as $existing) {
+            $d = $existing->date instanceof \Carbon\CarbonInterface
+                ? $existing->date->format('Y-m-d')
+                : Carbon::parse((string) $existing->date)->format('Y-m-d');
+            $st = $existing->start_time instanceof \Carbon\CarbonInterface
+                ? $existing->start_time->format('H:i')
+                : Carbon::parse((string) $existing->start_time)->format('H:i');
+            $en = $existing->end_time instanceof \Carbon\CarbonInterface
+                ? $existing->end_time->format('H:i')
+                : Carbon::parse((string) $existing->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+
+            if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
+                return $existing->loadMissing(['driver', 'route', 'bus']);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Overlapping use of the same bus within one bulk payload.
+     *
+     * @param  array<int|string, array<string, mixed>>  $schedules
+     */
+    private function bulkBusSchedulesOverlapInBatch(array $schedules): ?string
+    {
+        $byBusDate = [];
+        foreach ($schedules as $idx => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $busId = isset($row['bus_id']) ? (int) $row['bus_id'] : 0;
+            if (! $busId || empty($row['date'])) {
+                continue;
+            }
+            try {
+                $dateYmd = Carbon::parse(trim((string) $row['date']))->format('Y-m-d');
+            } catch (\Throwable) {
+                continue;
+            }
+            $key = $busId.'|'.$dateYmd;
+            if (! isset($byBusDate[$key])) {
+                $byBusDate[$key] = [];
+            }
+            $byBusDate[$key][] = (int) $idx + 1;
+        }
+        foreach ($byBusDate as $labels) {
+            if (count($labels) < 2) {
+                continue;
+            }
+            $a = $labels[0];
+            $b = $labels[1];
+
+            return 'The same bus cannot be used twice on the same calendar day in this form (rows '.$a.' and '.$b.'). Pick another bus or a different date.';
+        }
+
+        $byBus = [];
+
+        foreach ($schedules as $idx => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $busId = isset($row['bus_id']) ? (int) $row['bus_id'] : 0;
+            $date = isset($row['date']) ? (string) $row['date'] : null;
+            $start = isset($row['start_time']) ? trim((string) $row['start_time']) : '';
+            $end = isset($row['end_time']) ? trim((string) $row['end_time']) : '';
+
+            if (! $busId || ! $date || $start === '' || $end === '') {
+                continue;
+            }
+
+            $endsNext = filter_var($row['ends_next_day'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            try {
+                [$sAt, $eAt] = $this->resolveScheduleWindowBounds($date, $start, $end, $endsNext);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if (! isset($byBus[$busId])) {
+                $byBus[$busId] = [];
+            }
+            $byBus[$busId][] = [
+                'label' => (int) $idx + 1,
+                's' => $sAt,
+                'e' => $eAt,
+            ];
+        }
+
+        foreach ($byBus as $items) {
+            $count = count($items);
+            for ($i = 0; $i < $count; $i++) {
+                for ($j = $i + 1; $j < $count; $j++) {
+                    if ($items[$i]['s']->lt($items[$j]['e']) && $items[$i]['e']->gt($items[$j]['s'])) {
+                        return 'The same bus cannot be used twice with overlapping times in this form (rows '.$items[$i]['label'].' and '.$items[$j]['label'].').';
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
 
 
     // ===================================
@@ -752,6 +1013,17 @@ class ScheduleController extends Controller
 
             Log::info("Total schedules found: " . $allSchedules->count());
 
+            // Auto-expire: any 'active' schedule whose window ended more than 2 hours ago
+            $now = Carbon::now();
+            foreach ($allSchedules->where('status', 'active') as $stale) {
+                [, $windowEnd] = $stale->windowBounds();
+                if ($windowEnd->copy()->addHours(2)->lt($now)) {
+                    $stale->status = 'completed';
+                    $stale->completed_at = $stale->completed_at ?? $windowEnd;
+                    $stale->save();
+                }
+            }
+
             // Categorize by real trip window (handles ends_next_day / past-midnight trips)
             $startOfToday = Carbon::today()->startOfDay();
             $endOfToday = Carbon::today()->copy()->endOfDay();
@@ -801,107 +1073,214 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Accept a schedule (API)
+     * Accept a schedule or the next leg (API)
+     * Handles both: initial schedule acceptance (status=scheduled) and
+     * mid-day next-leg acceptance (status=active, leg_status=pending).
      */
     public function acceptSchedule(Request $request, $id)
     {
         try {
             $schedule = Schedule::findOrFail($id);
+            $legStatus = $schedule->leg_status ?? 'pending';
 
-            // Update the schedule status to 'accepted'
-            $schedule->status = 'accepted';
+            if ($schedule->status === 'scheduled' && $legStatus === 'pending') {
+                // Initial acceptance of the day's schedule
+                $schedule->status     = 'accepted';
+                $schedule->leg_status = 'accepted';
+            } elseif ($schedule->status === 'active' && $legStatus === 'pending') {
+                // Accepting the next leg in a vice-versa cycle
+                $schedule->leg_status = 'accepted';
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot accept schedule in its current state.',
+                ], 400);
+            }
+
             $schedule->save();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule accepted successfully.',
-                'schedule' => $schedule
+                'schedule' => $schedule,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to accept schedule.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
 
-    public function declineSchedule($id)
+    public function declineSchedule(Request $request, $id)
     {
-        try {
-            $schedule = Schedule::findOrFail($id);
-            $schedule->status = 'declined';
-            $schedule->save();
+        $request->validate(['reason' => 'required|string|min:5|max:500']);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Schedule declined successfully',
-                'schedule' => $schedule
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to decline schedule: ' . $e->getMessage()
-            ], 500);
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        if ($schedule->status !== 'scheduled') {
+            return response()->json(['success' => false, 'message' => 'Only unaccepted schedules can be declined.'], 400);
         }
+
+        $schedule->status = 'pending_decline';
+        $schedule->decline_reason = $request->reason;
+        $schedule->decline_status = 'pending_approval';
+        $schedule->save();
+
+        $driverName = $schedule->driver
+            ? trim(($schedule->driver->first_name ?? '') . ' ' . ($schedule->driver->last_name ?? ''))
+            : 'Driver';
+
+        Notification::create([
+            'type'         => 'schedule_update',
+            'message'      => "Driver {$driverName} declined schedule #{$id}: \"{$request->reason}\"",
+            'driver_id'    => $schedule->driver_id,
+            'schedule_id'  => $id,
+            'recipient_id' => $schedule->user_id,
+            'sender_id'    => null,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline request submitted. Awaiting operator approval.']);
+    }
+
+    public function approveDecline($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'declined';
+        $schedule->decline_status = 'approved';
+        $schedule->declined_at = now();
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your decline request for schedule #{$id} has been approved.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline approved.']);
+    }
+
+    public function rejectDecline($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'scheduled';
+        $schedule->decline_status = 'rejected';
+        $schedule->decline_reason = null;
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your decline request for schedule #{$id} was rejected. Please proceed with your schedule.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Decline rejected. Schedule restored.']);
     }
 
     /**
-     * Start a schedule (API)
+     * Start the current leg (API)
+     * Works for any leg (outbound or return) — checks leg_status='accepted'.
      */
     public function startSchedule($scheduleId): JsonResponse
     {
         try {
             Log::info("Attempting to start schedule ID: {$scheduleId}");
 
-            $schedule = Schedule::find($scheduleId);
-
-            if (!$schedule) {
-                Log::error("Schedule not found: $scheduleId");
-                return response()->json(['error' => 'Schedule not found'], 404);
-            }
-
             $schedule = Schedule::with(['route', 'bus', 'driver'])->find($scheduleId);
 
             if (!$schedule) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule not found'
-                ], 404);
+                Log::error("Schedule not found: $scheduleId");
+                return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
             }
 
-            if ($schedule->status !== 'accepted') {
+            $legStatus = $schedule->leg_status ?? '';
+            $tripLeg   = $schedule->trip_leg  ?? 1;
+
+            if ($legStatus !== 'accepted') {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot start schedule. Current status: {$schedule->status}. Schedule must be accepted first."
+                    'message' => "Cannot start: leg must be accepted first. Current leg_status: {$legStatus}",
                 ], 400);
             }
 
-            $schedule->status = 'active';
-            $schedule->started_at = Carbon::now();
+            if ($schedule->status !== 'active') {
+                $schedule->status     = 'active';
+                $schedule->started_at = Carbon::now();
+            }
+            $schedule->leg_status = 'active';
+
+            if ($tripLeg % 2 === 0) {
+                $schedule->return_trip_status = 'active';
+            }
+
             $schedule->save();
 
-            Log::info("Schedule {$scheduleId} started by driver {$schedule->driver_id}");
+            Log::info("Schedule {$scheduleId} leg {$tripLeg} started by driver {$schedule->driver_id}");
 
             return response()->json([
                 'success' => true,
                 'message' => 'Trip started successfully',
                 'schedule' => $schedule,
-                'action' => 'started'
+                'action'  => 'started',
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error starting schedule {$scheduleId}: " . $e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error starting schedule: ' . $e->getMessage()
+                'message' => 'Error starting schedule: ' . $e->getMessage(),
             ], 500);
         }
     }
 
+    public function updatePosition(Request $request, $id): JsonResponse
+    {
+        $schedule = Schedule::findOrFail($id);
+        $data = $request->validate([
+            'latitude'  => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'accuracy_m' => ['nullable', 'numeric', 'min:0', 'max:100000'],
+            'speed_mps' => ['nullable', 'numeric', 'min:0', 'max:200'],
+            'heading_deg' => ['nullable', 'numeric', 'min:0', 'max:360'],
+        ]);
+        $schedule->current_lat = $data['latitude'];
+        $schedule->current_lng = $data['longitude'];
+        $schedule->save();
+
+        if ($schedule->driver_id) {
+            $last = DriverLocation::query()
+                ->where('driver_id', $schedule->driver_id)
+                ->orderByDesc('recorded_at')
+                ->first();
+            $now = now();
+            if (! $last || ! $last->recorded_at || $last->recorded_at->diffInSeconds($now) >= 3) {
+                DriverLocation::create([
+                    'driver_id' => $schedule->driver_id,
+                    'schedule_id' => $schedule->id,
+                    'latitude' => (float) $data['latitude'],
+                    'longitude' => (float) $data['longitude'],
+                    'accuracy_m' => isset($data['accuracy_m']) ? (float) $data['accuracy_m'] : null,
+                    'speed_mps' => isset($data['speed_mps']) ? (float) $data['speed_mps'] : null,
+                    'heading_deg' => isset($data['heading_deg']) ? (float) $data['heading_deg'] : null,
+                    'recorded_at' => $now,
+                ]);
+            }
+        }
+
+        return response()->json(['success' => true]);
+    }
+
     /**
-     * Complete a schedule (API)
+     * Complete the current active leg (API)
+     * For routes with return_geometry: advances to the next leg (vice-versa loop).
+     * For one-way routes: truly completes the schedule.
      */
     public function completeSchedule($scheduleId): JsonResponse
     {
@@ -909,44 +1288,235 @@ class ScheduleController extends Controller
             Log::info("Attempting to complete schedule ID: {$scheduleId}");
 
             $schedule = Schedule::with(['route', 'bus', 'driver'])->find($scheduleId);
-            
+
             if (!$schedule) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Schedule not found'
-                ], 404);
+                return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
             }
 
-            Log::info("DEBUG: Schedule date={$schedule->date}, Today=" . Carbon::now()->format('Y-m-d'));
+            if ($schedule->status === 'completed') {
+                return response()->json(['success' => true, 'message' => 'Schedule already completed']);
+            }
 
-            if ($schedule->status !== 'active') {
+            $legStatus = $schedule->leg_status ?? '';
+            if ($legStatus !== 'active') {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot complete schedule. Current status: {$schedule->status}. Schedule must be active."
+                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}",
                 ], 400);
             }
 
-            $schedule->status = 'completed';
-            $schedule->completed_at = Carbon::now();
-            $schedule->save();
+            $route = Route::find($schedule->route_id);
+            $hasReturnGeometry = $route && !empty($route->return_geometry);
 
-            Log::info("Schedule {$scheduleId} completed by driver {$schedule->driver_id}");
+            if ($hasReturnGeometry) {
+                // Advance to the next leg — vice-versa loop continues
+                $nextLeg = ($schedule->trip_leg ?? 1) + 1;
+                $schedule->trip_leg   = $nextLeg;
+                $schedule->leg_status = 'pending';
+                $schedule->return_trip_status = 'pending';
+                $msg = ($nextLeg % 2 === 0)
+                    ? 'Outbound leg completed. Accept the return trip to continue.'
+                    : 'Return leg completed. Accept the next outbound trip to continue.';
+
+                $schedule->save();
+                $this->cancelStaleBoardingRequestsForSchedule((int) $schedule->id);
+                $this->alightPaidTicketsForSchedule((int) $schedule->id);
+
+                Notification::create([
+                    'type'        => 'schedule_update',
+                    'message'     => $msg,
+                    'sender_id'   => $schedule->user_id,
+                    'driver_id'   => $schedule->driver_id,
+                    'schedule_id' => $schedule->id,
+                    'is_read'     => false,
+                ]);
+
+                Log::info("Schedule {$scheduleId} leg completed, now at leg {$nextLeg}");
+
+                return response()->json([
+                    'success' => true,
+                    'message' => $msg,
+                    'schedule' => $schedule,
+                ]);
+            }
+
+            // No return geometry — truly complete the schedule for the day
+            $schedule->status       = 'completed';
+            $schedule->completed_at = Carbon::now();
+            $schedule->leg_status   = 'completed';
+            $schedule->save();
+            $this->cancelStaleBoardingRequestsForSchedule((int) $schedule->id);
+            $this->alightPaidTicketsForSchedule((int) $schedule->id);
+
+            Log::info("Schedule {$scheduleId} fully completed by driver {$schedule->driver_id}");
 
             return response()->json([
                 'success' => true,
                 'message' => 'Trip completed successfully',
                 'schedule' => $schedule,
-                'action' => 'completed'
+                'action'  => 'completed',
             ]);
-
         } catch (\Exception $e) {
             Log::error("Error completing schedule {$scheduleId}: " . $e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error completing schedule: ' . $e->getMessage()
+                'message' => 'Error completing schedule: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function acceptReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::findOrFail($id);
+        if ($schedule->return_trip_status !== 'pending') {
+            return response()->json(['success' => false, 'message' => 'Return trip is not awaiting acceptance.'], 400);
+        }
+        $schedule->return_trip_status = 'accepted';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip accepted.', 'schedule' => $schedule]);
+    }
+
+    public function declineReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::findOrFail($id);
+        if (! in_array($schedule->return_trip_status, ['pending', 'accepted'])) {
+            return response()->json(['success' => false, 'message' => 'Return trip cannot be declined in its current state.'], 400);
+        }
+        $schedule->return_trip_status = 'declined';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip declined.']);
+    }
+
+    public function startReturnTrip($id): JsonResponse
+    {
+        $schedule = Schedule::with('route')->findOrFail($id);
+        if ($schedule->return_trip_status !== 'accepted') {
+            return response()->json(['success' => false, 'message' => 'Return trip must be accepted before starting.'], 400);
+        }
+        $schedule->return_trip_status = 'active';
+        $schedule->save();
+        return response()->json(['success' => true, 'message' => 'Return trip started.', 'schedule' => $schedule]);
+    }
+
+    public function completeReturnTrip($id): JsonResponse
+    {
+        // In the vice-versa system completing a return leg = completing any leg.
+        return $this->completeSchedule($id);
+    }
+
+    /**
+     * Driver ends their day — truly completes the schedule regardless of current leg.
+     */
+    public function endDay($id): JsonResponse
+    {
+        try {
+            $schedule = Schedule::findOrFail($id);
+
+            if ($schedule->status === 'completed') {
+                return response()->json(['success' => true, 'message' => 'Schedule already completed.']);
+            }
+
+            $schedule->status       = 'completed';
+            $schedule->completed_at = Carbon::now();
+            $schedule->leg_status   = 'completed';
+            $schedule->save();
+            $this->cancelStaleBoardingRequestsForSchedule((int) $schedule->id);
+            $this->alightPaidTicketsForSchedule((int) $schedule->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Day ended. Schedule marked as completed.',
+                'schedule' => $schedule,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error ending day: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Driver cancels an accepted/active schedule with a reason.
+     * Sets status to 'cancelled' and cancellation_status to 'pending_approval'.
+     * Notifies the operator.
+     */
+    public function cancelSchedule(Request $request, $id): JsonResponse
+    {
+        $request->validate(['reason' => 'required|string|min:5|max:500']);
+
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        if (!in_array($schedule->status, ['accepted', 'active', 'scheduled'])) {
+            return response()->json(['success' => false, 'message' => 'Schedule cannot be cancelled in its current status.'], 400);
+        }
+
+        $schedule->status = 'cancelled';
+        $schedule->cancel_reason = $request->reason;
+        $schedule->cancellation_status = 'pending_approval';
+        $schedule->save();
+
+        $driverName = $schedule->driver
+            ? trim(($schedule->driver->first_name ?? '') . ' ' . ($schedule->driver->last_name ?? ''))
+            : 'Driver';
+
+        Notification::create([
+            'type'         => 'schedule_cancellation',
+            'message'      => "Driver {$driverName} cancelled schedule #{$id}: \"{$request->reason}\"",
+            'driver_id'    => $schedule->driver_id,
+            'schedule_id'  => $id,
+            'recipient_id' => $schedule->user_id,
+            'sender_id'    => null,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation submitted. Awaiting operator approval.']);
+    }
+
+    /**
+     * Operator approves a driver's cancellation request.
+     * Sets cancellation_status to 'approved' and notifies the driver.
+     */
+    public function approveCancellation($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->cancellation_status = 'approved';
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your cancellation request for schedule #{$id} has been approved by the operator.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation approved.']);
+    }
+
+    /**
+     * Operator rejects a driver's cancellation request.
+     * Restores status to 'accepted' and notifies the driver.
+     */
+    public function rejectCancellation($id): JsonResponse
+    {
+        $schedule = Schedule::with('driver')->findOrFail($id);
+
+        $schedule->status = 'accepted';
+        $schedule->cancellation_status = 'rejected';
+        $schedule->cancel_reason = null;
+        $schedule->save();
+
+        Notification::create([
+            'type'        => 'schedule_update',
+            'message'     => "Your cancellation request for schedule #{$id} was rejected. Please proceed with your schedule.",
+            'driver_id'   => $schedule->driver_id,
+            'schedule_id' => $id,
+            'sender_id'   => $schedule->user_id,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Cancellation rejected. Schedule restored.']);
     }
 
     /**
@@ -969,6 +1539,7 @@ class ScheduleController extends Controller
             ]);
 
             $endsNextAssign = filter_var($request->input('ends_next_day'), FILTER_VALIDATE_BOOLEAN);
+            $this->assertSingleDailyCycle((int) $request->driver_id, Carbon::parse($request->date)->format('Y-m-d'));
             $this->assertScheduleTimeOrder(
                 Carbon::parse($request->date)->format('Y-m-d'),
                 $request->start_time,
@@ -993,6 +1564,22 @@ class ScheduleController extends Controller
                 ], 422);
             }
 
+            $assignDateYmd = Carbon::parse($request->date)->format('Y-m-d');
+            $busOverlapAssign = $this->checkForOverlappingBusSchedules(
+                (int) $request->bus_id,
+                $assignDateYmd,
+                $request->start_time,
+                $request->end_time,
+                null,
+                $endsNextAssign
+            );
+            if ($busOverlapAssign) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $this->busOverlapMessage('create', $busOverlapAssign, $assignDateYmd),
+                ], 422);
+            }
+
             $route = Route::findOrFail($request->route_id);
             $this->ensureRouteApprovedForOperator((int) $route->id, (int) $route->user_id);
 
@@ -1009,7 +1596,10 @@ class ScheduleController extends Controller
                 'status' => 'scheduled',
                 'fare_regular' => $request->fare_regular,
                 'fare_aircon' => $request->fare_aircon ?? $request->fare_regular,
-                'notes' => $request->notes
+                'notes' => $request->notes,
+                'trip_leg' => 1,
+                'leg_status' => 'pending',
+                'return_trip_status' => !empty($route?->return_geometry) ? 'pending' : null,
             ]);
 
             Log::info("New schedule created and assigned to driver {$request->driver_id}");
@@ -1037,9 +1627,8 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Routes the operator may assign to schedules: sysadmin-approved packages whose
-     * {@see RouteApprovalRequest::$stop_configuration} includes at least one stop for that route
-     * (same data commuters and drivers use for pathways and bus stops).
+     * Route IDs from sysadmin-approved packages for this operator.
+     * Uses the route_ids column directly rather than parsing stop_configuration.
      *
      * @return array<int>
      */
@@ -1050,20 +1639,13 @@ class ScheduleController extends Controller
         RouteApprovalRequest::query()
             ->where('operator_user_id', $operatorUserId)
             ->where('status', 'approved')
-            ->orderByDesc('decided_at')
             ->get()
             ->each(function (RouteApprovalRequest $pkg) use (&$ids): void {
-                $config = $pkg->stop_configuration;
-                if (! is_array($config)) {
-                    return;
-                }
-                foreach ($config as $block) {
-                    $routeId = (int) ($block['route_id'] ?? 0);
-                    $stops = $block['stops'] ?? [];
-                    if ($routeId <= 0 || ! is_array($stops) || count($stops) === 0) {
-                        continue;
+                foreach ((array) ($pkg->route_ids ?? []) as $routeId) {
+                    $id = (int) $routeId;
+                    if ($id > 0) {
+                        $ids[$id] = true;
                     }
-                    $ids[$routeId] = true;
                 }
             });
 
@@ -1118,6 +1700,7 @@ class ScheduleController extends Controller
     private function bulkDriverSchedulesOverlapInBatch(array $schedules): ?string
     {
         $byDriver = [];
+        $byDriverDay = [];
 
         foreach ($schedules as $idx => $row) {
             if (! is_array($row)) {
@@ -1142,12 +1725,23 @@ class ScheduleController extends Controller
             if (! isset($byDriver[$driverId])) {
                 $byDriver[$driverId] = [];
             }
+            $dayKey = $driverId.'|'.$date;
+            if (! isset($byDriverDay[$dayKey])) {
+                $byDriverDay[$dayKey] = [];
+            }
+            $byDriverDay[$dayKey][] = (int) $idx + 1;
 
             $byDriver[$driverId][] = [
                 'label' => (int) $idx + 1,
                 's' => $sAt,
                 'e' => $eAt,
             ];
+        }
+
+        foreach ($byDriverDay as $labels) {
+            if (count($labels) > 1) {
+                return 'Only one schedule cycle is allowed per driver per day. Conflicting rows: '.implode(', ', $labels).'.';
+            }
         }
 
         foreach ($byDriver as $items) {
@@ -1162,6 +1756,24 @@ class ScheduleController extends Controller
         }
 
         return null;
+    }
+
+    private function assertSingleDailyCycle(int $driverId, string $date, ?int $excludeScheduleId = null): void
+    {
+        $query = Schedule::query()
+            ->where('driver_id', $driverId)
+            ->whereDate('date', $date)
+            ->whereNotIn('status', ['cancelled', 'declined']);
+
+        if ($excludeScheduleId !== null) {
+            $query->where('id', '!=', $excludeScheduleId);
+        }
+
+        if ($query->exists()) {
+            throw ValidationException::withMessages([
+                'driver_id' => ['Only one schedule cycle per driver per day is allowed.'],
+            ]);
+        }
     }
 
     private function assertScheduleStartNotInPast(string $date, string $startTime): void
@@ -1184,20 +1796,39 @@ class ScheduleController extends Controller
         return now()->format('g:i A');
     }
 
-    private function scheduleDateYmd(Schedule $schedule): string
-    {
-        if ($schedule->date instanceof \Carbon\CarbonInterface) {
-            return $schedule->date->format('Y-m-d');
-        }
-
-        return Carbon::parse((string) $schedule->date)->format('Y-m-d');
-    }
-
     /**
      * API payload for driver app: route pathway, terminal-approved stops, ticket holders.
      *
      * @return array<string, mixed>
      */
+    /**
+     * Mark any still-waiting BoardingRequest rows for this schedule as cancelled.
+     * Called when a leg advances or the schedule ends so old-direction markers don't
+     * bleed onto the next leg's driver map.
+     */
+    private function cancelStaleBoardingRequestsForSchedule(int $scheduleId): void
+    {
+        BoardingRequest::query()
+            ->where('schedule_id', $scheduleId)
+            ->where('status', 'waiting')
+            ->update(['status' => 'cancelled']);
+    }
+
+    /**
+     * Mark any PAID, non-alighted tickets for this schedule as alighted. Called when
+     * a leg ends — those journeys are physically over (the bus reached its destination
+     * or the driver wrapped up). Pending/unpaid tickets are intentionally left alone
+     * so the commuter still sees the ticket on their home tab until they pay.
+     */
+    private function alightPaidTicketsForSchedule(int $scheduleId): void
+    {
+        Ticket::query()
+            ->where('schedule_id', $scheduleId)
+            ->where('payment_status', 'paid')
+            ->whereNull('alighted_at')
+            ->update(['alighted_at' => now()]);
+    }
+
     private function enrichScheduleForDriver(Schedule $schedule): array
     {
         $schedule->loadMissing(['route', 'bus', 'tickets.commuter']);
@@ -1207,6 +1838,14 @@ class ScheduleController extends Controller
         if ($schedule->route) {
             $data['route'] = $this->formatRouteForDriverResponse($schedule->route, (int) $schedule->user_id);
         }
+
+        $tripLeg   = $schedule->trip_leg  ?? 1;
+        $legStatus = $schedule->leg_status ?? 'pending';
+        $data['trip_leg']          = $tripLeg;
+        $data['leg_status']        = $legStatus;
+        $data['leg_direction']     = ($tripLeg % 2 === 1) ? 'outbound' : 'return';
+        $data['has_return_trip']   = ! empty($schedule->route?->return_geometry);
+        $data['return_trip_status'] = $schedule->return_trip_status;
 
         $stillAboard = $schedule->tickets->filter(fn ($t) => $t->alighted_at === null);
 
@@ -1234,26 +1873,33 @@ class ScheduleController extends Controller
         $base = $route->toArray();
         $line = $this->routeGeometryAsLineString($route);
         $base['map_geometry'] = $line;
-        $stops = $this->approvedStopsForOperatorRoute($operatorUserId, (int) $route->id);
-        $base['stops'] = $this->computeStopEtasForDriver($route, $stops);
+        $base['stops'] = $this->approvedStopsForOperatorRoute($operatorUserId, (int) $route->id);
+
+        if (! empty($route->return_geometry)) {
+            $rg = $route->return_geometry;
+            if (is_string($rg)) {
+                $rg = json_decode($rg, true);
+            }
+            if (is_array($rg)) {
+                if (($rg['type'] ?? null) === 'Feature' && isset($rg['geometry'])) {
+                    $rg = $rg['geometry'];
+                }
+                if (($rg['type'] ?? null) === 'LineString' && isset($rg['coordinates'])) {
+                    $coords = [];
+                    foreach ($rg['coordinates'] as $c) {
+                        if (is_array($c) && count($c) >= 2) {
+                            $coords[] = [(float) $c[0], (float) $c[1]];
+                        }
+                    }
+                    if (count($coords) >= 2) {
+                        $base['return_map_geometry'] = ['type' => 'LineString', 'coordinates' => $coords];
+                    }
+                }
+            }
+            $base['return_stops'] = $route->return_stops_data ?? [];
+        }
 
         return $base;
-    }
-
-    private function computeStopEtasForDriver(Route $route, array $stops): array
-    {
-        $fullKm = max((float) ($route->distance_km ?? 0), 0.001);
-        $durationMin = (int) ($route->estimated_duration ?? 0);
-
-        $out = [];
-        foreach ($stops as $s) {
-            $dist = (float) ($s['distance_km_from_start'] ?? 0);
-            $ratio = min(1.0, max(0.0, $dist / $fullKm));
-            $etaMin = $durationMin > 0 ? (int) round($durationMin * $ratio) : null;
-            $s['eta_minutes_from_start'] = $etaMin;
-            $out[] = $s;
-        }
-        return $out;
     }
 
     /**
@@ -1304,7 +1950,8 @@ class ScheduleController extends Controller
     }
 
     /**
-     * Terminal-approved stops for this operator route (same package logic as commuter approved routes).
+     * Terminal-approved stops for this operator's route.
+     * Matches block by route_id key if present, otherwise by position in route_ids array.
      *
      * @return array<int, mixed>
      */
@@ -1318,22 +1965,30 @@ class ScheduleController extends Controller
 
         foreach ($packages as $pkg) {
             $routeIds = array_map('intval', (array) ($pkg->route_ids ?? []));
-            if (! in_array($routeId, $routeIds, true)) {
+            $position = array_search($routeId, $routeIds, true);
+            if ($position === false) {
                 continue;
             }
 
             $config = $pkg->stop_configuration;
-            if (! is_array($config)) {
+            if (! is_array($config) || count($config) === 0) {
                 continue;
             }
 
+            // Match by route_id key in block (preferred format)
             foreach ($config as $block) {
-                if ((int) ($block['route_id'] ?? 0) !== $routeId) {
-                    continue;
+                if ((int) ($block['route_id'] ?? -1) === $routeId) {
+                    return $block['stops'] ?? [];
                 }
-
-                return $block['stops'] ?? [];
             }
+
+            // Fallback: match by position in route_ids array
+            if (isset($config[$position]) && is_array($config[$position]['stops'] ?? null)) {
+                return $config[$position]['stops'];
+            }
+
+            // Last resort: return first block's stops
+            return $config[0]['stops'] ?? [];
         }
 
         return [];

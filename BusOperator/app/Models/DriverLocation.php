@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class DriverLocation extends Model
 {
+    public $timestamps = false;
+
     protected $fillable = [
         'driver_id',
         'schedule_id',
@@ -36,4 +38,3 @@ class DriverLocation extends Model
         return $this->belongsTo(Schedule::class);
     }
 }
-

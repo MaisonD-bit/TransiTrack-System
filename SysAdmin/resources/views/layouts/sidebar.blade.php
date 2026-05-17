@@ -15,6 +15,10 @@
             <i class="fas fa-check-double"></i>
             <span>Route approvals</span>
         </a>
+        <a href="{{ route('sysadmin.manager-approvals') }}" class="nav-item {{ request()->routeIs('sysadmin.manager-approvals*') ? 'active' : '' }}">
+            <i class="fas fa-user-check"></i>
+            <span>Manager approvals</span>
+        </a>
         <form action="{{ route('sysadmin.logout') }}" method="POST" class="mt-4 px-3">
             @csrf
             <button type="submit" class="btn btn-outline-light btn-sm w-100">

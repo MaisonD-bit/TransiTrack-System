@@ -521,6 +521,12 @@
                                 </select>
                                 <div class="invalid-feedback" id="status_error"></div>
                             </div>
+                            <div class="col-md-6 mb-3" id="suspensionDaysWrap" style="display: none;">
+                                <label for="suspension_days" class="form-label">Suspension length (days) <span class="text-danger">*</span></label>
+                                <input type="number" id="suspension_days" name="suspension_days" class="form-control" min="1" max="365" placeholder="e.g. 7">
+                                <small class="text-muted">Driver is notified in the app. The account becomes active again automatically after this period (checked hourly).</small>
+                                <div class="invalid-feedback" id="suspension_days_error"></div>
+                            </div>
                         </div>
                     </div>
                 </div>

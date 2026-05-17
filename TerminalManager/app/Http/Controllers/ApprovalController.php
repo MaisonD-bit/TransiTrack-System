@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\JsonResponse;
 
 class ApprovalController extends Controller
 {
@@ -13,18 +14,8 @@ class ApprovalController extends Controller
      */
     public function index()
     {
-        // Get manager's terminal assignment
-        $manager = Auth::user();
-        $terminal = $manager ? $manager->terminal : null;
+        $operators = $this->operatorsQueryForManager()->get();
 
-        // Filter operators by manager's terminal
-        $query = DB::table('users')->where('role', 'bus_operator');
-        
-        if ($terminal) {
-            $query->where('terminal', $terminal);
-        }
-
-        $operators = $query->get();
         return view('operations.approval', compact('operators'));
     }
 
@@ -35,24 +26,13 @@ class ApprovalController extends Controller
     {
         $status = $request->query('status', 'all');
 
-        // Get manager's terminal assignment
-        $manager = Auth::user();
-        $terminal = $manager ? $manager->terminal : null;
-
-        $query = DB::table('users')->where('role', 'bus_operator');
-
-        // Filter by manager's terminal
-        if ($terminal) {
-            $query->where('terminal', $terminal);
-        }
+        $query = $this->operatorsQueryForManager();
 
         if ($status !== 'all') {
             $query->where('status', $status);
         }
 
-        $operators = $query->get();
-
-        return response()->json($operators);
+        return response()->json($query->get());
     }
 
     /**
@@ -60,59 +40,63 @@ class ApprovalController extends Controller
      */
     public function approve(Request $request, int $id)
     {
-        // Get manager's terminal assignment
-        $manager = Auth::user();
-        $terminal = $manager ? $manager->terminal : null;
-
         $operator = DB::table('users')->where('id', $id)->where('role', 'bus_operator')->first();
 
-        if (!$operator) {
+        if (! $operator) {
             return response()->json(['success' => false, 'message' => 'Operator not found'], 404);
         }
 
-        // Verify manager can only approve operators from their terminal
-        if ($terminal && $operator->terminal !== $terminal) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized: You cannot approve operators from other terminals'], 403);
+        if ($denied = $this->assertCanManageOperator($operator, 'approve')) {
+            return $denied;
         }
 
-        DB::table('users')->where('id', $id)->update(['status' => 'active']);
+        DB::table('users')->where('id', $id)->update([
+            'status' => 'active',
+            'status_reason' => null,
+            'status_reason_action' => null,
+            'status_reason_at' => null,
+            'updated_at' => now(),
+        ]);
 
         return response()->json([
             'success' => true,
-            'message' => "Operator has been approved.",
+            'message' => 'Operator has been approved.',
         ]);
     }
 
     /**
-     * Reject/Deactivate an operator
+     * Deactivate an operator
      */
     public function pending(Request $request, int $id)
     {
         $validated = $request->validate([
+            'action' => 'required|in:deactivate',
             'reason' => 'nullable|string|max:500',
         ]);
 
-        // Get manager's terminal assignment
-        $manager = Auth::user();
-        $terminal = $manager ? $manager->terminal : null;
-
         $operator = DB::table('users')->where('id', $id)->where('role', 'bus_operator')->first();
-        
-        if (!$operator) {
+
+        if (! $operator) {
             return response()->json(['success' => false, 'message' => 'Operator not found'], 404);
         }
 
-        // Verify manager can only reject operators from their terminal
-        if ($terminal && $operator->terminal !== $terminal) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized: You cannot reject operators from other terminals'], 403);
+        if ($denied = $this->assertCanManageOperator($operator, 'deactivate')) {
+            return $denied;
         }
-        
-        // Just set to inactive (deactivate)
-        DB::table('users')->where('id', $id)->update(['status' => 'inactive']);
+
+        $reason = trim((string) ($validated['reason'] ?? ''));
+
+        DB::table('users')->where('id', $id)->update([
+            'status' => 'inactive',
+            'status_reason' => $reason !== '' ? $reason : null,
+            'status_reason_action' => $validated['action'],
+            'status_reason_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         return response()->json([
             'success' => true,
-            'message' => "Operator has been deactivated.",
+            'message' => 'Operator has been deactivated.',
         ]);
     }
 
@@ -121,15 +105,7 @@ class ApprovalController extends Controller
      */
     public function getStats()
     {
-        // Get manager's terminal assignment
-        $manager = Auth::user();
-        $terminal = $manager ? $manager->terminal : null;
-
-        $query = DB::table('users')->where('role', 'bus_operator');
-        
-        if ($terminal) {
-            $query->where('terminal', $terminal);
-        }
+        $query = $this->operatorsQueryForManager();
 
         $stats = [
             'active' => (clone $query)->where('status', 'active')->count(),
@@ -138,5 +114,54 @@ class ApprovalController extends Controller
         ];
 
         return response()->json($stats);
+    }
+
+    /**
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function operatorsQueryForManager()
+    {
+        $query = DB::table('users')->where('role', 'bus_operator');
+        $terminal = $this->managerTerminal();
+
+        if ($terminal === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereRaw('LOWER(terminal) = ?', [$terminal]);
+    }
+
+    private function managerTerminal(): ?string
+    {
+        $terminal = Auth::user()?->terminal;
+        $terminal = is_string($terminal) ? trim($terminal) : '';
+
+        return $terminal !== '' ? strtolower($terminal) : null;
+    }
+
+    /**
+     * @param  object  $operator  Row from users table
+     */
+    private function assertCanManageOperator(object $operator, string $action): ?JsonResponse
+    {
+        $terminal = $this->managerTerminal();
+
+        if ($terminal === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is not assigned to a terminal. Contact a system administrator.',
+            ], 403);
+        }
+
+        $operatorTerminal = strtolower(trim((string) ($operator->terminal ?? '')));
+
+        if ($operatorTerminal === '' || $operatorTerminal !== $terminal) {
+            return response()->json([
+                'success' => false,
+                'message' => "Unauthorized: You cannot {$action} operators from other terminals",
+            ], 403);
+        }
+
+        return null;
     }
 }

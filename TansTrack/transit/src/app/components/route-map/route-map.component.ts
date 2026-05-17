@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
 import { Subscription } from 'rxjs';
 import { BusSimulatorService } from '../../services/bus-simulator.service';
+import { environment } from 'src/environments/environment.prod';
 
 declare var mapboxgl: any;
 
@@ -86,8 +87,24 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
       zoom: 12
     });
 
+     // One-shot locate only — continuous tracking + heading is heavy on mobile WebViews.
+    const geolocateControl = new mapboxgl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserHeading: true,
+      showUserLocation: true,
+    });
+    this.map.addControl(geolocateControl, 'top-right');
+
+    geolocateControl.on('error', (e: any) => {
+      if (!environment.production) {
+        console.warn('Geolocation not available:', e?.message);
+      }
+    });
+
     this.map.on('load', () => {
       this.mapLoaded = true;
+      this.map.resize();
       this.drawRoute();
       if (this.simulate) {
         this.startSimulation();

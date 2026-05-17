@@ -4,12 +4,49 @@ namespace App\Http\Controllers;
 
 use App\Models\BusRoute;
 use App\Models\RouteApprovalRequest;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Collection;
 
 class TerminalRouteStopsController extends Controller
 {
     public function index()
+    {
+        $data = $this->routeStopsIndexData();
+        $listChecksum = $this->routeStopsListChecksum($data['requests']);
+
+        return view('operations.route-stops', [
+            'routePayloads' => $data['routePayloads'],
+            'terminal' => $data['terminal'],
+            'groupedByOperator' => $data['groupedByOperator'],
+            'listChecksum' => $listChecksum,
+        ]);
+    }
+
+    /**
+     * JSON for live refresh of the route-approval list (no full page reload).
+     */
+    public function pollList(): JsonResponse
+    {
+        $data = $this->routeStopsIndexData();
+        $checksum = $this->routeStopsListChecksum($data['requests']);
+        $html = view('operations.partials.route-stops-list', [
+            'groupedByOperator' => $data['groupedByOperator'],
+            'routePayloads' => $data['routePayloads'],
+            'terminal' => $data['terminal'],
+        ])->render();
+
+        return response()->json([
+            'checksum' => $checksum,
+            'html' => $html,
+        ]);
+    }
+
+    /**
+     * @return array{terminal: string, requests: Collection<int, RouteApprovalRequest>, routePayloads: array<int, array<int, array<string, mixed>>>, groupedByOperator: Collection}
+     */
+    private function routeStopsIndexData(): array
     {
         $terminal = Auth::user()->terminal ?? null;
         abort_if(! $terminal, 403, 'Your account has no terminal assigned.');
@@ -30,12 +67,29 @@ class TerminalRouteStopsController extends Controller
 
         $groupedByOperator = $requests->groupBy('operator_user_id');
 
-        return view('operations.route-stops', compact(
-            'requests',
-            'routePayloads',
-            'terminal',
-            'groupedByOperator'
-        ));
+        return [
+            'terminal' => $terminal,
+            'requests' => $requests,
+            'routePayloads' => $routePayloads,
+            'groupedByOperator' => $groupedByOperator,
+        ];
+    }
+
+    private function routeStopsListChecksum(Collection $requests): string
+    {
+        if ($requests->isEmpty()) {
+            return 'empty';
+        }
+
+        $parts = $requests->sortBy('id')->map(function (RouteApprovalRequest $r) {
+            $ts = $r->updated_at instanceof \Carbon\CarbonInterface
+                ? $r->updated_at->toIso8601String()
+                : (string) $r->updated_at;
+
+            return $r->id.'|'.$r->status.'|'.$ts;
+        })->values()->all();
+
+        return hash('sha256', implode(';;', $parts));
     }
 
     public function editRoute(RouteApprovalRequest $routeApprovalRequest, BusRoute $busRoute)
@@ -165,6 +219,10 @@ class TerminalRouteStopsController extends Controller
             'name' => $r->name,
             'code' => $r->code,
             'geometry' => $g,
+            'start_location' => $r->start_location ?? '',
+            'end_location' => $r->end_location ?? '',
+            'start_coordinates' => $r->start_coordinates ?? '',
+            'end_coordinates' => $r->end_coordinates ?? '',
             'distance_km' => (float) ($r->distance_km ?? 0),
             'regular_price' => (float) ($r->regular_price ?? $r->route_fare ?? 0),
             'aircon_price' => (float) ($r->aircon_price ?? $r->route_fare ?? 0),

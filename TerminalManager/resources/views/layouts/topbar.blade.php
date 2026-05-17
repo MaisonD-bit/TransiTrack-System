@@ -137,7 +137,7 @@ function displayNotifications(notifications) {
         return `
             <div class="notification-item d-flex align-items-start gap-3 ${isUnread ? 'unread' : ''}" 
                  data-id="${notification.id}"
-                 onclick="handleNotificationClick('${notification.id}', '${data.message_id || ''}')">
+                 onclick="handleNotificationClick('${notification.id}', '${data.announcement_id || ''}')">
                 <div class="notification-icon bg-primary bg-opacity-10 text-primary">
                     <i class="fas fa-envelope"></i>
                 </div>
@@ -157,7 +157,7 @@ function displayNotifications(notifications) {
 }
 
 // Handle notification click
-async function handleNotificationClick(notificationId, messageId) {
+async function handleNotificationClick(notificationId, announcementId) {
     try {
         // Mark as read
         await fetch(`/notifications/${notificationId}/read`, {
@@ -171,9 +171,9 @@ async function handleNotificationClick(notificationId, messageId) {
         // Refresh notifications
         await fetchNotifications();
         
-        // Navigate to message if available
-        if (messageId) {
-            window.location.href = `/messages/${messageId}`;
+        // Navigate to announcement if available
+        if (announcementId) {
+            window.location.href = `/announcements/${announcementId}`;
         }
     } catch (error) {
         console.error('Error marking notification as read:', error);
