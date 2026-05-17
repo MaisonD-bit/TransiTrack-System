@@ -26,7 +26,7 @@
             <a href="{{ route('sysadmin.approvals') }}" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-arrow-left me-1"></i> Back to approvals
             </a>
-            <form action="{{ route('sysadmin.approvals.approve', $routeApprovalRequest) }}" method="POST" class="d-inline" onsubmit="return confirm('Approve this route package?');">
+            <form action="{{ route('sysadmin.approvals.approve', $routeApprovalRequest) }}" method="POST" class="d-inline js-sysadmin-approve-form" data-confirm-message="Approve this route package?">
                 @csrf
                 <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check"></i> Approve</button>
             </form>

@@ -115,6 +115,7 @@ Route::prefix('v1')->group(function () {
     Route::patch('commuter/boarding-requests/{id}/cancel', [CommuterRoutesController::class, 'cancelBoardingRequest']);
     Route::post('commuter/cancel-my-boarding-requests', [CommuterRoutesController::class, 'cancelMyBoardingRequests']);
     Route::get('schedules/{scheduleId}/manifest', [CommuterRoutesController::class, 'manifest']);
+    Route::patch('schedules/{scheduleId}/tickets/{publicTicketId}/confirm-cash', [CommuterRoutesController::class, 'driverConfirmCash']);
     Route::get('driver/stream-token', [ChatController::class, 'driverStreamToken']);
 
     // Feedback & ratings

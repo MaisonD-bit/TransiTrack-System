@@ -161,9 +161,14 @@
       --color: var(--ion-color-warning);
     }
 
-    &.emergency {
-      --background: var(--ion-color-danger);
-      --color: white;
+    &.emergency-alert {
+      --border-color: var(--ion-color-danger);
+      --color: var(--ion-color-danger);
+    }
+
+    &.emergency-contact {
+      --border-color: var(--ion-color-tertiary);
+      --color: var(--ion-color-tertiary);
     }
 
     ion-icon {
@@ -245,6 +250,13 @@
     gap: 8px;
     ion-icon { font-size: 2rem; }
     p { margin: 0; font-size: 0.9rem; }
+  }
+
+  .manifest-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
   }
 
   .passenger-list {

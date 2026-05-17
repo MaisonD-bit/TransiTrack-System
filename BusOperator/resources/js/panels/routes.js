@@ -892,6 +892,23 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    const confirmDeleteRouteBtn = document.getElementById('confirmDeleteRouteBtn');
+    if (confirmDeleteRouteBtn) {
+        confirmDeleteRouteBtn.addEventListener('click', performDeleteRoute);
+    }
+    const cancelDeleteRouteBtn = document.getElementById('cancelDeleteRouteBtn');
+    if (cancelDeleteRouteBtn) {
+        cancelDeleteRouteBtn.addEventListener('click', function() {
+            routeToDelete = null;
+        });
+    }
+    const deleteRouteModal = document.getElementById('deleteRouteModal');
+    if (deleteRouteModal) {
+        deleteRouteModal.addEventListener('hidden.bs.modal', function() {
+            routeToDelete = null;
+        });
+    }
 });
 
 window.showAddRouteForm = showAddRouteForm;
@@ -1002,10 +1019,54 @@ function editRoute(id) {
     });
 }
 
-function deleteRoute(id) {
-    if (!confirm('Are you sure you want to delete this route?')) return;
-    
-    //   FIX: Use correct endpoint
+let routeToDelete = null;
+
+function showRouteModal(modalId) {
+    const modalElement = document.getElementById(modalId);
+    if (!modalElement) return;
+    if (typeof window.bootstrap !== 'undefined') {
+        const existing = window.bootstrap.Modal.getInstance(modalElement);
+        if (existing) {
+            existing.show();
+        } else {
+            new window.bootstrap.Modal(modalElement).show();
+        }
+    } else {
+        modalElement.classList.add('show');
+        modalElement.style.display = 'block';
+        modalElement.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function hideRouteModal(modalId) {
+    const modalElement = document.getElementById(modalId);
+    if (!modalElement) return;
+    if (typeof window.bootstrap !== 'undefined') {
+        const instance = window.bootstrap.Modal.getInstance(modalElement);
+        if (instance) instance.hide();
+    } else {
+        modalElement.classList.remove('show');
+        modalElement.style.display = 'none';
+        modalElement.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+function deleteRoute(id, routeName) {
+    routeToDelete = id;
+    const nameEl = document.getElementById('deleteRouteModalRouteName');
+    if (nameEl) {
+        nameEl.textContent = routeName ? `Route: ${routeName}` : '';
+        nameEl.style.display = routeName ? 'block' : 'none';
+    }
+    showRouteModal('deleteRouteModal');
+}
+
+function performDeleteRoute() {
+    if (!routeToDelete) return;
+
+    const id = routeToDelete;
     fetch(`/routes/${id}`, {
         method: 'DELETE',
         headers: {
@@ -1025,6 +1086,10 @@ function deleteRoute(id) {
     .catch(error => {
         console.error('Error deleting route:', error);
         showToast('Failed to delete route', 'error');
+    })
+    .finally(() => {
+        routeToDelete = null;
+        hideRouteModal('deleteRouteModal');
     });
 }
 

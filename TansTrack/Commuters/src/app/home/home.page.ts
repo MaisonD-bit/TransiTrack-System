@@ -64,6 +64,9 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   // Bus simulation for route visualization and distance tracking
   boardingLocation: { lng: number; lat: number } | null = null;
+  /** Device GPS for map profile marker during live trip. */
+  commuterGpsLocation: { lng: number; lat: number } | null = null;
+  private geoWatchId: number | null = null;
   currentBusPosition: { lng: number; lat: number } | null = null;
   distanceTraveled: number = 0; // Distance in kilometers from boarding point
   isSimulationActive: boolean = false;
@@ -123,10 +126,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   ionViewWillEnter() {
     this.restoreActiveTrip();
+    this.startCommuterLocationWatch();
   }
 
   ionViewWillLeave() {
     this.saveActiveTrip();
+    this.stopCommuterLocationWatch();
   }
 
   private saveActiveTrip(): void {
@@ -212,6 +217,74 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     const pin = this.stopPinsForMap[this.fromStopIndex];
     if (!pin || isNaN(pin.lng) || isNaN(pin.lat)) return null;
     return { lng: pin.lng, lat: pin.lat, label: pin.label };
+  }
+
+  get mapSimplifiedTracking(): boolean {
+    return this.showTicket && this.selectedScheduleId != null;
+  }
+
+  get mapDestinationCoord(): [number, number] | null {
+    const pin = this.stopPinsForMap[this.toStopIndex];
+    if (pin && Number.isFinite(pin.lng) && Number.isFinite(pin.lat)) {
+      return [pin.lng, pin.lat];
+    }
+    const ec = this.selectedRoute?.endCoord;
+    if (ec && ec.length === 2 && Number.isFinite(ec[0]) && Number.isFinite(ec[1])) {
+      return [ec[0], ec[1]];
+    }
+    const coords = this.mapRouteGeometry?.coordinates;
+    if (coords?.length) {
+      const last = coords[coords.length - 1];
+      if (last?.length === 2) return [Number(last[0]), Number(last[1])];
+    }
+    return null;
+  }
+
+  get mapBoardingStartCoord(): [number, number] | null {
+    const pin = this.stopPinsForMap[this.fromStopIndex];
+    if (pin && Number.isFinite(pin.lng) && Number.isFinite(pin.lat)) {
+      return [pin.lng, pin.lat];
+    }
+    const sc = this.selectedRoute?.startCoord;
+    if (sc && sc.length === 2 && Number.isFinite(sc[0]) && Number.isFinite(sc[1])) {
+      return [sc[0], sc[1]];
+    }
+    return null;
+  }
+
+  /** Where the blue route line begins (matches pathway, not only stop table index 0). */
+  get mapRouteStartCoord(): [number, number] | null {
+    const coords = this.mapRouteGeometry?.coordinates;
+    if (coords?.length) {
+      const first = coords[0];
+      if (first?.length === 2 && Number.isFinite(first[0]) && Number.isFinite(first[1])) {
+        return [Number(first[0]), Number(first[1])];
+      }
+    }
+    return this.mapBoardingStartCoord;
+  }
+
+  private startCommuterLocationWatch(): void {
+    if (!navigator.geolocation || this.geoWatchId != null) return;
+    this.geoWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        this.ngZone.run(() => {
+          this.commuterGpsLocation = {
+            lng: pos.coords.longitude,
+            lat: pos.coords.latitude,
+          };
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+    );
+  }
+
+  private stopCommuterLocationWatch(): void {
+    if (this.geoWatchId != null) {
+      navigator.geolocation.clearWatch(this.geoWatchId);
+      this.geoWatchId = null;
+    }
   }
 
   private syncStopPinsForMap(): void {
@@ -416,6 +489,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   ngOnDestroy() {
     this.subscriptions.forEach(sub => sub.unsubscribe());
     this.stopLiveBusPoll();
+    this.stopCommuterLocationWatch();
     this.stopBusSimulation();
     if (this.mayaMessageHandler) {
       window.removeEventListener('message', this.mayaMessageHandler);
@@ -652,7 +726,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private updateLiveBusMapPins(): void {
-    this.liveBusMapPins = this.liveBuses
+    const fleet =
+      this.mapSimplifiedTracking && this.selectedScheduleId != null
+        ? this.liveBuses.filter((b) => b.schedule_id === this.selectedScheduleId)
+        : this.liveBuses;
+    this.liveBusMapPins = fleet
       .filter((b) => b.position != null && Number.isFinite(b.position.lng) && Number.isFinite(b.position.lat))
       .map((b) => ({
         lng: b.position!.lng,
@@ -1102,6 +1180,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   async onPaymentScanned(payment: ScannedPayment) {
     this.showQrScanner = false;
+    // Let the modal finish closing so the confirm alert is tappable
+    await new Promise((resolve) => setTimeout(resolve, 280));
 
     const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const userId = currentUser.id || '';
@@ -1274,9 +1354,11 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private async showPaymentFailedAlert(header: string, message: string): Promise<void> {
+    const sandboxHint =
+      'Sandbox tips: use Maya test card Visa 4123450131000508 (12/2025, CVV 111) or PayMaya wallet with sandbox Party 1 credentials. Error PY0120 usually means insufficient Maya wallet balance or wrong payment method for sandbox.';
     const alert = await this.alertController.create({
       header,
-      message,
+      message: `${message}\n\n${sandboxHint}`,
       buttons: [
         { text: 'Try Again', role: 'cancel' },
         {
@@ -1309,10 +1391,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       }).subscribe();
     }
 
-    // Mark the ticket as paid on the backend so the driver manifest reflects it
-    if (ticketId && methodType !== 'cash') {
+    // Mark paid on the backend so driver manifest and operator trip logs update
+    if (ticketId) {
       this.commuterService.markTicketPaid(ticketId, methodType).subscribe({
-        error: (err) => console.warn('markTicketPaid failed', err)
+        error: (err) => console.warn('markTicketPaid failed', err),
       });
     }
 

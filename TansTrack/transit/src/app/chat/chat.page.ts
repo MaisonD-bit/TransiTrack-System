@@ -77,8 +77,9 @@ export class ChatPage implements OnInit, OnDestroy {
 
       await this.channel.watch();
 
-      if (!(this.channel.data?.name || '').trim()) {
-        await this.channel.update({ name: tokenData.user_name } as any);
+      const channelData = this.channel.data as { name?: string } | undefined;
+      if (!(channelData?.name || '').trim()) {
+        await this.channel.update({ name: tokenData.user_name } as Record<string, string>);
       }
 
       // Load existing messages

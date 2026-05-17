@@ -48,7 +48,7 @@
                 <ng-container *ngIf="mapRouteStops.length > 2"> ({{ mapRouteStops.length - 2 }} along route)</ng-container>
               </span>
               <span *ngIf="mapRouteStops.length && mapBoardingPassengers.length"> · </span>
-              <span *ngIf="mapBoardingPassengers.length"><strong>{{ mapBoardingPassengers.length }}</strong> ticketed passenger{{ mapBoardingPassengers.length === 1 ? '' : 's' }}</span>
+              <span *ngIf="mapBoardingPassengers.length"><strong>{{ mapBoardingPassengers.length }}</strong> passenger{{ mapBoardingPassengers.length === 1 ? '' : 's' }} on board</span>
             </small>
           </p>
         </div>

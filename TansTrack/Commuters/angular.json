@@ -79,6 +79,7 @@
               }
             },
             "development": {
+              "baseHref": "/",
               "optimization": false,
               "sourceMap": true
             },

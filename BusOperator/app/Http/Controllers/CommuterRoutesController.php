@@ -430,7 +430,9 @@ class CommuterRoutesController extends Controller
                     ? json_encode(['payment_method' => $data['payment_method']])
                     : null,
                 'payment_method' => $data['payment_method'] ?? null,
-                'payment_status' => 'pending',
+                'payment_status' => strtolower((string) ($data['payment_method'] ?? '')) === 'cash'
+                    ? 'paid'
+                    : 'pending',
                 'from_stop_index' => $data['from_stop_index'] ?? null,
             ]);
         } catch (\Illuminate\Database\QueryException $e) {
@@ -955,6 +957,33 @@ class CommuterRoutesController extends Controller
         $ticket->save();
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Driver confirms cash was collected from a commuter (manifest / walk-up).
+     */
+    public function driverConfirmCash(Request $request, int $scheduleId, string $publicTicketId): \Illuminate\Http\JsonResponse
+    {
+        $ticket = Ticket::query()
+            ->where('schedule_id', $scheduleId)
+            ->where('public_ticket_id', $publicTicketId)
+            ->first();
+
+        if (! $ticket) {
+            return response()->json(['success' => false, 'message' => 'Ticket not found for this trip.'], 404);
+        }
+
+        if ($ticket->alighted_at !== null) {
+            return response()->json(['success' => false, 'message' => 'Passenger has already alighted.'], 422);
+        }
+
+        $ticket->payment_status = 'paid';
+        if (! $ticket->payment_method) {
+            $ticket->payment_method = 'cash';
+        }
+        $ticket->save();
+
+        return response()->json(['success' => true, 'message' => 'Cash payment recorded.']);
     }
 
     /**

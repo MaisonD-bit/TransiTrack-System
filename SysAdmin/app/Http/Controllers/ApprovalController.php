@@ -175,10 +175,20 @@ class ApprovalController extends Controller
 
     private function pollSignature(Collection $pending, Collection $history): string
     {
-        $p = $pending->map(fn (array $item) => $item['request']->id)->sort()->values()->implode(',');
-        $h = $history->pluck('id')->sort()->values()->implode(',');
+        $p = $pending->map(function (array $item) {
+            $r = $item['request'];
 
-        return md5($p.'|'.$h);
+            return $r->id.':'.($r->updated_at?->timestamp ?? 0).':'.($r->submitted_by_terminal_at?->timestamp ?? 0);
+        })->sort()->values()->implode(',');
+
+        $h = $history->map(fn (RouteApprovalRequest $r) => $r->id.':'.$r->status.':'.($r->decided_at?->timestamp ?? 0))
+            ->sort()
+            ->values()
+            ->implode(',');
+
+        $pendingCount = RouteApprovalRequest::query()->where('status', 'pending_sysadmin')->count();
+
+        return md5($p.'|'.$h.'|'.$pendingCount);
     }
 
     private function authorizePending(RouteApprovalRequest $routeApprovalRequest): void

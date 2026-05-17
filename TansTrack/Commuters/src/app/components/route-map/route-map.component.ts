@@ -4,6 +4,7 @@ import { IonicModule } from '@ionic/angular';
 import mapboxgl from 'mapbox-gl';
 import { environment } from '../../../environments/environment';
 import { BusSimulatorService } from '../../services/bus-simulator.service';
+import { createMapBusMarkerElement } from '../../utils/map-bus-marker';
 import { Subscription } from 'rxjs';
 
 @Component({
@@ -27,6 +28,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() disableSimulator: boolean = false;
   /** The stop where the commuter wants to board — renders a pulsing cyan marker. */
   @Input() commuterBoardingPin: { lng: number; lat: number; label?: string } | null = null;
+  /** Live trip: commuter GPS + selected bus only (no duplicate boarding pin); stops & end still show. */
+  @Input() simplifiedTracking = false;
+  /** Commuter device GPS — profile marker when simplifiedTracking is on. */
+  @Input() commuterLocation: { lng: number; lat: number } | null = null;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
   mapLoaded: boolean = false;
@@ -38,6 +43,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   private busSimSub: Subscription | null = null;
   private simulatedVehicleMarker: any = null;
   private commuterBoardingMarker: any = null;
+  private commuterGpsMarker: any = null;
+  private geolocateControl: mapboxgl.GeolocateControl | null = null;
   
   constructor(private busSimulatorService: BusSimulatorService) {}
 
@@ -63,16 +70,16 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
 
     // One-shot locate only — continuous tracking + heading is heavy on mobile WebViews.
-    const geolocateControl = new mapboxgl.GeolocateControl({
+    this.geolocateControl = new mapboxgl.GeolocateControl({
       positionOptions: { enableHighAccuracy: false },
       trackUserLocation: false,
       showUserHeading: false,
-      showUserLocation: true,
+      showUserLocation: false,
     });
 
-    this.map.addControl(geolocateControl, 'top-right');
+    this.map.addControl(this.geolocateControl, 'top-right');
 
-    geolocateControl.on('error', (e: any) => {
+    this.geolocateControl.on('error', (e: any) => {
       if (!environment.production) {
         console.warn('Geolocation not available:', e?.message);
       }
@@ -96,6 +103,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (this.commuterBoardingMarker) {
       try { this.commuterBoardingMarker.remove(); } catch (e) {}
       this.commuterBoardingMarker = null;
+    }
+    if (this.commuterGpsMarker) {
+      try { this.commuterGpsMarker.remove(); } catch (e) {}
+      this.commuterGpsMarker = null;
     }
     this.clearLiveBusMarkers(); // also unsubscribes liveBusSimSubs
   }
@@ -125,8 +136,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         }
       }
     }
-    if (changes['commuterBoardingPin']) {
+    if (changes['commuterBoardingPin'] || changes['simplifiedTracking']) {
       this.renderCommuterBoardingMarker();
+    }
+    if (changes['commuterLocation'] || changes['simplifiedTracking']) {
+      this.renderCommuterGpsMarker();
+    }
+    if (changes['simplifiedTracking'] && !changes['routeGeoJson']) {
+      this.drawRoute().catch(e => console.warn('drawRoute error:', e));
     }
   }
 
@@ -202,7 +219,12 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
 
       let marker = this.liveBusMarkerIndex.get(key);
       if (!marker) {
-        marker = new mapboxgl.Marker({ color: b.color || '#0074D9', scale: b.selected ? 1.5 : 1.0 })
+        const busEl = createMapBusMarkerElement({
+          scale: b.selected ? 1.25 : 1,
+          ringColor: b.color || '#0074D9',
+          title: b.label,
+        });
+        marker = new mapboxgl.Marker({ element: busEl, anchor: 'center' })
           .setLngLat([b.lng, b.lat])
           .setPopup(new mapboxgl.Popup({ offset: 30 }).setHTML(`<strong>${b.label}</strong>`))
           .addTo(this.map);
@@ -366,8 +388,6 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         console.warn('Failed to normalize provided endCoord:', this.endCoord, e);
       }
 
-      // Add route markers (start, end, and waypoints) using normalized coordinates
-      // Pass the normalized input coords so markers align with the route
       this.addRouteMarkers(numericCoords, normalizedStartInput, normalizedEndInput);
 
       this.drawStopPins();
@@ -384,8 +404,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
           this.simulatedVehicleMarker = null;
         }
         if (!this.disableSimulator && this.busSimulatorService && numericCoords && numericCoords.length) {
+          const demoBus = createMapBusMarkerElement({
+            scale: 1,
+            ringColor: '#1E90FF',
+            title: 'Bus',
+          });
           this.simulatedVehicleMarker = new mapboxgl.Marker({
-            color: '#1E90FF',
+            element: demoBus,
+            anchor: 'center',
           }).setLngLat(numericCoords[0] as [number, number]).addTo(this.map);
 
           this.busSimSub = this.busSimulatorService.simulateAlongLine(numericCoords, 800, 0, this.stopPins).subscribe((pos: { lng: number; lat: number; index: number }) => {
@@ -407,9 +433,17 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
 
     this.renderCommuterBoardingMarker();
+    this.renderCommuterGpsMarker();
   }
 
   private renderCommuterBoardingMarker(): void {
+    if (this.simplifiedTracking) {
+      if (this.commuterBoardingMarker) {
+        try { this.commuterBoardingMarker.remove(); } catch (e) {}
+        this.commuterBoardingMarker = null;
+      }
+      return;
+    }
     if (this.commuterBoardingMarker) {
       try { this.commuterBoardingMarker.remove(); } catch (e) {}
       this.commuterBoardingMarker = null;
@@ -458,6 +492,51 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     return m === 0 ? `~${h} hr` : `~${h} hr ${m} min`;
+  }
+
+  private renderCommuterGpsMarker(): void {
+    const clearGpsMarker = () => {
+      if (this.commuterGpsMarker) {
+        try { this.commuterGpsMarker.remove(); } catch (e) {}
+        this.commuterGpsMarker = null;
+      }
+    };
+    if (!this.simplifiedTracking || !this.mapLoaded || !this.map || !this.commuterLocation) {
+      clearGpsMarker();
+      return;
+    }
+
+    this.ensureCommuterMarkerStyles();
+
+    const { lng, lat } = this.commuterLocation;
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+      clearGpsMarker();
+      return;
+    }
+
+    if (this.commuterGpsMarker) {
+      this.commuterGpsMarker.setLngLat([lng, lat]);
+      return;
+    }
+
+    const el = document.createElement('div');
+    el.className = 'commuter-boarding-pin';
+    el.innerHTML = `
+      <div class="cbp-pulse" style="border-color:#2563eb"></div>
+      <div class="cbp-dot" style="background:#2563eb">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="#fff">
+          <path d="M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2zm0 12c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z"/>
+        </svg>
+      </div>`;
+
+    this.commuterGpsMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 22 }).setHTML(
+          '<div style="padding:6px 8px;"><strong style="color:#2563eb">You are here</strong></div>'
+        )
+      )
+      .addTo(this.map);
   }
 
   drawStopPins() {
@@ -510,20 +589,28 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   const startCoord = providedStart || (this.startCoord && this.startCoord.length === 2 ? this.startCoord as [number, number] : coordinates[0]);
     // Use the same simple Mapbox marker used in the driver's map for stability
     // (color + scale) — this avoids custom DOM/SVG alignment issues when zooming.
-    const startMarker = new mapboxgl.Marker({ color: '#22c55e' })
+    const startLabel = this.simplifiedTracking ? 'Route start' : 'Start Point';
+    const startMarker = new mapboxgl.Marker({ color: '#22c55e', scale: 1.15 })
       .setLngLat(startCoord as [number, number])
-      .setPopup(new mapboxgl.Popup().setHTML('<strong>Start Point</strong>'))
+      .setPopup(new mapboxgl.Popup().setHTML(`<strong>${startLabel}</strong>`))
       .addTo(this.map);
     this.routeMarkers.push(startMarker);
 
-    // Add end marker (red) - only if different from start
-    if (coordinates.length > 1) {
-  // prefer normalized providedEnd, then component input, then route last coord
-  const endCoord = providedEnd || (this.endCoord && this.endCoord.length === 2 ? this.endCoord as [number, number] : coordinates[coordinates.length - 1]);
-      // Use built-in Mapbox marker for end as well to match driver's map
-      const endMarker = new mapboxgl.Marker({ color: '#ef4444' })
+    const endCoord =
+      providedEnd ||
+      (this.endCoord && this.endCoord.length === 2 ? (this.endCoord as [number, number]) : coordinates[coordinates.length - 1]);
+    const endLabel = this.simplifiedTracking ? 'Your destination' : 'End Point';
+    const startLng = startCoord[0];
+    const startLat = startCoord[1];
+    const endLng = endCoord[0];
+    const endLat = endCoord[1];
+    const endDiffersFromStart =
+      Math.abs(startLng - endLng) > 1e-6 || Math.abs(startLat - endLat) > 1e-6;
+
+    if (endDiffersFromStart) {
+      const endMarker = new mapboxgl.Marker({ color: '#ef4444', scale: 1.15 })
         .setLngLat(endCoord as [number, number])
-        .setPopup(new mapboxgl.Popup().setHTML('<strong>End Point</strong>'))
+        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${endLabel}</strong>`))
         .addTo(this.map);
       this.routeMarkers.push(endMarker);
     }

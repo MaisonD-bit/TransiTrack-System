@@ -195,12 +195,14 @@
           [mapId]="'home-route-map'"
           [height]="'380px'"
           [routeGeoJson]="mapRouteGeometry"
-          [startCoord]="selectedRoute.startCoord"
-          [endCoord]="selectedRoute.endCoord"
+          [startCoord]="mapRouteStartCoord || mapBoardingStartCoord || selectedRoute.startCoord"
+          [endCoord]="mapDestinationCoord || selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
           [liveBusMarkers]="liveBusMapPins"
           [disableSimulator]="true"
-          [commuterBoardingPin]="commuterBoardingPinForMap">
+          [simplifiedTracking]="mapSimplifiedTracking"
+          [commuterLocation]="commuterGpsLocation"
+          [commuterBoardingPin]="mapSimplifiedTracking ? null : commuterBoardingPinForMap">
         </app-route-map>
       </div>
 

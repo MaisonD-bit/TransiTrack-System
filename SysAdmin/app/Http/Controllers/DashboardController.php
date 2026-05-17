@@ -10,6 +10,38 @@ class DashboardController extends Controller
 {
     public function index()
     {
+        $data = $this->dashboardData();
+
+        return view('dashboard', $data + [
+            'pollSignature' => $this->dashboardPollSignature($data),
+        ]);
+    }
+
+    public function poll()
+    {
+        $data = $this->dashboardData();
+
+        return response()->json([
+            'signature' => $this->dashboardPollSignature($data),
+            'pending_route_count' => $data['pendingRouteCount'],
+            'pending_manager_count' => $data['pendingManagerCount'],
+            'pending_stops_count' => $data['pendingStopsCount'],
+            'decisions_today' => $data['decisionsToday'],
+            'needs_action' => $data['needsAction'],
+            'pending_queue_html' => view('dashboard.partials.pending-queue-tbody', [
+                'pendingQueue' => $data['pendingQueue'],
+            ])->render(),
+            'recent_decisions_html' => view('dashboard.partials.recent-decisions-tbody', [
+                'recentDecisions' => $data['recentDecisions'],
+            ])->render(),
+            'terminal_badges_html' => view('dashboard.partials.terminal-badges', [
+                'pendingByTerminal' => $data['pendingByTerminal'],
+            ])->render(),
+        ]);
+    }
+
+    private function dashboardData(): array
+    {
         $pendingRouteCount = RouteApprovalRequest::query()
             ->where('status', 'pending_sysadmin')
             ->count();
@@ -80,7 +112,7 @@ class DashboardController extends Controller
         $decisionsToday = $approvedToday + $declinedToday;
         $needsAction = $pendingRouteCount > 0 || $pendingManagerCount > 0;
 
-        return view('dashboard', compact(
+        return compact(
             'pendingRouteCount',
             'pendingStopsCount',
             'pendingManagerCount',
@@ -93,7 +125,31 @@ class DashboardController extends Controller
             'pendingQueue',
             'recentDecisions',
             'needsAction',
-        ));
+        );
+    }
+
+    private function dashboardPollSignature(array $data): string
+    {
+        $queue = collect($data['pendingQueue'])->map(function (array $item) {
+            $r = $item['request'];
+
+            return $r->id.':'.($r->updated_at?->timestamp ?? 0);
+        })->sort()->values()->implode(',');
+
+        $recent = collect($data['recentDecisions'])->map(function (array $item) {
+            $r = $item['request'];
+
+            return $r->id.':'.$r->status.':'.($r->decided_at?->timestamp ?? 0);
+        })->sort()->values()->implode(',');
+
+        return md5(
+            $data['pendingRouteCount'].'|'.
+            $data['pendingManagerCount'].'|'.
+            $data['pendingStopsCount'].'|'.
+            $data['decisionsToday'].'|'.
+            (int) $data['needsAction'].'|'.
+            $queue.'|'.$recent
+        );
     }
 
     private function routeNamesForRequest(RouteApprovalRequest $request): string

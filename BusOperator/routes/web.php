@@ -103,11 +103,11 @@ Route::middleware('auth')->group(function () {
     // Bus management routes
     Route::prefix('buses')->group(function () {
         Route::post('/', [BusController::class, 'store'])->name('buses.store');
+        Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('buses.available');
+        Route::get('/search', [BusController::class, 'search'])->name('buses.search');
         Route::get('/{id}', [BusController::class, 'show'])->name('buses.show');
         Route::put('/{id}', [BusController::class, 'update'])->name('buses.update');
         Route::delete('/{id}', [BusController::class, 'destroy'])->name('buses.destroy');
-        Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('buses.available');
-        Route::get('/search', [BusController::class, 'search'])->name('buses.search');
     });
 
     // Chat panel routes
@@ -130,9 +130,9 @@ Route::middleware('auth')->group(function () {
         
         // Bus API routes
         Route::prefix('buses')->group(function () {
-            Route::get('/{id}', [BusController::class, 'show'])->name('api.buses.show');
             Route::get('/stats', [BusController::class, 'getBusStats'])->name('api.buses.stats');
             Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('api.buses.available');
+            Route::get('/{id}', [BusController::class, 'show'])->name('api.buses.show');
         });
         
         // Route API routes

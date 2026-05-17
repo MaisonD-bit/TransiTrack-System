@@ -49,14 +49,17 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   setMode(m: 'camera' | 'upload' | 'eticket') {
-    if (m === this.mode && this.isScanning) return;
+    if (m === this.mode && (m !== 'camera' || this.isScanning)) {
+      return;
+    }
     this.mode = m;
     this.error = '';
     if (m === 'camera') {
       this.hint = "Point your camera at the QR code on the conductor's device";
-      this.startCamera();
+      // Wait for *ngIf to mount the reader element
+      setTimeout(() => void this.startCamera(), 50);
     } else {
-      this.stopCamera();
+      void this.stopCamera();
       this.hint = m === 'eticket'
         ? 'Your e-ticket QR is ready — tap Confirm Payment to proceed'
         : 'Upload a screenshot of the payment QR or your e-ticket';
@@ -64,34 +67,76 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   confirmETicket() {
-    if (this.eTicketPayload) {
-      this.handleResult(this.eTicketPayload);
+    if (!this.eTicketPayload) {
+      return;
     }
+    const payment = this.parseEticketPayload(this.eTicketPayload);
+    if (!payment) {
+      this.error = 'Could not read your e-ticket. Close and open Scan to Pay again.';
+      return;
+    }
+    this.error = '';
+    this.scanned.emit(payment);
+  }
+
+  private parseEticketPayload(raw: string): ScannedPayment | null {
+    const parts = raw.split('|');
+    if (parts.length < 3) {
+      return null;
+    }
+    const fare = parseFloat(parts[2]);
+    if (Number.isNaN(fare)) {
+      return null;
+    }
+    return {
+      scheduleId: 0,
+      routeId: 0,
+      routeName: parts[1],
+      fareOverride: fare,
+      ticketIdOverride: parts[0],
+    };
   }
 
   async startCamera() {
     this.error = '';
+    await this.stopCamera();
     try {
-      this.scanner = new Html5Qrcode(this.READER_ID, { verbose: false });
-      await this.scanner.start(
+      const scanner = new Html5Qrcode(this.READER_ID, { verbose: false });
+      await scanner.start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 240, height: 240 } },
         (decoded: string) => this.handleResult(decoded),
         () => {}
       );
+      this.scanner = scanner;
       this.isScanning = true;
     } catch (e: any) {
+      this.scanner = null;
+      this.isScanning = false;
       this.error = e?.message?.includes('permission')
         ? 'Camera access was denied. Please allow camera permission and try again.'
         : 'Could not start camera. Switch to Upload mode instead.';
     }
   }
 
-  private stopCamera() {
-    if (this.scanner) {
-      this.scanner.stop().catch(() => {}).finally(() => { this.scanner = null; });
-    }
+  private async stopCamera(): Promise<void> {
+    const scanner = this.scanner;
+    this.scanner = null;
+    const wasScanning = this.isScanning;
     this.isScanning = false;
+    if (!scanner || !wasScanning) {
+      return;
+    }
+    try {
+      await scanner.stop();
+    } catch {
+      /* already stopped */
+    }
+    try {
+      scanner.clear();
+    } catch {
+      /* reader may already be cleared */
+    }
   }
 
   triggerFileInput() {
@@ -122,7 +167,7 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
 
     // Conductor payment QR: TT-PAY|scheduleId|routeId|routeName
     if (parts.length >= 4 && parts[0] === 'TT-PAY') {
-      this.stopCamera();
+      void this.stopCamera();
       this.scanned.emit({
         scheduleId: parseInt(parts[1], 10),
         routeId: parseInt(parts[2], 10),
@@ -131,16 +176,10 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
       return;
     }
 
-    // Own e-ticket QR: ticketID|routeName|fare|issuedAt
-    if (parts.length >= 3 && !isNaN(parseFloat(parts[2]))) {
-      this.stopCamera();
-      this.scanned.emit({
-        scheduleId: 0,
-        routeId: 0,
-        routeName: parts[1],
-        fareOverride: parseFloat(parts[2]),
-        ticketIdOverride: parts[0]
-      });
+    const eticket = this.parseEticketPayload(raw);
+    if (eticket) {
+      void this.stopCamera();
+      this.scanned.emit(eticket);
       return;
     }
 
@@ -148,11 +187,11 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   dismiss() {
-    this.stopCamera();
+    void this.stopCamera();
     this.close.emit();
   }
 
   ngOnDestroy() {
-    this.stopCamera();
+    void this.stopCamera();
   }
 }

@@ -456,6 +456,14 @@ export class ApiService {
     ).pipe(catchError(this.handleError));
   }
 
+  confirmCashPayment(scheduleId: number, publicTicketId: string): Observable<any> {
+    return this.http.patch(
+      `${this.apiUrl}/schedules/${scheduleId}/tickets/${encodeURIComponent(publicTicketId)}/confirm-cash`,
+      {},
+      { headers: this.getHeaders() }
+    ).pipe(catchError(this.handleError));
+  }
+
   acceptReturnTrip(scheduleId: number): Observable<any> {
     return this.http.put(`${this.apiUrl}/schedules/${scheduleId}/return/accept`, {}, { headers: this.getHeaders() }).pipe(catchError(this.handleError));
   }

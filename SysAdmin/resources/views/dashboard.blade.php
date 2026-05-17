@@ -1,9 +1,11 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @section('title', 'Dashboard')
 
 @section('content')
-<div class="container-fluid">
+<div class="container-fluid"
+     data-dashboard-poll-url="{{ route('sysadmin.dashboard.poll') }}"
+     data-dashboard-poll-signature="{{ $pollSignature ?? '' }}">
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div class="d-flex align-items-center">
             <i class="fas fa-tachometer-alt me-3 text-primary fs-4"></i>
@@ -38,7 +40,7 @@
                     <div class="mb-3">
                         <i class="fas fa-route fs-1 text-warning"></i>
                     </div>
-                    <h2 class="fw-bold text-dark mb-1">{{ $pendingRouteCount }}</h2>
+                    <h2 id="dash-stat-pending-routes" class="fw-bold text-dark mb-1">{{ $pendingRouteCount }}</h2>
                     <p class="text-muted mb-0">Route approvals</p>
                     <small class="text-warning">Click to review</small>
                 </div>
@@ -50,7 +52,7 @@
                     <div class="mb-3">
                         <i class="fas fa-user-tie fs-1 text-primary"></i>
                     </div>
-                    <h2 class="fw-bold text-dark mb-1">{{ $pendingManagerCount }}</h2>
+                    <h2 id="dash-stat-pending-managers" class="fw-bold text-dark mb-1">{{ $pendingManagerCount }}</h2>
                     <p class="text-muted mb-0">Pending managers</p>
                     <small class="text-primary">Click to manage</small>
                 </div>
@@ -62,7 +64,7 @@
                     <div class="mb-3">
                         <i class="fas fa-map-marker-alt fs-1 text-info"></i>
                     </div>
-                    <h2 class="fw-bold text-dark mb-1">{{ $pendingStopsCount }}</h2>
+                    <h2 id="dash-stat-pending-stops" class="fw-bold text-dark mb-1">{{ $pendingStopsCount }}</h2>
                     <p class="text-muted mb-0">With terminal managers</p>
                     <small class="text-info">Awaiting stop mapping</small>
                 </div>
@@ -74,7 +76,7 @@
                     <div class="mb-3">
                         <i class="fas fa-gavel fs-1 text-success"></i>
                     </div>
-                    <h2 class="fw-bold text-dark mb-1">{{ $decisionsToday }}</h2>
+                    <h2 id="dash-stat-decisions-today" class="fw-bold text-dark mb-1">{{ $decisionsToday }}</h2>
                     <p class="text-muted mb-0">Decisions today</p>
                     <small class="text-success">Click to view below</small>
                 </div>
@@ -110,45 +112,8 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        @foreach($pendingQueue as $item)
-                            @php $r = $item['request']; @endphp
-                            <tr>
-                                <td>
-                                    <span class="fw-bold">#{{ $r->id }}</span>
-                                </td>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="bg-primary bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
-                                            <i class="fas fa-user text-primary"></i>
-                                        </div>
-                                        {{ $r->operator?->name ?? ('User #'.$r->operator_user_id) }}
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="badge bg-secondary text-uppercase">{{ $r->terminal ?: '' }}</span>
-                                </td>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="bg-warning bg-opacity-10 rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">
-                                            <i class="fas fa-route text-warning"></i>
-                                        </div>
-                                        <span class="small">{{ $item['route_names'] }}</span>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="fw-semibold">{{ $r->submitted_by_terminal_at?->format('M d, Y') ?? '' }}</span>
-                                    @if($r->submitted_by_terminal_at)
-                                        <br><small class="text-muted">{{ $r->submitted_by_terminal_at->format('g:i A') }}</small>
-                                    @endif
-                                </td>
-                                <td>
-                                    <a href="{{ route('sysadmin.approvals.review', $r) }}" class="btn btn-sm btn-primary" title="Review">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                        @endforeach
+                    <tbody id="dash-pending-queue-tbody">
+                        @include('dashboard.partials.pending-queue-tbody', ['pendingQueue' => $pendingQueue])
                     </tbody>
                 </table>
             </div>
@@ -191,24 +156,8 @@
                                     <th>When</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                @foreach($recentDecisions as $item)
-                                    @php $r = $item['request']; @endphp
-                                    <tr data-status="{{ $r->status }}">
-                                        <td>#{{ $r->id }}</td>
-                                        <td>{{ $r->operator?->name ?? ('User #'.$r->operator_user_id) }}</td>
-                                        <td><span class="badge bg-secondary text-uppercase">{{ $r->terminal ?: '' }}</span></td>
-                                        <td class="small">{{ $item['route_names'] }}</td>
-                                        <td>
-                                            @if($r->status === 'approved')
-                                                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Approved</span>
-                                            @else
-                                                <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Declined</span>
-                                            @endif
-                                        </td>
-                                        <td class="small text-muted">{{ $r->decided_at?->diffForHumans() ?? '' }}</td>
-                                    </tr>
-                                @endforeach
+                            <tbody id="dash-recent-decisions-tbody">
+                                @include('dashboard.partials.recent-decisions-tbody', ['recentDecisions' => $recentDecisions])
                             </tbody>
                         </table>
                     </div>
@@ -245,18 +194,8 @@
                 <div class="card-header bg-light">
                     <h6 class="mb-0"><i class="fas fa-building me-2"></i>Queue by terminal</h6>
                 </div>
-                <div class="card-body">
-                    @if($pendingByTerminal->isEmpty())
-                        <p class="small text-muted mb-0">No pending route approvals in your queue.</p>
-                    @else
-                        <div class="d-flex flex-wrap gap-2">
-                            @foreach($pendingByTerminal as $terminal => $count)
-                                <span class="badge bg-warning text-dark text-uppercase">
-                                    {{ $terminal ?: 'unknown' }}: {{ $count }}
-                                </span>
-                            @endforeach
-                        </div>
-                    @endif
+                <div id="dash-terminal-badges" class="card-body">
+                    @include('dashboard.partials.terminal-badges', ['pendingByTerminal' => $pendingByTerminal])
                 </div>
             </div>
         </div>
@@ -267,3 +206,4 @@
 @push('scripts')
 @vite('resources/js/dashboard.js')
 @endpush
+

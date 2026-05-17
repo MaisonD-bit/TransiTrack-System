@@ -20,6 +20,8 @@
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ asset('js/sysadmin-feedback.js') }}"></script>
+    <script src="{{ asset('js/sysadmin-ui.js') }}"></script>
     @vite('resources/js/app.js')
     @stack('scripts')
 </body>

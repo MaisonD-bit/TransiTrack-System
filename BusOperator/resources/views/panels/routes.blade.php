@@ -299,7 +299,7 @@
                                     <button class="btn btn-sm btn-outline-primary" onclick="editRoute({{ $route->id }})" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRoute({{ $route->id }})" title="Delete">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRoute({{ $route->id }}, @json($route->name))" title="Delete">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
@@ -360,6 +360,30 @@
                 @endif
             </div>
             @endif
+        </div>
+    </div>
+</div>
+
+<!-- Delete Route Confirmation Modal (Bootstrap — matches Schedule panel) -->
+<div class="modal fade" id="deleteRouteModal" tabindex="-1" aria-labelledby="deleteRouteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title mb-0" id="deleteRouteModalLabel">
+                    <i class="fas fa-trash-alt me-2"></i>Delete Route
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Are you sure you want to delete this route?</p>
+                <p class="mb-0 text-muted small" id="deleteRouteModalRouteName"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelDeleteRouteBtn">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteRouteBtn">
+                    <i class="fas fa-trash me-1"></i>Delete
+                </button>
+            </div>
         </div>
     </div>
 </div>

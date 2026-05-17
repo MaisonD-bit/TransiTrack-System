@@ -1078,20 +1078,30 @@ class ScheduleController extends Controller
     public function acceptSchedule(Request $request, $id)
     {
         try {
-            $schedule = Schedule::findOrFail($id);
-            $legStatus = $schedule->leg_status ?? 'pending';
+            $schedule = Schedule::with('route')->findOrFail($id);
+            $status    = strtolower(trim((string) $schedule->status));
+            $legStatus = $this->normalizeScheduleLegStatus($schedule->leg_status);
 
-            if ($schedule->status === 'scheduled' && $legStatus === 'pending') {
-                // Initial acceptance of the day's schedule
+            if ($status === 'scheduled' && $legStatus === 'pending') {
                 $schedule->status     = 'accepted';
                 $schedule->leg_status = 'accepted';
-            } elseif ($schedule->status === 'active' && $legStatus === 'pending') {
-                // Accepting the next leg in a vice-versa cycle
+            } elseif ($status === 'scheduled' && $legStatus === 'accepted') {
+                // Recovery: leg already accepted but status not updated
+                $schedule->status = 'accepted';
+            } elseif ($status === 'accepted' && $legStatus === 'pending') {
                 $schedule->leg_status = 'accepted';
+            } elseif ($status === 'active' && $legStatus === 'pending') {
+                // Next leg (e.g. return) after completing the previous leg
+                $schedule->leg_status = 'accepted';
+                $this->syncReturnTripAccepted($schedule);
             } else {
+                $hint = ($status === 'active' && $legStatus === 'active')
+                    ? ' Start or complete the current leg first.'
+                    : '';
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot accept schedule in its current state.',
+                    'message' => "Cannot accept schedule in its current state (status: {$status}, leg: {$legStatus}).{$hint}",
                 ], 400);
             }
 
@@ -1100,7 +1110,7 @@ class ScheduleController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule accepted successfully.',
-                'schedule' => $schedule,
+                'schedule' => $this->enrichScheduleForDriver($schedule->fresh(['route', 'bus', 'tickets.commuter'])),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -1198,10 +1208,14 @@ class ScheduleController extends Controller
                 return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
             }
 
-            $legStatus = $schedule->leg_status ?? '';
+            $legStatus = $schedule->leg_status ?? 'pending';
             $tripLeg   = $schedule->trip_leg  ?? 1;
 
-            if ($legStatus !== 'accepted') {
+            // Normal path: driver accepted the leg. Recovery: cron/legacy set status=active but never started leg.
+            $canStartLeg = $legStatus === 'accepted'
+                || ($legStatus === 'pending' && $schedule->status === 'active');
+
+            if (! $canStartLeg) {
                 return response()->json([
                     'success' => false,
                     'message' => "Cannot start: leg must be accepted first. Current leg_status: {$legStatus}",
@@ -1295,11 +1309,15 @@ class ScheduleController extends Controller
                 return response()->json(['success' => true, 'message' => 'Schedule already completed']);
             }
 
-            $legStatus = $schedule->leg_status ?? '';
+            $legStatus = $schedule->leg_status ?? 'pending';
             if ($legStatus !== 'active') {
+                $hint = in_array($legStatus, ['accepted', 'pending'], true)
+                    ? ' Tap "Start Trip" on this schedule before completing.'
+                    : '';
+
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}",
+                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}.{$hint}",
                 ], 400);
             }
 
@@ -1362,13 +1380,26 @@ class ScheduleController extends Controller
 
     public function acceptReturnTrip($id): JsonResponse
     {
-        $schedule = Schedule::findOrFail($id);
-        if ($schedule->return_trip_status !== 'pending') {
-            return response()->json(['success' => false, 'message' => 'Return trip is not awaiting acceptance.'], 400);
+        // Unified with leg-based accept (vice-versa round trips)
+        return $this->acceptSchedule(request(), $id);
+    }
+
+    private function normalizeScheduleLegStatus(?string $legStatus): string
+    {
+        $s = strtolower(trim((string) ($legStatus ?? '')));
+
+        return $s === '' ? 'pending' : $s;
+    }
+
+    private function syncReturnTripAccepted(Schedule $schedule): void
+    {
+        if (! $schedule->route || empty($schedule->route->return_geometry)) {
+            return;
         }
-        $schedule->return_trip_status = 'accepted';
-        $schedule->save();
-        return response()->json(['success' => true, 'message' => 'Return trip accepted.', 'schedule' => $schedule]);
+        $rts = strtolower(trim((string) ($schedule->return_trip_status ?? '')));
+        if ($rts === '' || $rts === 'pending') {
+            $schedule->return_trip_status = 'accepted';
+        }
     }
 
     public function declineReturnTrip($id): JsonResponse

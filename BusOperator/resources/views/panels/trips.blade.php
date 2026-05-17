@@ -35,7 +35,7 @@
         <div class="col-md-4 mb-3">
             <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
                 <div class="card-body">
-                    <div class="text-muted small">Driver incidents (this date, on map)</div>
+                    <div class="text-muted small">Driver incidents (this date)</div>
                     <div class="fs-3 fw-bold text-danger"><span id="tripIncidentCount">{{ $incidentCount }}</span></div>
                 </div>
             </div>
@@ -47,16 +47,6 @@
                     <div class="fs-3 fw-bold text-primary"><span id="tripScheduleCount">{{ $tripCount }}</span></div>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-light">
-            <h5 class="mb-0"><i class="fas fa-map-marked-alt me-2 text-primary"></i> Operations map</h5>
-            <small class="text-muted">Blue: route reference · Red: driver-reported incidents for the selected date</small>
-        </div>
-        <div class="card-body p-0">
-            <div id="tripMap" class="trip-map-canvas"></div>
         </div>
     </div>
 
@@ -127,103 +117,8 @@
 @endsection
 
 @push('scripts')
-<style>
-.trip-map-canvas { height: min(48vh, 480px); min-height: 320px; width: 100%; }
-.mapboxgl-popup-content { border-radius: 6px !important; padding: 0 !important; overflow: hidden; }
-.mapboxgl-popup-tip { border-top-color: #fff !important; }
-.trip-incident-popup { min-width: 240px; max-width: 320px; }
-.trip-incident-popup__head { background: #f8f9fa; border-bottom: 1px solid #dee2e6; padding: .65rem 3rem .65rem .75rem; font-weight: 600; font-size: .85rem; line-height: 1.45; }
-.trip-incident-popup__row { padding: .45rem .75rem; font-size: .8rem; border-bottom: 1px solid #f1f3f5; color: #495057; display: flex; gap: .5rem; align-items: flex-start; line-height: 1.45; }
-.trip-incident-popup__row:last-child { border-bottom: none; }
-.trip-incident-popup__row i { color: #868e96; width: 1rem; margin-top: .15rem; flex-shrink: 0; text-align: center; }
-.trip-ref-popup { padding: .5rem .75rem; font-size: .82rem; max-width: 220px; }
-.trip-ref-popup strong { color: #0d6efd; }
-</style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const center = @json($mapCenter);
-    let incidentMarkers = @json($incidentMarkers ?? []);
-    let tripMap = null;
-    let tripMapStyleLoaded = false;
-    const tripIncidentMapMarkers = [];
-    let routeRefMarker = null;
-
-    function esc(s) {
-        if (s == null || s === '') return '';
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
-    function formatIncidentPopupHtml(raw) {
-        var parts = String(raw).split(/\s·\s/).map(function (p) { return p.trim(); }).filter(Boolean);
-        if (!parts.length) {
-            return '<div class="trip-incident-popup"><div class="trip-incident-popup__head">Incident</div></div>';
-        }
-        var head = esc(parts[0]);
-        var icons = ['fa-user', 'fa-route', 'fa-bus'];
-        var rows = parts.slice(1).map(function (p, i) {
-            var ic = icons[Math.min(i, icons.length - 1)] || 'fa-info-circle';
-            return '<div class="trip-incident-popup__row"><i class="fas ' + ic + '"></i><span>' + esc(p) + '</span></div>';
-        }).join('');
-        return '<div class="trip-incident-popup"><div class="trip-incident-popup__head">' + head + '</div>' + rows + '</div>';
-    }
-
-    function clearTripIncidentMarkers() {
-        tripIncidentMapMarkers.forEach(function (m) { try { m.remove(); } catch (e) {} });
-        tripIncidentMapMarkers.length = 0;
-    }
-
-    function addTripIncidentMarkers(map, markers) {
-        clearTripIncidentMarkers();
-        if (!map || !markers || !markers.length) return;
-        markers.forEach(function (m) {
-            var mk = new mapboxgl.Marker({ color: '#dc3545' }).setLngLat([m.lng, m.lat]);
-            if (m.message) {
-                mk.setPopup(new mapboxgl.Popup({ offset: 22, maxWidth: '360px', className: 'trip-incident-mapbox-popup' })
-                    .setHTML(formatIncidentPopupHtml(m.message)));
-            }
-            mk.addTo(map);
-            tripIncidentMapMarkers.push(mk);
-        });
-    }
-
-    function fitTripMapView(map, baseCenter, markers) {
-        if (!map) return;
-        if (!markers || !markers.length) {
-            map.setCenter(baseCenter);
-            map.setZoom(11);
-            return;
-        }
-        var b = new mapboxgl.LngLatBounds();
-        b.extend(baseCenter);
-        markers.forEach(function (m) { b.extend([m.lng, m.lat]); });
-        map.fitBounds(b, { padding: 48, maxZoom: 14 });
-    }
-
-    if (typeof mapboxgl !== 'undefined') {
-        tripMap = new mapboxgl.Map({
-            container: 'tripMap',
-            style: 'mapbox://styles/mapbox/streets-v12',
-            center: center,
-            zoom: 11
-        });
-        tripMap.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'top-right');
-        routeRefMarker = new mapboxgl.Marker({ color: '#0d6efd' })
-            .setLngLat(center)
-            .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML(
-                '<div class="trip-ref-popup"><strong>Route reference</strong><br><span class="text-muted">Approx. start / area for the first trip row</span></div>'
-            ))
-            .addTo(tripMap);
-        tripMap.on('load', function () {
-            tripMapStyleLoaded = true;
-            addTripIncidentMarkers(tripMap, incidentMarkers);
-            fitTripMapView(tripMap, center, incidentMarkers);
-        });
-    }
-
     const pollUrl = @json(route('trips.panel.poll'));
     let lastChecksum = @json($tripPollChecksum ?? '');
     const dateInput = document.getElementById('trip_date');
@@ -234,6 +129,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const liveEl = document.getElementById('tripLogsLiveStatus');
     const incidentCountEl = document.getElementById('tripIncidentCount');
     const scheduleCountEl = document.getElementById('tripScheduleCount');
+
+    function esc(s) {
+        if (s == null || s === '') return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
 
     function formatMoney(n) {
         const x = Number(n);
@@ -278,11 +182,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (revEl) revEl.textContent = '₱ ' + formatMoney(data.totalRevenue);
         renderTripTable(data.rows || [], data.totalRevenue);
         if (scheduleCountEl && data.rows) scheduleCountEl.textContent = String(data.rows.length);
-        if (data.incidentMarkers && tripMap && tripMapStyleLoaded) {
-            incidentMarkers = data.incidentMarkers;
-            if (incidentCountEl) incidentCountEl.textContent = String(data.incidentMarkers.length);
-            addTripIncidentMarkers(tripMap, incidentMarkers);
-            fitTripMapView(tripMap, center, incidentMarkers);
+        if (incidentCountEl && data.incidentMarkers) {
+            incidentCountEl.textContent = String(data.incidentMarkers.length);
         }
         if (liveEl) liveEl.textContent = 'Live sync · updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }

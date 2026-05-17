@@ -10,7 +10,7 @@
             <a href="{{ route('sysadmin.approvals.review', $r) }}" class="btn btn-sm btn-outline-primary">
                 <i class="fas fa-map"></i> Review
             </a>
-            <form action="{{ route('sysadmin.approvals.approve', $r) }}" method="POST" class="d-inline" onsubmit="return confirm('Approve this route package?');">
+            <form action="{{ route('sysadmin.approvals.approve', $r) }}" method="POST" class="d-inline js-sysadmin-approve-form" data-confirm-message="Approve this route package?">
                 @csrf
                 <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-check"></i> Approve</button>
             </form>

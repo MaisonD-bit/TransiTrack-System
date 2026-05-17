@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   ActionSheetController,
@@ -25,6 +25,7 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  ends_next_day?: boolean;
   trip_leg?: number;
   leg_status?: string;
   leg_direction?: 'outbound' | 'return';
@@ -89,7 +90,8 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     private alertController: AlertController,
     private toastController: ToastController,
     private loadingController: LoadingController,
-    private mapService: MapService
+    private mapService: MapService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnDestroy() {
@@ -301,7 +303,15 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const t = this.normalizeTime(schedule.end_time);
     if (!day || !t) return null;
     const d = new Date(`${day}T${t}`);
-    return isNaN(d.getTime()) ? null : d;
+    if (isNaN(d.getTime())) return null;
+    if (schedule.ends_next_day) {
+      d.setDate(d.getDate() + 1);
+    }
+    return d;
+  }
+
+  private isWorkableStatus(status: string): boolean {
+    return ['scheduled', 'accepted', 'active'].includes(status);
   }
 
   private isReturnLeg(schedule: Schedule | null): boolean {
@@ -336,13 +346,19 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const activeToday = todaySchedules.find((s) => st(s) === 'active');
     if (activeToday) return activeToday;
 
+    const returnReady = todaySchedules.find((s) => {
+      const rt = String(s.return_trip_status || '').toLowerCase();
+      return s.has_return_trip && ['accepted', 'active'].includes(rt) && this.isWorkableStatus(st(s));
+    });
+    if (returnReady) return returnReady;
+
     const inWindow = todaySchedules.find((s) => {
       if (this.scheduleDateKey(s) !== todayStr) return false;
       const start = this.parseScheduleStart(s);
       const end = this.parseScheduleEnd(s);
       if (!start || !end) return false;
       const status = st(s);
-      return (status === 'accepted' || status === 'active') && now >= start && now < end;
+      return this.isWorkableStatus(status) && now >= start && now < end;
     });
     if (inWindow) return inWindow;
 
@@ -350,7 +366,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       .filter((s) => {
         if (this.scheduleDateKey(s) !== todayStr) return false;
         const status = st(s);
-        if (status !== 'accepted' && status !== 'active') return false;
+        if (!this.isWorkableStatus(status)) return false;
         const end = this.parseScheduleEnd(s);
         return !end || now < end;
       })
@@ -369,10 +385,9 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     }
 
     return (
-      upcomingSchedules.find((s) => {
-        const status = st(s);
-        return status === 'accepted' || status === 'active';
-      }) || null
+      upcomingSchedules.find((s) => this.isWorkableStatus(st(s))) ||
+      todaySchedules.find((s) => this.isWorkableStatus(st(s))) ||
+      null
     );
   }
 
@@ -504,6 +519,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       );
       if (returnGeometry) {
         this.mapRouteGeoJson = returnGeometry;
+        this.cdr.markForCheck();
         return;
       }
 
@@ -521,15 +537,18 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       const retEnd = this.parseCoordPair(route.start_coordinates);
       if (retStart && retEnd) {
         await this.fetchRouteFromMapbox(retStart, retEnd);
+        this.cdr.markForCheck();
         return;
       }
 
       this.mapRouteGeoJson = null;
+      this.cdr.markForCheck();
       return;
     }
 
     if (this.isValidLineString(route.map_geometry as any)) {
       this.mapRouteGeoJson = this.cloneLineString(route.map_geometry as any);
+      this.cdr.markForCheck();
       return;
     }
 
@@ -540,6 +559,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       } else {
         this.mapRouteGeoJson = fromField;
       }
+      this.cdr.markForCheck();
       return;
     }
 
@@ -547,15 +567,30 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const end = this.parseCoordPair(route.end_coordinates);
     if (start && end) {
       await this.fetchRouteFromMapbox(start, end);
+      this.cdr.markForCheck();
       return;
     }
 
-    if (this.mapRouteStops.length) {
-      this.mapRouteGeoJson = null;
-      return;
+    if (this.mapRouteStops.length >= 2) {
+      const waypoints = this.mapRouteStops
+        .map((stop) => {
+          const lng = stop.lng ?? stop.longitude;
+          const lat = stop.lat ?? stop.latitude;
+          if (typeof lng === 'number' && typeof lat === 'number' && !isNaN(lng) && !isNaN(lat)) {
+            return [lng, lat] as [number, number];
+          }
+          return null;
+        })
+        .filter((p): p is [number, number] => p !== null);
+      if (waypoints.length >= 2) {
+        await this.fetchDrivingRouteFromWaypoints(waypoints);
+        this.cdr.markForCheck();
+        return;
+      }
     }
 
     this.mapRouteGeoJson = null;
+    this.cdr.markForCheck();
   }
 
   getScheduleTime(schedule: Schedule): string {
@@ -563,10 +598,24 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
   }
 
   getScheduleRoute(schedule: Schedule): string {
-    if (this.isReturnTrip && schedule.route?.end_location && schedule.route?.start_location) {
-      return `${schedule.route.end_location} to ${schedule.route.start_location}`;
+    const r = schedule.route;
+    if (!r) {
+      return '';
     }
-    return schedule.route?.name || '';
+    const short = (loc?: string) => {
+      if (!loc?.trim()) return '';
+      const first = loc.split(',')[0].trim();
+      return (first.split(/\s+/)[0] || first).toUpperCase();
+    };
+    const from = short(r.start_location);
+    const to = short(r.end_location);
+    if (this.isReturnTrip && from && to) {
+      return `${to} to ${from}`;
+    }
+    if (from && to) {
+      return `${from} to ${to}`;
+    }
+    return r.name || '';
   }
 
   getScheduleDestination(schedule: Schedule): string {
@@ -781,6 +830,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         coordinates: [startCoords, endCoords]
       };
     }
+    this.cdr.markForCheck();
   }
 
   private async fetchDrivingRouteFromWaypoints(waypoints: [number, number][]) {
@@ -805,6 +855,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         coordinates: waypoints
       };
     }
+    this.cdr.markForCheck();
   }
 }
 

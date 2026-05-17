@@ -125,10 +125,11 @@
         } catch (e) { /* network / tab background */ }
     }
 
-    setInterval(pollApprovals, 5000);
+    setInterval(pollApprovals, 4000);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') pollApprovals();
     });
+    pollApprovals();
 })();
 </script>
 @endpush

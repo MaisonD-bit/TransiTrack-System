@@ -13,6 +13,7 @@ Route::middleware('auth:sysadmin')->group(function () {
     Route::post('/logout', [SysadminLoginController::class, 'destroy'])->name('sysadmin.logout');
     Route::get('/', fn () => redirect()->route('sysadmin.dashboard'));
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('sysadmin.dashboard');
+    Route::get('/dashboard/poll', [DashboardController::class, 'poll'])->name('sysadmin.dashboard.poll');
     Route::get('/approvals', [ApprovalController::class, 'index'])->name('sysadmin.approvals');
     Route::get('/approvals/poll', [ApprovalController::class, 'poll'])->name('sysadmin.approvals.poll');
     Route::get('/approvals/{routeApprovalRequest}/review', [ApprovalController::class, 'review'])->name('sysadmin.approvals.review');
