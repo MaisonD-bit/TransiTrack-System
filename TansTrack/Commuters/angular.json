@@ -11,10 +11,9 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-devkit/build-angular:browser-esbuild",
+          "builder": "@angular-devkit/build-angular:browser",
           "options": {
             "outputPath": "www",
-            "baseHref": "./",
             "index": "src/index.html",
             "main": "src/main.ts",
             "polyfills": "src/polyfills.ts",
@@ -51,6 +50,7 @@
           },
           "configurations": {
             "production": {
+              "baseHref": "./",
               "budgets": [
                 {
                   "type": "initial",
@@ -80,8 +80,12 @@
             },
             "development": {
               "baseHref": "/",
+              "buildOptimizer": false,
               "optimization": false,
-              "sourceMap": true
+              "vendorChunk": true,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "namedChunks": true
             },
             "ci": {
               "progress": false
@@ -91,6 +95,10 @@
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "host": "0.0.0.0",
+            "port": 8101
+          },
           "configurations": {
             "production": {
               "buildTarget": "app:build:production"

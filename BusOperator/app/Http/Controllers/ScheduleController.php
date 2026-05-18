@@ -702,20 +702,20 @@ class ScheduleController extends Controller
             $candidates->where('id', '!=', $excludeId);
         }
 
-        foreach ($candidates->cursor() as $existing) {
-            $d = $existing->date instanceof \Carbon\CarbonInterface
-                ? $existing->date->format('Y-m-d')
-                : Carbon::parse((string) $existing->date)->format('Y-m-d');
-            $st = $existing->start_time instanceof \Carbon\CarbonInterface
-                ? $existing->start_time->format('H:i')
-                : Carbon::parse((string) $existing->start_time)->format('H:i');
-            $en = $existing->end_time instanceof \Carbon\CarbonInterface
-                ? $existing->end_time->format('H:i')
-                : Carbon::parse((string) $existing->end_time)->format('H:i');
-            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+        foreach ($candidates->get() as $existingSchedule) {
+            $d = $existingSchedule->date instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->date->format('Y-m-d')
+                : Carbon::parse((string) $existingSchedule->date)->format('Y-m-d');
+            $st = $existingSchedule->start_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->start_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->start_time)->format('H:i');
+            $en = $existingSchedule->end_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->end_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existingSchedule->ends_next_day ?? false));
 
             if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
-                return $existing->loadMissing(['driver', 'route']);
+                return $existingSchedule->loadMissing(['driver', 'route']);
             }
         }
 
@@ -833,20 +833,20 @@ class ScheduleController extends Controller
             $candidates->where('id', '!=', $excludeScheduleId);
         }
 
-        foreach ($candidates->cursor() as $existing) {
-            $d = $existing->date instanceof \Carbon\CarbonInterface
-                ? $existing->date->format('Y-m-d')
-                : Carbon::parse((string) $existing->date)->format('Y-m-d');
-            $st = $existing->start_time instanceof \Carbon\CarbonInterface
-                ? $existing->start_time->format('H:i')
-                : Carbon::parse((string) $existing->start_time)->format('H:i');
-            $en = $existing->end_time instanceof \Carbon\CarbonInterface
-                ? $existing->end_time->format('H:i')
-                : Carbon::parse((string) $existing->end_time)->format('H:i');
-            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+        foreach ($candidates->get() as $existingSchedule) {
+            $d = $existingSchedule->date instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->date->format('Y-m-d')
+                : Carbon::parse((string) $existingSchedule->date)->format('Y-m-d');
+            $st = $existingSchedule->start_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->start_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->start_time)->format('H:i');
+            $en = $existingSchedule->end_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->end_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existingSchedule->ends_next_day ?? false));
 
             if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
-                return $existing->loadMissing(['driver', 'route', 'bus']);
+                return $existingSchedule->loadMissing(['driver', 'route', 'bus']);
             }
         }
 
@@ -1192,10 +1192,6 @@ class ScheduleController extends Controller
         return response()->json(['success' => true, 'message' => 'Decline rejected. Schedule restored.']);
     }
 
-    /**
-     * Start the current leg (API)
-     * Works for any leg (outbound or return) — checks leg_status='accepted'.
-     */
     public function startSchedule($scheduleId): JsonResponse
     {
         try {

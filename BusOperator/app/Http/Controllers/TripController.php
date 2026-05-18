@@ -62,12 +62,13 @@ class TripController extends Controller
 
     private function resolveTripDate(Request $request): Carbon
     {
-        $dateInput = $request->input('date', Carbon::today()->toDateString());
+        $tz = 'Asia/Manila';
+        $dateInput = $request->input('date', Carbon::now($tz)->toDateString());
 
         try {
-            return Carbon::parse($dateInput)->startOfDay();
+            return Carbon::parse($dateInput, $tz)->startOfDay();
         } catch (\Throwable) {
-            return Carbon::today()->startOfDay();
+            return Carbon::today($tz)->startOfDay();
         }
     }
 
@@ -91,14 +92,16 @@ class TripController extends Controller
             ->groupBy('schedule_id');
 
         $tripRows = $schedules->map(function (Schedule $s) use ($ticketsBySchedule) {
-            $tickets = ($ticketsBySchedule->get($s->id) ?? collect())->values();
+            $tickets = ($ticketsBySchedule->get($s->id) ?? collect())
+                ->sortByDesc('id')
+                ->values();
             $ticketCount = $tickets->count();
             $revenue = (float) $tickets->sum(fn (Ticket $t) => (float) $t->fare);
             $capacity = (int) ($s->bus?->capacity ?? 0);
             $aboard = $ticketCount > 0
                 ? TicketBoarding::aboardCount($tickets, $capacity)
                 : (int) ($s->passengers ?? 0);
-            $ids = $tickets->take(3)->pluck('public_ticket_id')->filter();
+            $latestIds = $tickets->take(3)->pluck('public_ticket_id')->filter()->values();
 
             return [
                 'schedule' => $s,
@@ -110,7 +113,8 @@ class TripController extends Controller
                 'boarded' => $aboard,
                 'ticket_count' => $ticketCount,
                 'revenue' => $revenue,
-                'ticket_id_sample' => $ids->isNotEmpty() ? $ids->join(', ') : '—',
+                'ticket_id_latest' => $latestIds->first() ?? '—',
+                'ticket_id_sample' => $latestIds->isNotEmpty() ? $latestIds->join(', ') : '—',
             ];
         });
 
@@ -152,6 +156,7 @@ class TripController extends Controller
             'rows' => $tripRows->map(fn (array $r) => [
                 $r['ticket_count'],
                 round($r['revenue'], 2),
+                (string) $r['ticket_id_latest'],
                 (string) $r['ticket_id_sample'],
                 (int) $r['boarded'],
             ])->values()->all(),

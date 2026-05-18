@@ -14,6 +14,7 @@ use App\Http\Controllers\TripController;
 use App\Http\Controllers\RouteApprovalWebController;
 use App\Http\Controllers\SupportTicketWebController;
 use App\Http\Controllers\DriverLocationController;
+use App\Http\Controllers\RouteStopsController;
 
 // Maya payment callbacks — public GET routes, no auth or CSRF needed
 Route::get('/payments/maya/success', [MayaController::class, 'paymentSuccess']);
@@ -60,6 +61,13 @@ Route::middleware('auth')->group(function () {
 
     // Driver profile route
     Route::get('/panel/profile/{id}', [DriverController::class, 'profile'])->name('drivers.profile');
+
+    //Route Stops
+    Route::get('/panel/route-stops', [RouteStopsController::class, 'index'])->name('route-stops.index');
+    Route::get('/panel/route-stops/poll', [RouteStopsController::class, 'pollList'])->name('route-stops.poll');
+    Route::get('/panel/route-stops/{routeApprovalRequest}/routes/{busRoute}/edit', [RouteStopsController::class, 'editRoute'])->name('route-stops.edit');
+    Route::put('/panel/route-stops/{routeApprovalRequest}/stops', [RouteStopsController::class, 'updateStops'])->name('route-stops.update');
+    Route::post('/panel/route-stops/{routeApprovalRequest}/submit-sysadmin', [RouteStopsController::class, 'submitToSysadmin'])->name('route-stops.submit');
 
     // Notification action routes
     Route::get('/notifications/unread-count', [NotificationsController::class, 'getUnreadCount']);

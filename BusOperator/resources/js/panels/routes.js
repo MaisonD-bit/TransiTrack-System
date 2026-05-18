@@ -5,15 +5,6 @@ let stopMarkers = [];
 let stops = [];
 let isAddingStop = false;
 
-// Fare rates
-const FARE_RATES = {
-    BASE_FARE: 15,
-    LOW_RATE: 2.50,
-    MID_RATE: 3.00,
-    HIGH_RATE: 3.50,
-    AIRCON_MARKUP: 0.30
-};
-
 const CEBU_COORDINATES = {
     center: [123.8854, 10.3157],
     zoom: 12
@@ -91,10 +82,10 @@ const TERMINAL_BOUNDARIES = {
         neLat: 11.30
     },
     south: {
-        swLng: 123.25,      // West of Cebu City
-        swLat: 9.50,        // South boundary (covers Oslob, Santander)
-        neLng: 123.95,      // East boundary
-        neLat: 10.35        // North boundary (up to Cebu City)
+        swLng: 123.25,      
+        swLat: 9.50,      
+        neLng: 123.95,      
+        neLat: 10.35        
     }
 };
 

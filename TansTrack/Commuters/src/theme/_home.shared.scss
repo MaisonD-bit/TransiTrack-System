@@ -110,17 +110,66 @@ $radius: 14px;
     border: 1px solid $border;
   }
 
-  .route-select {
-    --background: $blue-light;
+  .route-field {
+    --background: #{$blue-light};
+    --border-color: #{color.adjust($blue-light, $lightness: -8%)};
+    --border-width: 1.5px;
     --border-radius: 10px;
-    --padding-start: 14px;
-    --padding-end: 14px;
+    --inner-padding-end: 14px;
+    --inner-padding-start: 14px;
+    --padding-start: 0;
+    --padding-end: 0;
+    --min-height: 52px;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 14px;
+    border-radius: 10px;
+
+    ion-select.route-select {
+      width: 100%;
+      max-width: 100%;
+      --background: transparent;
+      --padding-start: 0;
+      --padding-end: 0;
+      min-height: 48px;
+      font-weight: 500;
+      color: $text;
+    }
+  }
+
+  .route-select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .bus-type-toggle {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: $blue-light;
     border: 1.5px solid color.adjust($blue-light, $lightness: -8%);
     border-radius: 10px;
-    margin-bottom: 14px;
-    min-height: 52px;
-    font-weight: 500;
-    color: $text;
+  }
+
+  .bus-type-option {
+    flex: 1;
+    min-height: 44px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: $text-muted;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+    &.active {
+      background: $white;
+      color: $blue;
+      box-shadow: 0 2px 8px rgba(0, 84, 233, 0.15);
+    }
   }
 
   .track-btn {
@@ -574,6 +623,81 @@ $radius: 14px;
 
   .rating-skip-btn {
     margin-top: 4px;
+  }
+
+  .payment-success-wrapper {
+    margin-top: -8px;
+    padding-top: 0;
+  }
+
+  .payment-success-card {
+    background: $white;
+    border-radius: $radius;
+    padding: 22px 20px;
+    box-shadow: $shadow;
+    border: 1px solid color.adjust($blue, $alpha: -0.85);
+    text-align: center;
+  }
+
+  .payment-success-icon {
+    font-size: 52px;
+    margin-bottom: 8px;
+  }
+
+  .payment-success-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 700;
+    color: $text;
+  }
+
+  .payment-success-subtitle {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: $text-muted;
+    line-height: 1.45;
+  }
+
+  .payment-success-details {
+    text-align: left;
+    background: $blue-light;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
+
+  .payment-success-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 14px;
+
+    .label {
+      color: $text-muted;
+      flex-shrink: 0;
+    }
+
+    .value {
+      font-weight: 600;
+      color: $text;
+      text-align: right;
+      word-break: break-all;
+
+      &.mono {
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+      }
+    }
+  }
+
+  .payment-success-dismiss {
+    --background: #{$blue};
+    --background-activated: #{$blue-dark};
+    --border-radius: 10px;
+    font-weight: 600;
+    text-transform: none;
+    margin: 0;
   }
 
   @keyframes home-pulse {

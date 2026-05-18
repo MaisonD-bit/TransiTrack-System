@@ -32,6 +32,18 @@ ion-header ion-toolbar {
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/* Capacitor Android WebView: bare ion-select can collapse to zero width */
+ion-item.route-field {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+ion-item.route-field ion-select {
+  width: 100%;
+  max-width: 100%;
+}
+
 app-trip-history,
 app-feedback,
 app-customer-support {

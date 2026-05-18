@@ -30,7 +30,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() commuterBoardingPin: { lng: number; lat: number; label?: string } | null = null;
   /** Live trip: commuter GPS + selected bus only (no duplicate boarding pin); stops & end still show. */
   @Input() simplifiedTracking = false;
-  /** Commuter device GPS — profile marker when simplifiedTracking is on. */
+  /** Commuter device GPS — profile marker at real location when available. */
   @Input() commuterLocation: { lng: number; lat: number } | null = null;
   @ViewChild('mapContainer', { static: true }) mapContainer!: ElementRef;
   map: any;
@@ -437,7 +437,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private renderCommuterBoardingMarker(): void {
-    if (this.simplifiedTracking) {
+    if (this.simplifiedTracking || this.commuterLocation) {
       if (this.commuterBoardingMarker) {
         try { this.commuterBoardingMarker.remove(); } catch (e) {}
         this.commuterBoardingMarker = null;
@@ -501,7 +501,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges, OnDestroy {
         this.commuterGpsMarker = null;
       }
     };
-    if (!this.simplifiedTracking || !this.mapLoaded || !this.map || !this.commuterLocation) {
+    if (!this.mapLoaded || !this.map || !this.commuterLocation) {
       clearGpsMarker();
       return;
     }

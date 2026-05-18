@@ -53,6 +53,8 @@ export class PaymentService {
     amount: number;
     route_name?: string;
     commuter_name?: string;
+    /** Capacitor / mobile: app URL to return after PayMaya (e.g. https://localhost/#/tabs/home) */
+    return_url?: string;
   }): Promise<{ success: boolean; checkout_url?: string; message?: string }> {
     try {
       console.log('[PaymentService] Creating Maya checkout with payload:', payload);

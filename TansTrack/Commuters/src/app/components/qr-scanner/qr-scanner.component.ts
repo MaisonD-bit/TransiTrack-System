@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
 import { Html5Qrcode } from 'html5-qrcode';
 import QRCode from 'qrcode';
+import { Camera } from '@capacitor/camera';
 
 export interface ScannedPayment {
   scheduleId: number;
@@ -101,6 +102,17 @@ export class QrScannerComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.error = '';
     await this.stopCamera();
     try {
+      // Request camera permissions on Android/iOS
+      const permissions = await Camera.checkPermissions();
+      
+      if (permissions.camera === 'denied' || permissions.camera === 'prompt') {
+        const result = await Camera.requestPermissions({ permissions: ['camera'] });
+        if (result.camera === 'denied') {
+          this.error = 'Camera access was denied. Please allow camera permission in settings and try again.';
+          return;
+        }
+      }
+
       const scanner = new Html5Qrcode(this.READER_ID, { verbose: false });
       await scanner.start(
         { facingMode: 'environment' },

@@ -111,6 +111,7 @@ Route::prefix('v1')->group(function () {
     Route::post('commuter/book-ticket', [CommuterRoutesController::class, 'bookTicket']);
     Route::post('commuter/alight', [CommuterRoutesController::class, 'alight']);
     Route::patch('commuter/tickets/{publicTicketId}/mark-paid', [CommuterRoutesController::class, 'markPaid']);
+    Route::post('commuter/maya/finalize', [CommuterRoutesController::class, 'finalizeMayaPayment']);
     Route::post('commuter/request-boarding', [CommuterRoutesController::class, 'requestBoarding']);
     Route::patch('commuter/boarding-requests/{id}/cancel', [CommuterRoutesController::class, 'cancelBoardingRequest']);
     Route::post('commuter/cancel-my-boarding-requests', [CommuterRoutesController::class, 'cancelMyBoardingRequests']);

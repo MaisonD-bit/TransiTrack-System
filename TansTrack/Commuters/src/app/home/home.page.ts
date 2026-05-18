@@ -7,8 +7,15 @@ import { ToastController, AlertController, LoadingController } from '@ionic/angu
 import { CommuterService, LiveBusTrip, LiveRoute } from '../services/commuter.service';
 import { BusSimulatorService } from '../services/bus-simulator.service';
 import { TripHistoryService } from '../services/trip-history.service';
-import { Subscription } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { Capacitor } from '@capacitor/core';
+import {
+  MAYA_APP_RETURN_BASE,
+  MayaPendingSnapshot,
+  MayaReturnService,
+  MayaSuccessUi,
+} from '../services/maya-return.service';
 
 @Component({
   selector: 'app-home',
@@ -50,6 +57,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   // e-ticket state
   showTicket: boolean = false;
   paymentCompleted: boolean = false;
+  showPaymentSuccess = false;
+  paymentSuccessUi: MayaSuccessUi | null = null;
   ticketDestination: string | null = null;
   ticketFare: number | null = null;
   ticketId: string = '';
@@ -77,6 +86,8 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   private alightStopReached: boolean = false;
   /** Pending payment waiting for Maya popup result. */
   private pendingMayaPayment: { payment: ScannedPayment; fare: number } | null = null;
+  /** Prevents duplicate finalize when deep link + ionViewWillEnter both fire. */
+  private lastMayaReturnKey = '';
   /** Avoid spamming unpaid reminders when approaching the stop. */
   private paymentReminderShown: boolean = false;
   // Post-trip UI state
@@ -103,6 +114,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     private busSimulator: BusSimulatorService,
     private tripHistoryService: TripHistoryService,
     private paymentService: PaymentService,
+    private mayaReturnService: MayaReturnService,
     private ngZone: NgZone
   ) {}
 
@@ -122,11 +134,267 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.updateCurrentTime();
     setInterval(() => this.updateCurrentTime(), 60000);
     this.loadRouteData();
+    this.startCommuterLocationWatch();
+    this.subscriptions.push(
+      this.mayaReturnService.onMayaReturn().subscribe((params) => {
+        void this.processMayaReturnStatus(params.status, params.ticketId);
+      })
+    );
   }
 
   ionViewWillEnter() {
     this.restoreActiveTrip();
+    void (async () => {
+      await this.mayaReturnService.processStoredReturn();
+      this.applyStoredPaymentSuccessUi();
+      this.handleMayaPaymentReturn();
+    })();
     this.startCommuterLocationWatch();
+  }
+
+  private async processMayaReturnStatus(status: string, ticketId: string): Promise<void> {
+    const dedupeKey = `${status}:${ticketId}`;
+    if (dedupeKey === this.lastMayaReturnKey) {
+      return;
+    }
+    this.lastMayaReturnKey = dedupeKey;
+
+    if (status === 'success') {
+      if (!this.showPaymentSuccess) {
+        await this.finalizeMayaPaymentSuccess(ticketId);
+      }
+      return;
+    }
+
+    this.mayaReturnService.consumePendingCheckout();
+
+    if (status === 'cancelled') {
+      void this.showPaymentFailedAlert(
+        'Payment cancelled',
+        'Your PayMaya payment was cancelled. You can try again or choose a different payment method.'
+      );
+      return;
+    }
+
+    void this.showPaymentFailedAlert(
+      'Payment not completed',
+      'Your PayMaya payment could not be processed. This is usually due to insufficient balance — please top up your account and try again, or choose a different payment method.'
+    );
+  }
+
+  private applyStoredPaymentSuccessUi(): void {
+    const ui = this.mayaReturnService.consumeSuccessUi();
+    if (!ui || this.showPaymentSuccess) {
+      return;
+    }
+    void this.applyPaymentSuccessUi(ui, this.mayaReturnService.peekPendingCheckout()).then(() => {
+      this.mayaReturnService.consumePendingCheckout();
+    });
+  }
+
+  private async waitForRoutes(maxMs = 8000): Promise<void> {
+    if (this.routes.length) {
+      return;
+    }
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 150));
+      if (this.routes.length) {
+        return;
+      }
+    }
+  }
+
+  private async applyPaymentSuccessUi(
+    ui: MayaSuccessUi,
+    snapshot: MayaPendingSnapshot | null
+  ): Promise<void> {
+    await this.waitForRoutes();
+    this.restoreActiveTrip();
+
+    this.ticketId = ui.ticketId;
+    this.ticketFare = ui.fare;
+    this.paymentCompleted = true;
+    this.showTicket = false;
+    this.showPaymentSuccess = true;
+    this.paymentSuccessUi = ui;
+    this.paymentReminderShown = false;
+    this.ticketPersistedToBackend = true;
+
+    const routeId = ui.routeId || snapshot?.routeId;
+    if (routeId && this.routes.length) {
+      const route = this.routes.find((r) => String(r.id) === String(routeId));
+      if (route) {
+        this.selectedRouteId = String(route.id);
+        this.selectedRoute = route;
+        this.syncStopPinsForMap();
+        this.updateMapDirectionAssets();
+        this.startLiveBusPoll();
+      }
+    }
+    const scheduleId = ui.scheduleId ?? snapshot?.scheduleId;
+    if (scheduleId) {
+      this.selectedScheduleId = scheduleId;
+    }
+    if (snapshot?.fromStopIndex != null) {
+      this.fromStopIndex = snapshot.fromStopIndex;
+    }
+
+    this.tripHistoryService.updateLocalTrip(ui.ticketId, {
+      status: 'paid',
+      paymentMethod: 'paymaya',
+    });
+    localStorage.setItem(
+      `receipt_${ui.ticketId}`,
+      JSON.stringify({
+        ticketId: ui.ticketId,
+        fare: ui.fare,
+        paymentMethod: 'PayMaya',
+        routeName: ui.routeName || this.selectedRoute?.name || '',
+        paidAt: ui.paidAt,
+        transactionRef: 'TT-' + ui.ticketId.slice(-10).toUpperCase(),
+      })
+    );
+    this.saveActiveTrip();
+    void this.showToast(
+      'PayMaya payment successful! Your ticket is registered with the operator.',
+      'success'
+    );
+  }
+
+  dismissPaymentSuccess(): void {
+    this.showPaymentSuccess = false;
+    this.paymentSuccessUi = null;
+  }
+
+  /**
+   * After PayMaya deep link: restore trip, confirm paid on server, update operator trip logs + home UI.
+   */
+  private async finalizeMayaPaymentSuccess(returnedTicketId: string): Promise<void> {
+    if (this.showPaymentSuccess) {
+      return;
+    }
+    await this.waitForRoutes();
+
+    const existingUi = this.mayaReturnService.consumeSuccessUi();
+    if (existingUi) {
+      await this.applyPaymentSuccessUi(existingUi, this.mayaReturnService.peekPendingCheckout());
+      this.mayaReturnService.consumePendingCheckout();
+      return;
+    }
+
+    const snapshot = this.mayaReturnService.consumePendingCheckout();
+    this.restoreActiveTrip();
+
+    const ticketId =
+      returnedTicketId ||
+      snapshot?.ticketId ||
+      snapshot?.payment?.ticketIdOverride ||
+      this.ticketId;
+    if (ticketId) {
+      this.ticketId = ticketId;
+    }
+
+    if (snapshot?.routeId && this.routes.length) {
+      const route = this.routes.find((r) => String(r.id) === String(snapshot.routeId));
+      if (route) {
+        this.selectedRouteId = String(route.id);
+        this.selectedRoute = route;
+      }
+    }
+    if (snapshot?.scheduleId) {
+      this.selectedScheduleId = snapshot.scheduleId;
+    }
+    if (snapshot?.fromStopIndex != null) {
+      this.fromStopIndex = snapshot.fromStopIndex;
+    }
+    if (snapshot?.fare != null) {
+      this.ticketFare = snapshot.fare;
+    }
+
+    const fare =
+      snapshot?.fare ??
+      snapshot?.payment?.fareOverride ??
+      this.ticketFare ??
+      this.selectedRoute?.basefare ??
+      0;
+
+    const payment: ScannedPayment = snapshot?.payment ?? {
+      scheduleId: this.selectedScheduleId ?? 0,
+      routeId: parseInt(this.selectedRoute?.id ?? '0', 10) || 0,
+      routeName: this.selectedRoute?.name ?? '',
+      ticketIdOverride: ticketId,
+      fareOverride: fare,
+    };
+
+    if (snapshot?.ticketPersistedToBackend) {
+      this.ticketPersistedToBackend = true;
+    }
+
+    const loading = await this.loadingController.create({
+      message: 'Confirming your payment…',
+    });
+    await loading.present();
+
+    try {
+      let finalized = false;
+      if (ticketId && payment.routeId > 0) {
+        try {
+          const res: any = await firstValueFrom(
+            this.commuterService.finalizeMayaPayment({
+              public_ticket_id: ticketId,
+              route_id: payment.routeId,
+              schedule_id: payment.scheduleId || this.selectedScheduleId,
+              fare,
+              from_stop_index: snapshot?.fromStopIndex ?? this.fromStopIndex,
+            })
+          );
+          finalized = !!res?.success;
+        } catch (err) {
+          console.warn('finalizeMayaPayment fallback', err);
+        }
+      }
+
+      if (!finalized && !this.ticketPersistedToBackend && payment.routeId > 0) {
+        await this.completeBooking(payment, 'paymaya', fare, ticketId);
+        if (this.paymentCompleted && ticketId) {
+          await this.applyPaymentSuccessUi(
+            {
+              ticketId,
+              fare,
+              routeName: this.selectedRoute?.name || payment.routeName || '',
+              routeId: this.selectedRouteId,
+              scheduleId: this.selectedScheduleId,
+              paidAt: new Date().toISOString(),
+            },
+            snapshot
+          );
+        }
+        return;
+      }
+
+      if (ticketId && !finalized) {
+        try {
+          await firstValueFrom(this.commuterService.markTicketPaid(ticketId, 'paymaya'));
+        } catch (err) {
+          console.warn('markTicketPaid after Maya return', err);
+        }
+      }
+
+      await this.applyPaymentSuccessUi(
+        {
+          ticketId,
+          fare,
+          routeName: this.selectedRoute?.name || payment.routeName || '',
+          routeId: this.selectedRouteId,
+          scheduleId: this.selectedScheduleId,
+          paidAt: new Date().toISOString(),
+        },
+        snapshot
+      );
+    } finally {
+      await loading.dismiss();
+    }
   }
 
   ionViewWillLeave() {
@@ -264,19 +532,31 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     return this.mapBoardingStartCoord;
   }
 
+  private applyCommuterGpsPosition(pos: GeolocationPosition): void {
+    this.commuterGpsLocation = {
+      lng: pos.coords.longitude,
+      lat: pos.coords.latitude,
+    };
+    this.boardingLocation = {
+      lng: pos.coords.longitude,
+      lat: pos.coords.latitude,
+    };
+  }
+
   private startCommuterLocationWatch(): void {
-    if (!navigator.geolocation || this.geoWatchId != null) return;
-    this.geoWatchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        this.ngZone.run(() => {
-          this.commuterGpsLocation = {
-            lng: pos.coords.longitude,
-            lat: pos.coords.latitude,
-          };
-        });
-      },
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => this.ngZone.run(() => this.applyCommuterGpsPosition(pos)),
       () => {},
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+    );
+
+    if (this.geoWatchId != null) return;
+    this.geoWatchId = navigator.geolocation.watchPosition(
+      (pos) => this.ngZone.run(() => this.applyCommuterGpsPosition(pos)),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     );
   }
 
@@ -469,6 +749,14 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
 
   onTerminalChange() {
     this.commuterService.setTerminal(this.commuterTerminal);
+  }
+
+  selectBusType(type: 'regular' | 'aircon'): void {
+    if (this.busType === type) {
+      return;
+    }
+    this.busType = type;
+    this.onBusTypeChange();
   }
 
   onBusTypeChange() {
@@ -1065,6 +1353,18 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     return id;
   }
 
+  /** Prefer live-bus selection; QR payloads may send scheduleId 0. */
+  private resolveScheduleIdForBooking(payment?: ScannedPayment): number | undefined {
+    const fromPayment = payment?.scheduleId;
+    if (fromPayment != null && fromPayment > 0) {
+      return fromPayment;
+    }
+    if (this.selectedScheduleId != null && this.selectedScheduleId > 0) {
+      return this.selectedScheduleId;
+    }
+    return undefined;
+  }
+
   private getCommuterId(): number | undefined {
     try {
       const raw = sessionStorage.getItem('currentUser');
@@ -1114,7 +1414,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.commuterService
       .bookTicket({
         route_id: parseInt(route.id, 10),
-        schedule_id: this.selectedScheduleId ?? undefined,
+        schedule_id: this.resolveScheduleIdForBooking(),
         public_ticket_id: this.ticketId,
         fare: finalFare,
         commuter_id: this.getCommuterId(),
@@ -1126,6 +1426,12 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
           if (!bookRes.success) {
             void this.showToast(bookRes.message || 'Could not register e-ticket.', 'danger');
             return;
+          }
+          if (bookRes.data?.public_ticket_id) {
+            this.ticketId = bookRes.data.public_ticket_id;
+          }
+          if (bookRes.data?.schedule_id) {
+            this.selectedScheduleId = bookRes.data.schedule_id;
           }
           this.ticketFare = finalFare;
           this.discountPercent = discountPercent;
@@ -1257,15 +1563,37 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     await this.completeBooking(payment, 'cash', fare, null);
   }
 
-  private async openMayaCheckout(payment: ScannedPayment, fare: number) {
-    // CRITICAL: Open blank popup NOW while in user gesture context
-    // Then navigate to checkout URL after fetching it (avoids browser popup blocking)
-    const popup = window.open('', 'maya_payment', 'width=520,height=680,left=200,top=100');
-    
-    if (!popup || popup.closed) {
-      void this.showToast('Popup blocked. Please allow popups for this site and try again.', 'warning');
+  private getMayaAppReturnUrl(): string {
+    if (Capacitor.isNativePlatform()) {
+      return MAYA_APP_RETURN_BASE;
+    }
+    const base = window.location.origin || 'http://localhost:8101';
+    const hash = window.location.hash?.split('?')[0] || '#/tabs/home';
+    return `${base}${hash.startsWith('#') ? hash : '#' + hash}`;
+  }
+
+  /** Browser popup return via hash query (native uses deep link in MayaReturnService). */
+  private handleMayaPaymentReturn(): void {
+    const hash = window.location.hash || '';
+    const qIdx = hash.indexOf('?');
+    if (qIdx < 0) {
       return;
     }
+
+    const params = new URLSearchParams(hash.slice(qIdx + 1));
+    const status = params.get('maya_status');
+    if (!status) {
+      return;
+    }
+
+    const ticketId = params.get('maya_ticket') || '';
+    window.location.hash = hash.slice(0, qIdx) || '#/tabs/home';
+    void this.processMayaReturnStatus(status, ticketId);
+  }
+
+  private async openMayaCheckout(payment: ScannedPayment, fare: number) {
+    const isNative = Capacitor.isNativePlatform();
+    const returnUrl = this.getMayaAppReturnUrl();
 
     const loading = await this.loadingController.create({ message: 'Opening Maya payment…' });
     await loading.present();
@@ -1278,6 +1606,7 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
       amount: fare,
       route_name: this.selectedRoute?.name,
       commuter_name: commuterName,
+      return_url: returnUrl,
     });
 
     console.log('[PayMaya] createCheckout response:', result);
@@ -1285,13 +1614,41 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     await loading.dismiss();
 
     if (!result.success || !result.checkout_url) {
-      popup.close();
       console.error('[PayMaya] Failed to get checkout URL:', result);
       void this.showToast(result.message ?? 'Could not start Maya payment.', 'danger');
       return;
     }
 
-    // Store app origin in localStorage so the callback page can redirect back if popup is blocked
+    this.lastMayaReturnKey = '';
+    const pendingSnapshot: MayaPendingSnapshot = {
+      payment,
+      fare,
+      ticketId: payment.ticketIdOverride || this.ticketId,
+      routeId: this.selectedRouteId,
+      scheduleId: this.selectedScheduleId,
+      fromStopIndex: this.fromStopIndex,
+      ticketPersistedToBackend: this.ticketPersistedToBackend,
+      commuterId: currentUser?.id ?? null,
+    };
+    this.saveActiveTrip();
+    this.mayaReturnService.savePendingCheckout(pendingSnapshot);
+
+    // Android / iOS: full-page checkout (popups are blocked in Capacitor WebView)
+    if (isNative) {
+      localStorage.setItem('transittrack_app_origin', returnUrl);
+      window.location.href = result.checkout_url;
+      return;
+    }
+
+    // Desktop browser: popup + postMessage
+    const popup = window.open('', 'maya_payment', 'width=520,height=680,left=200,top=100');
+
+    if (!popup || popup.closed) {
+      localStorage.setItem('transittrack_app_origin', returnUrl);
+      window.location.href = result.checkout_url;
+      return;
+    }
+
     localStorage.setItem('transittrack_app_origin', window.location.origin);
 
     // Remove any previous listener
@@ -1379,23 +1736,66 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
   }
 
   private async completeBooking(payment: ScannedPayment, methodType: string, fare: number, transactionId: string | null) {
-    const ticketId = payment.ticketIdOverride || this.ticketId;
+    let ticketId = payment.ticketIdOverride || this.ticketId;
+    if (!ticketId) {
+      ticketId = this.generateTicketId();
+      this.ticketId = ticketId;
+    }
+
     if (!this.ticketPersistedToBackend) {
-      this.commuterService.bookTicket({
-        route_id: payment.routeId || parseInt(this.selectedRoute?.id ?? '0', 10),
-        schedule_id: payment.scheduleId || undefined,
-        fare,
-        public_ticket_id: ticketId,
-        payment_method: methodType,
-        commuter_id: JSON.parse(sessionStorage.getItem('currentUser') || '{}').id ?? undefined,
-      }).subscribe();
+      const routeId =
+        (payment.routeId && payment.routeId > 0
+          ? payment.routeId
+          : parseInt(this.selectedRoute?.id ?? '0', 10)) || 0;
+      if (!routeId) {
+        void this.showToast('Select a route before completing payment.', 'danger');
+        return;
+      }
+
+      try {
+        const bookRes = await firstValueFrom(
+          this.commuterService.bookTicket({
+            route_id: routeId,
+            schedule_id: this.resolveScheduleIdForBooking(payment),
+            fare,
+            public_ticket_id: ticketId,
+            payment_method: methodType,
+            commuter_id: this.getCommuterId(),
+            from_stop_index: this.fromStopIndex,
+          })
+        );
+        if (!bookRes?.success) {
+          void this.showToast(
+            bookRes?.message || 'Could not register e-ticket with the operator.',
+            'danger'
+          );
+          return;
+        }
+        if (bookRes.data?.public_ticket_id) {
+          ticketId = bookRes.data.public_ticket_id;
+          this.ticketId = ticketId;
+        }
+        if (bookRes.data?.schedule_id) {
+          this.selectedScheduleId = bookRes.data.schedule_id;
+        }
+        this.ticketPersistedToBackend = true;
+      } catch (err: any) {
+        console.error('completeBooking bookTicket error', err);
+        const msg =
+          err?.error?.message ||
+          'Could not save your ticket. Ensure a bus is active on this route and try again.';
+        void this.showToast(msg, 'danger');
+        return;
+      }
     }
 
     // Mark paid on the backend so driver manifest and operator trip logs update
     if (ticketId) {
-      this.commuterService.markTicketPaid(ticketId, methodType).subscribe({
-        error: (err) => console.warn('markTicketPaid failed', err),
-      });
+      try {
+        await firstValueFrom(this.commuterService.markTicketPaid(ticketId, methodType));
+      } catch (err) {
+        console.warn('markTicketPaid failed', err);
+      }
     }
 
     if (ticketId) {
@@ -1434,8 +1834,10 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
     this.showTicket = false;
     this.paymentCompleted = true;
     this.paymentReminderShown = false;
-    this.ticketFare = null;
-    this.ticketId = '';
+    if (methodType !== 'paymaya') {
+      this.ticketFare = null;
+      this.ticketId = '';
+    }
     this.saveActiveTrip(); // persist so refresh doesn't re-show the payment screen
 
     const label = methodType === 'card' ? 'Card' : methodType === 'gcash' ? 'GCash' : methodType === 'paymaya' ? 'PayMaya' : 'Cash';
@@ -1628,16 +2030,14 @@ export class HomePage implements OnInit, OnDestroy, ViewWillEnter, ViewWillLeave
               this.syncStopPinsForMap();
               
               const receiptAlert = await this.alertController.create({
-                header: '✅ Payment Confirmed',
-                message: `
-                  <div style="text-align: center; padding: 10px;">
-                    <p style="font-size: 16px; margin: 10px 0;">Thank you for riding with us!</p>
-                    <p style="font-size: 14px; color: #666;">Distance: ${this.getDistanceTraveled()}</p>
-                    <p style="font-size: 14px; color: #666;">Fare: ₱${currentFare.toFixed(2)}</p>
-                    <p style="font-size: 14px; color: #666;">Receipt sent to your account</p>
-                  </div>
-                `,
-                buttons: ['Done']
+                header: 'Payment confirmed',
+                message: [
+                  'Thank you for riding with us!',
+                  `Distance: ${this.getDistanceTraveled()}`,
+                  `Fare: ₱${currentFare.toFixed(2)}`,
+                  'View your receipt in Trip History.',
+                ].join('\n'),
+                buttons: ['Done'],
               });
               await receiptAlert.present();
               

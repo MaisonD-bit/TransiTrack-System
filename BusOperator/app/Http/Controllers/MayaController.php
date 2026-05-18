@@ -36,12 +36,16 @@ class MayaController extends Controller
             'amount'           => ['required', 'numeric', 'min:1'],
             'route_name'       => ['nullable', 'string', 'max:128'],
             'commuter_name'    => ['nullable', 'string', 'max:128'],
+            'return_url'       => ['nullable', 'string', 'max:512'],
         ]);
 
         $appUrl    = rtrim(config('services.maya.callback_url', config('app.url')), '/');
         $ticketId  = $data['public_ticket_id'] ?? null;
         $ticketRef = urlencode($ticketId ?? 'verify');
         $amount    = round((float) $data['amount'], 2);
+        $returnQ   = ! empty($data['return_url'])
+            ? '&return=' . urlencode($data['return_url'])
+            : '';
 
         // Create Checkout uses PUBLIC key (Basic auth: publicKey + empty password). See developers.maya.ph
         if (! $this->publicKey) {
@@ -51,7 +55,7 @@ class MayaController extends Controller
                 return response()->json([
                     'success'      => true,
                     'checkout_id'  => 'MOCK-' . uniqid(),
-                    'checkout_url' => "{$appUrl}/payments/maya/mock?ticket={$ticketRef}&amount={$amount}",
+                    'checkout_url' => "{$appUrl}/payments/maya/mock?ticket={$ticketRef}&amount={$amount}{$returnQ}",
                     'mock'         => true,
                 ]);
             }
@@ -88,9 +92,9 @@ class MayaController extends Controller
                 ],
             ],
             'redirectUrl' => [
-                'success' => "{$appUrl}/payments/maya/success?ticket={$ticketRef}",
-                'failure' => "{$appUrl}/payments/maya/failure?ticket={$ticketRef}",
-                'cancel'  => "{$appUrl}/payments/maya/cancel?ticket={$ticketRef}",
+                'success' => "{$appUrl}/payments/maya/success?ticket={$ticketRef}{$returnQ}",
+                'failure' => "{$appUrl}/payments/maya/failure?ticket={$ticketRef}{$returnQ}",
+                'cancel'  => "{$appUrl}/payments/maya/cancel?ticket={$ticketRef}{$returnQ}",
             ],
             'requestReferenceNumber' => 'TRANSIT-' . strtoupper(substr($ticketId ?? ('VFY' . time()), -12)),
             'metadata'               => (object) [],
@@ -166,10 +170,11 @@ class MayaController extends Controller
         }
 
         return view('maya-callback', [
-            'status'    => 'success',
-            'ticket_id' => $ticketId,
-            'message'   => 'Payment successful!',
-            'sub'       => 'Your fare has been paid via Maya.',
+            'status'     => 'success',
+            'ticket_id'  => $ticketId,
+            'message'    => 'Payment successful!',
+            'sub'        => 'Your fare has been paid via Maya.',
+            'return_url' => $request->query('return'),
         ]);
     }
 
@@ -179,10 +184,11 @@ class MayaController extends Controller
     public function paymentFailure(Request $request)
     {
         return view('maya-callback', [
-            'status'    => 'failed',
-            'ticket_id' => $request->query('ticket'),
-            'message'   => 'Payment failed.',
-            'sub'       => 'Your Maya payment could not be processed. Please try again.',
+            'status'     => 'failed',
+            'ticket_id'  => $request->query('ticket'),
+            'message'    => 'Payment failed.',
+            'sub'        => 'Your Maya payment could not be processed. Please try again.',
+            'return_url' => $request->query('return'),
         ]);
     }
 
@@ -192,10 +198,11 @@ class MayaController extends Controller
     public function paymentCancel(Request $request)
     {
         return view('maya-callback', [
-            'status'    => 'cancelled',
-            'ticket_id' => $request->query('ticket'),
-            'message'   => 'Payment cancelled.',
-            'sub'       => 'You cancelled the Maya payment.',
+            'status'     => 'cancelled',
+            'ticket_id'  => $request->query('ticket'),
+            'message'    => 'Payment cancelled.',
+            'sub'        => 'You cancelled the Maya payment.',
+            'return_url' => $request->query('return'),
         ]);
     }
 }

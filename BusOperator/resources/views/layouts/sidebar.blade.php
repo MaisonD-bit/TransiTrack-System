@@ -47,9 +47,9 @@
             <i class="fas fa-comments"></i>
             <span>Chat</span>
         </a>
-        <a href="#" class="nav-item">
-            <i class="fas fa-cog"></i>
-            <span>Settings</span>
+        <a href="{{ route('route-stops.index') }}" class="nav-item {{ request()->routeIs('route-stops.*') ? 'active' : '' }}">
+            <i class="fas fa-route"></i>
+            <span>Route stops</span>
         </a>
     </div>
     <div class="sidebar-footer">

@@ -1,73 +1,37 @@
 import { NgModule } from '@angular/core';
 import { PreloadAllModules, RouterModule, Routes } from '@angular/router';
 
-import { AuthGuard } from './services/auth.guard';
-
 const routes: Routes = [
-  {
-    path: 'tabs',
-    loadChildren: () => import('./tabs/tabs.module').then(m => m.TabsModule)
-  },
-  {
-    path: 'home',
-    loadChildren: () => import('./home/home.module').then( m => m.HomePageModule),
-    canActivate: [AuthGuard]
-  },
   {
     path: '',
     redirectTo: 'login',
-    pathMatch: 'full'
-  },
-  {
-    path: 'register',
-    loadChildren: () => import('./register/register.module').then( m => m.RegisterPageModule)
+    pathMatch: 'full',
   },
   {
     path: 'login',
-    loadComponent: () => import('./login/login.page').then(m => m.LoginPage),
+    loadComponent: () => import('./login/login.page').then((m) => m.LoginPage),
   },
   {
-    path: 'profile',
-    loadChildren: () => import('./profile/profile.module').then( m => m.ProfilePageModule),
-    canActivate: [AuthGuard]
+    path: 'register',
+    loadChildren: () => import('./register/register.module').then((m) => m.RegisterPageModule),
   },
   {
-    path: 'payment',
-    loadChildren: () => import('./payment/payment.module').then( m => m.PaymentPageModule),
-    canActivate: [AuthGuard]
+    path: 'tabs',
+    loadChildren: () => import('./tabs/tabs.module').then((m) => m.TabsModule),
   },
-  {
-    path: 'map',
-    loadChildren: () => import('./map/map.module').then( m => m.MapPageModule),
-    canActivate: [AuthGuard]
-  },
-  {
-    path: 'trip-history',
-    loadChildren: () => import('./trip-history/trip-history.module').then( m => m.TripHistoryModule),
-    canActivate: [AuthGuard]
-  },
-  {
-    path: 'notifications',
-    loadChildren: () => import('./notifications/notifications.module').then( m => m.NotificationsModule),
-    canActivate: [AuthGuard]
-  },
-  {
-    path: 'feedback',
-    loadChildren: () => import('./feedback/feedback.module').then( m => m.FeedbackModule),
-    canActivate: [AuthGuard]
-  },
-
   {
     path: '**',
-    redirectTo: 'login'
-  }
+    redirectTo: 'login',
+  },
 ];
-
 
 @NgModule({
   imports: [
-    RouterModule.forRoot(routes, { preloadingStrategy: PreloadAllModules })
+    RouterModule.forRoot(routes, {
+      preloadingStrategy: PreloadAllModules,
+      useHash: true,
+    }),
   ],
-  exports: [RouterModule]
+  exports: [RouterModule],
 })
-export class AppRoutingModule { }
+export class AppRoutingModule {}

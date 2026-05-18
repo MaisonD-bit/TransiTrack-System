@@ -41,13 +41,11 @@ class NotificationsController extends Controller
             return redirect()->route('login')->with('error', 'Unauthorized');
         }
 
-        // ✅ FIXED: Get RECEIVED notifications (from drivers to me, where sender_id is NULL and I'm the recipient)
         $receivedQuery = $this->scopeReceivedForOperator(
             Notification::with(['sender', 'driver', 'schedule.route', 'bus', 'routeApprovalRequest']),
             (int) $user->id
         )->orderBy('created_at', 'desc');
 
-        // ✅ FIXED: Get SENT notifications (from me to drivers, where I am the sender)
         $sentQuery = Notification::with(['driver', 'schedule.route', 'bus'])
             ->where('sender_id', $user->id) // I sent these
             ->whereNotNull('driver_id') // Sent to drivers
@@ -71,7 +69,6 @@ class NotificationsController extends Controller
             return response()->json(['count' => 0]);
         }
 
-        // ✅ Only count received notifications (from drivers)
         $count = $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)
             ->where('is_read', false)
             ->count();
@@ -86,7 +83,6 @@ class NotificationsController extends Controller
             return response()->json(['notifications' => []]);
         }
 
-        // Received: driver alerts and system types (e.g. route_approval) both use sender_id = null
         $notifications = $this->scopeReceivedForOperator(
             Notification::with(['driver', 'sender', 'schedule', 'bus']),
             (int) $user->id
@@ -128,7 +124,6 @@ class NotificationsController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        // ✅ Only mark received notifications (from drivers) as read
         $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)
             ->where('is_read', false)
             ->update(['is_read' => true, 'read_at' => now()]);
@@ -143,7 +138,6 @@ class NotificationsController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
         }
 
-        // ✅ Only clear received notifications (from drivers)
         $this->scopeReceivedForOperator(Notification::query(), (int) $user->id)->delete();
 
         return response()->json(['success' => true]);
@@ -248,12 +242,11 @@ class NotificationsController extends Controller
                 'longitude' => $longitude,
             ]);
 
-            // ✅ sender_id is NULL for driver-to-operator notifications
             $notification = Notification::create([
                 'type' => $request->type,
                 'message' => $message,
-                'sender_id' => null, // NULL indicates message FROM driver
-                'recipient_id' => $recipientId, // The operator who receives it
+                'sender_id' => null, 
+                'recipient_id' => $recipientId, 
                 'driver_id' => $driver->id,
                 'schedule_id' => $scheduleId,
                 'bus_id' => $busId,
@@ -282,9 +275,6 @@ class NotificationsController extends Controller
         }
     }
 
-    /**
-     * Driver app: structured incident with GPS + optional reverse-geocoded label (consultation spec).
-     */
     public function reportIncident(Request $request)
     {
         try {
@@ -432,14 +422,12 @@ class NotificationsController extends Controller
                     continue;
                 }
 
-                // ✅ FIXED: Don't set recipient_id for operator-to-driver notifications
-                // The driver will see these by querying where driver_id = their ID
                 $notification = Notification::create([
                     'type' => $request->type,
                     'message' => $request->message,
-                    'sender_id' => $operatorId, // Operator sending
-                    'recipient_id' => null, // NULL because this is TO a driver, not to a user
-                    'driver_id' => $driver->id, // The driver who should receive it
+                    'sender_id' => $operatorId, 
+                    'recipient_id' => null, 
+                    'driver_id' => $driver->id,
                     'schedule_id' => $request->schedule_id,
                     'bus_id' => $request->bus_id,
                     'is_read' => false,
@@ -487,7 +475,7 @@ class NotificationsController extends Controller
             return response()->json(['success' => false, 'message' => 'Driver not found'], 404);
         }
 
-        // ✅ Get notifications FOR this driver (where driver_id matches and sender_id is NOT null)
+        // Get notifications FOR this driver (where driver_id matches and sender_id is NOT null)
         $query = Notification::with(['sender', 'driver', 'schedule.route', 'bus'])
             ->where('driver_id', $driverId)
             ->whereNotNull('sender_id') // Only notifications FROM operator

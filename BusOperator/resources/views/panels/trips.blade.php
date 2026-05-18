@@ -70,7 +70,7 @@
                             <th>Driver</th>
                             <th>Date</th>
                             <th>Passengers</th>
-                            <th>Ticket ID (sample)</th>
+                            <th>Latest ticket ID</th>
                             <th>Tickets</th>
                             <th>Revenue</th>
                             <th>Company / type</th>
@@ -85,7 +85,7 @@
                                 <td>
                                     <span class="badge bg-info text-dark">{{ $row['boarded'] }} / {{ $row['capacity'] ?: '—' }}</span>
                                 </td>
-                                <td class="small font-monospace">{{ $row['ticket_id_sample'] }}</td>
+                                <td class="small font-monospace" title="{{ $row['ticket_count'] > 1 ? 'Recent: '.$row['ticket_id_sample'] : '' }}">{{ $row['ticket_id_latest'] }}</td>
                                 <td><span class="text-muted">{{ $row['ticket_count'] }} issued</span></td>
                                 <td class="fw-semibold">₱ {{ number_format($row['revenue'], 2) }}</td>
                                 <td>
@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<td>' + esc(r.driver_name) + '</td>' +
                 '<td>' + esc(dateInput && dateInput.value ? dateInput.value : '') + '</td>' +
                 '<td><span class="badge bg-info text-dark">' + esc(String(r.boarded)) + ' / ' + esc(String(cap)) + '</span></td>' +
-                '<td class="small font-monospace">' + esc(r.ticket_id_sample) + '</td>' +
+                '<td class="small font-monospace" title="' + esc(r.ticket_count > 1 ? 'Recent: ' + (r.ticket_id_sample || '') : '') + '">' + esc(r.ticket_id_latest || r.ticket_id_sample || '—') + '</td>' +
                 '<td><span class="text-muted">' + esc(String(r.ticket_count)) + ' issued</span></td>' +
                 '<td class="fw-semibold">₱ ' + formatMoney(r.revenue) + '</td>' +
                 '<td><small class="d-block">' + esc(r.bus_company) + '</small>' +

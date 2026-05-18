@@ -12,6 +12,7 @@ use App\Support\TicketBoarding;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class CommuterRoutesController extends Controller
 {
@@ -421,7 +422,7 @@ class CommuterRoutesController extends Controller
         }
 
         try {
-            $ticket = Ticket::create([
+            $attrs = [
                 'public_ticket_id' => $data['public_ticket_id'],
                 'schedule_id' => $schedule->id,
                 'fare' => $data['fare'],
@@ -433,8 +434,12 @@ class CommuterRoutesController extends Controller
                 'payment_status' => strtolower((string) ($data['payment_method'] ?? '')) === 'cash'
                     ? 'paid'
                     : 'pending',
-                'from_stop_index' => $data['from_stop_index'] ?? null,
-            ]);
+            ];
+            if (Schema::hasColumn('tickets', 'from_stop_index') && array_key_exists('from_stop_index', $data)) {
+                $attrs['from_stop_index'] = $data['from_stop_index'];
+            }
+
+            $ticket = Ticket::create($attrs);
         } catch (\Illuminate\Database\QueryException $e) {
             $msg = strtolower($e->getMessage());
             if (str_contains($msg, 'unique') || $e->getCode() === '23000') {
@@ -821,6 +826,11 @@ class CommuterRoutesController extends Controller
             ];
         }
 
+        // Pre-departure (accepted): do not snap to terminal — wait for real driver GPS.
+        if ($schedule->status === 'accepted' && ! $schedule->started_at) {
+            return null;
+        }
+
         if ($schedule->status !== 'active' || ! $schedule->started_at) {
             return [
                 'lng' => (float) $coords[0][0],
@@ -938,6 +948,71 @@ class CommuterRoutesController extends Controller
         }
 
         return Carbon::parse((string) $schedule->date)->format('Y-m-d');
+    }
+
+    /**
+     * After PayMaya redirect: ensure ticket exists on the active schedule and is marked paid (trip logs).
+     */
+    public function finalizeMayaPayment(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'public_ticket_id' => ['required', 'string', 'max:64'],
+            'route_id' => ['nullable', 'integer', 'exists:routes,id'],
+            'schedule_id' => ['nullable', 'integer', 'exists:schedules,id'],
+            'fare' => ['nullable', 'numeric', 'min:0'],
+            'commuter_id' => ['nullable', 'integer', 'exists:commuters,id'],
+            'from_stop_index' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $ticket = Ticket::query()->where('public_ticket_id', $data['public_ticket_id'])->first();
+
+        if (! $ticket) {
+            if (empty($data['route_id'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ticket not found. Route is required to register this payment.',
+                ], 422);
+            }
+
+            $bookPayload = [
+                'route_id' => (int) $data['route_id'],
+                'schedule_id' => $data['schedule_id'] ?? null,
+                'fare' => $data['fare'] ?? 0,
+                'public_ticket_id' => $data['public_ticket_id'],
+                'payment_method' => 'paymaya',
+                'commuter_id' => $data['commuter_id'] ?? null,
+                'from_stop_index' => $data['from_stop_index'] ?? null,
+            ];
+            $inner = Request::create('/api/v1/commuter/book-ticket', 'POST', $bookPayload);
+            $inner->headers->set('Accept', 'application/json');
+            $bookRes = $this->bookTicket($inner);
+            $bookBody = $bookRes->getData(true);
+            if (! ($bookBody['success'] ?? false)) {
+                return $bookRes;
+            }
+            $ticket = Ticket::query()->where('public_ticket_id', $data['public_ticket_id'])->first();
+        }
+
+        if (! $ticket) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not register ticket for this payment.',
+            ], 500);
+        }
+
+        $ticket->payment_status = 'paid';
+        $ticket->payment_method = 'paymaya';
+        $ticket->save();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'public_ticket_id' => $ticket->public_ticket_id,
+                'schedule_id' => $ticket->schedule_id,
+                'payment_status' => $ticket->payment_status,
+                'fare' => (float) $ticket->fare,
+            ],
+        ]);
     }
 
     /**

@@ -172,6 +172,9 @@
       <ion-fab-button color="light" (click)="zoomOut()">
         <ion-icon name="remove"></ion-icon>
       </ion-fab-button>
+      <ion-fab-button color="success" (click)="openQrScanner()">
+        <ion-icon name="qr-code-outline"></ion-icon>
+      </ion-fab-button>
       <ion-fab-button color="warning" (click)="openIncidentReport()">
         <ion-icon name="warning"></ion-icon>
       </ion-fab-button>
@@ -180,5 +183,21 @@
       </ion-fab-button>
     </ion-fab-list>
   </ion-fab>
-  
+
 </ion-content>
+
+<ion-modal
+  [isOpen]="showQrScanner"
+  (ionModalDidPresent)="onQrModalPresent()"
+  (ionModalDidDismiss)="onQrModalDismiss()"
+  [breakpoints]="[1]"
+  [initialBreakpoint]="1">
+  <ng-template>
+    <app-qr-scanner
+      *ngIf="showQrScanner"
+      [ready]="qrScannerReady"
+      (scanned)="onTicketScanned($event)"
+      (close)="onQrModalDismiss()">
+    </app-qr-scanner>
+  </ng-template>
+</ion-modal>

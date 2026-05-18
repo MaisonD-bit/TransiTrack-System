@@ -5,6 +5,7 @@ import { IonicModule } from '@ionic/angular';
 import { MapPageRoutingModule } from './map-routing.module';
 import { MapPage } from './map.page';
 import { RouteMapComponent } from '../components/route-map/route-map.component';
+import { QrScannerComponent } from '../components/qr-scanner/qr-scanner.component';
 
 @NgModule({
   imports: [
@@ -12,7 +13,8 @@ import { RouteMapComponent } from '../components/route-map/route-map.component';
     FormsModule,
     IonicModule,
     MapPageRoutingModule,
-    RouteMapComponent 
+    RouteMapComponent,
+    QrScannerComponent,
   ],
   declarations: [MapPage]
 })

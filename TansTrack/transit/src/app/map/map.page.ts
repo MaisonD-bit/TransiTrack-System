@@ -18,6 +18,18 @@ import {
   RouteMapStop,
   RouteMapComponent,
 } from '../components/route-map/route-map.component';
+import { QrScannerComponent, ScannedTicket } from '../components/qr-scanner/qr-scanner.component';
+
+interface ManifestPassenger {
+  ticket_id: string;
+  commuter_name: string;
+  fare: number;
+  payment_method: string | null;
+  payment_status: string;
+  alighted: boolean;
+  boarding_stop_name?: string | null;
+  is_boarding_request?: boolean;
+}
 
 interface Schedule {
   id: number;
@@ -67,6 +79,9 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
   mapRouteGeoJson: { type: string; coordinates: number[][] } | null = null;
   mapRouteStops: RouteMapStop[] = [];
   mapBoardingPassengers: RouteMapBoardingPassenger[] = [];
+  manifestPassengers: ManifestPassenger[] = [];
+  showQrScanner = false;
+  qrScannerReady = false;
   selectedSegment: string = 'current';
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
@@ -116,6 +131,16 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     this.apiService.getPassengerManifest(scheduleId).subscribe({
       next: (response) => {
         if (response?.success && Array.isArray(response?.passengers)) {
+          this.manifestPassengers = response.passengers.map((p: any) => ({
+            ticket_id: p.ticket_id,
+            commuter_name: p.commuter_name,
+            fare: p.fare,
+            payment_method: p.payment_method ?? null,
+            payment_status: p.payment_status ?? 'pending',
+            alighted: p.alighted === true,
+            boarding_stop_name: p.boarding_stop_name ?? null,
+            is_boarding_request: p.is_boarding_request === true,
+          }));
           this.mapBoardingPassengers = response.passengers.map((p: any) => ({
             public_ticket_id: p.ticket_id,
             fare: p.fare,
@@ -131,6 +156,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         }
 
         // Safe fallback: treat non-success / no passengers as empty list.
+        this.manifestPassengers = [];
         this.mapBoardingPassengers = [];
       },
       error: (err) => {
@@ -139,10 +165,158 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         // If schedule is missing on the backend, stop polling to avoid spamming errors.
         if (status === 404) {
           this.stopManifestPoll();
+          this.manifestPassengers = [];
           this.mapBoardingPassengers = [];
         }
       },
     });
+  }
+
+  openQrScanner(): void {
+    if (!this.currentSchedule?.id) {
+      void this.presentMapToast('Start or select an active route before scanning tickets.', 'warning');
+      return;
+    }
+    this.showQrScanner = true;
+  }
+
+  onQrModalPresent(): void {
+    this.qrScannerReady = true;
+  }
+
+  onQrModalDismiss(): void {
+    this.qrScannerReady = false;
+    this.showQrScanner = false;
+  }
+
+  async onTicketScanned(ticket: ScannedTicket): Promise<void> {
+    this.showQrScanner = false;
+    await new Promise((resolve) => setTimeout(resolve, 280));
+
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId) {
+      return;
+    }
+
+    const manifestRow = this.manifestPassengers.find(
+      (p) => p.ticket_id === ticket.ticketId && !p.is_boarding_request
+    );
+
+    if (!manifestRow) {
+      this.apiService.getPassengerManifest(scheduleId).subscribe({
+        next: (response) => {
+          if (response?.success && Array.isArray(response?.passengers)) {
+            this.manifestPassengers = response.passengers.map((p: any) => ({
+              ticket_id: p.ticket_id,
+              commuter_name: p.commuter_name,
+              fare: p.fare,
+              payment_method: p.payment_method ?? null,
+              payment_status: p.payment_status ?? 'pending',
+              alighted: p.alighted === true,
+              boarding_stop_name: p.boarding_stop_name ?? null,
+              is_boarding_request: p.is_boarding_request === true,
+            }));
+          }
+          const refreshed = this.manifestPassengers.find(
+            (p) => p.ticket_id === ticket.ticketId && !p.is_boarding_request
+          );
+          void this.showTicketDetailsAlert(ticket, refreshed ?? null);
+        },
+        error: () => void this.showTicketDetailsAlert(ticket, null),
+      });
+      return;
+    }
+
+    void this.showTicketDetailsAlert(ticket, manifestRow);
+  }
+
+  private async showTicketDetailsAlert(
+    ticket: ScannedTicket,
+    manifestRow: ManifestPassenger | null
+  ): Promise<void> {
+    const fareDisplay = `₱${(+ticket.fare).toFixed(2)}`;
+    const lines = [
+      `Ticket ID: ${ticket.ticketId}`,
+      `Route: ${ticket.routeName}`,
+      `Fare (QR): ${fareDisplay}`,
+    ];
+    if (ticket.issuedAt) {
+      lines.push(`Issued: ${ticket.issuedAt}`);
+    }
+
+    if (manifestRow) {
+      lines.push(`Passenger: ${manifestRow.commuter_name}`);
+      lines.push(`Payment: ${this.formatPaymentStatus(manifestRow)}`);
+      if (manifestRow.boarding_stop_name) {
+        lines.push(`Board at: ${manifestRow.boarding_stop_name}`);
+      }
+      if (manifestRow.alighted) {
+        lines.push('Status: Already alighted');
+      }
+    } else {
+      lines.push('Not found on this trip manifest — verify route and ticket.');
+    }
+
+    const canConfirmCash =
+      !!manifestRow &&
+      !!this.currentSchedule?.id &&
+      !manifestRow.alighted &&
+      manifestRow.payment_status !== 'paid' &&
+      (manifestRow.payment_method === 'cash' || !manifestRow.payment_method);
+
+    const buttons: { text: string; role?: string; handler?: () => void }[] = [
+      { text: 'Close', role: 'cancel' },
+    ];
+
+    if (canConfirmCash && this.currentSchedule?.id) {
+      const scheduleId = this.currentSchedule.id;
+      const publicTicketId = manifestRow!.ticket_id;
+      buttons.unshift({
+        text: 'Confirm cash',
+        handler: () => {
+          this.apiService.confirmCashPayment(scheduleId, publicTicketId).subscribe({
+            next: async () => {
+              await this.presentMapToast('Cash payment recorded.', 'success');
+              this.loadManifest(scheduleId);
+            },
+            error: async (err) => {
+              await this.presentMapToast(
+                err?.error?.message || 'Could not record cash payment.',
+                'danger'
+              );
+            },
+          });
+        },
+      });
+    }
+
+    const alert = await this.alertController.create({
+      header: 'E-Ticket details',
+      message: lines.join('\n'),
+      buttons,
+    });
+    await alert.present();
+  }
+
+  private formatPaymentStatus(p: ManifestPassenger): string {
+    const method = p.payment_method
+      ? p.payment_method.charAt(0).toUpperCase() + p.payment_method.slice(1)
+      : 'Cash';
+    const status =
+      p.payment_status === 'paid'
+        ? 'Paid'
+        : p.payment_status === 'pending'
+          ? 'Pending'
+          : p.payment_status;
+    return `${method} — ${status}`;
+  }
+
+  private async presentMapToast(
+    message: string,
+    color: 'success' | 'danger' | 'warning' = 'success'
+  ): Promise<void> {
+    const t = await this.toastController.create({ message, duration: 2800, color });
+    await t.present();
   }
 
   ngOnInit() {

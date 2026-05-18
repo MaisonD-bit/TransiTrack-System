@@ -432,6 +432,22 @@ export class CommuterService {
     return this.http.post<any>(`${this.apiUrl}/feedbacks`, payload, { headers });
   }
 
+  /** Ensure PayMaya ticket exists on operator schedule and is marked paid (trip logs). */
+  finalizeMayaPayment(payload: {
+    public_ticket_id: string;
+    route_id: number;
+    schedule_id?: number | null;
+    fare?: number;
+    commuter_id?: number | null;
+    from_stop_index?: number;
+  }): Observable<any> {
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    });
+    return this.http.post<any>(`${this.apiUrl}/commuter/maya/finalize`, payload, { headers });
+  }
+
   /** Mark a ticket as paid after a successful e-wallet or card payment. */
   markTicketPaid(publicTicketId: string, paymentMethod: string): Observable<any> {
     const headers = new HttpHeaders({
