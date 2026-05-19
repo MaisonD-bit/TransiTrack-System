@@ -26,10 +26,17 @@ class ScheduleController extends Controller
             $userId = auth()->id();
             Log::info("Current user ID: " . $userId);
 
-            // Only routes that completed approval (terminal stops + sysadmin)
+            // Only routes that completed approval (operator stops + sysadmin)
             $approvedRouteIds = $this->approvedRouteIdsForOperator((int) $userId);
-            $routes = Route::where('user_id', $userId)
-                ->whereIn('id', $approvedRouteIds)
+            $operatorTerminal = auth()->user()->terminal;
+            $routes = Route::where('terminal', $operatorTerminal)
+                ->where('status', 'active')
+                ->where(function ($q) use ($userId, $approvedRouteIds) {
+                    $q->whereNull('user_id')
+                        ->orWhere(function ($q2) use ($userId, $approvedRouteIds) {
+                            $q2->where('user_id', $userId)->whereIn('id', $approvedRouteIds);
+                        });
+                })
                 ->get();
             $buses = Bus::where('terminal', auth()->user()->terminal)
                 ->where('bus_company', auth()->user()->company_name)
@@ -1673,17 +1680,22 @@ class ScheduleController extends Controller
 
     private function ensureRouteApprovedForOperator(int $routeId, int $operatorUserId): void
     {
-        $route = Route::where('user_id', $operatorUserId)->where('id', $routeId)->first();
+        $operatorTerminal = auth()->user()->terminal;
+        $route = Route::where('id', $routeId)->where('terminal', $operatorTerminal)->first();
         if (! $route) {
             throw ValidationException::withMessages([
-                'route_id' => ['Invalid route for your account.'],
+                'route_id' => ['Invalid route for your terminal.'],
             ]);
+        }
+
+        if ($route->user_id === null) {
+            return;
         }
 
         $approved = $this->approvedRouteIdsForOperator($operatorUserId);
         if (! in_array((int) $routeId, $approved, true)) {
             throw ValidationException::withMessages([
-                'route_id' => ['This route is not approved for scheduling yet. Complete terminal stops and sysadmin approval first.'],
+                'route_id' => ['This route is not approved for scheduling yet. Add bus stops and complete sysadmin approval first.'],
             ]);
         }
     }

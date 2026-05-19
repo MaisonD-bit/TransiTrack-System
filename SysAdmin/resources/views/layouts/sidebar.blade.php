@@ -11,6 +11,10 @@
             <i class="fas fa-home"></i>
             <span>Dashboard</span>
         </a>
+        <a href="{{ route('sysadmin.routes') }}" class="nav-item {{ request()->routeIs('sysadmin.routes*') ? 'active' : '' }}">
+            <i class="fas fa-route"></i>
+            <span>Route Management</span>
+        </a>
         <a href="{{ route('sysadmin.approvals') }}" class="nav-item {{ request()->routeIs('sysadmin.approvals') ? 'active' : '' }}">
             <i class="fas fa-check-double"></i>
             <span>Route approvals</span>

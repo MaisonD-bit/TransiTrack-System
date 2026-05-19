@@ -328,11 +328,6 @@
             </a>
             @endif
 
-            <a href="{{ route('terminal.route-stops') }}" class="sidebar-link {{ request()->routeIs('terminal.route-stops*') ? 'active' : '' }}">
-                <i class="fas fa-route"></i>
-                <span>Route stops</span>
-            </a>
-
             <a href="{{ route('approval') }}" class="sidebar-link {{ request()->routeIs('approval') ? 'active' : '' }}">
                 <i class="fas fa-check-circle"></i>
                 <span>Operator approvals</span>

@@ -58,7 +58,117 @@ function parseRouteLineStringGeometry(geometry) {
     if (g.type === 'LineString' && Array.isArray(g.coordinates)) {
         return g;
     }
+    if (Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+        return { type: 'LineString', coordinates: g.coordinates };
+    }
+    if (g.type === 'FeatureCollection' && Array.isArray(g.features) && g.features[0]?.geometry) {
+        return parseRouteLineStringGeometry(g.features[0].geometry);
+    }
     return null;
+}
+
+/** Normalize coords to numeric [lng, lat] pairs (Mapbox order). */
+function normalizeLineStringGeometry(geometry) {
+    const raw = parseRouteLineStringGeometry(geometry);
+    if (!raw || !Array.isArray(raw.coordinates)) return null;
+
+    const coords = raw.coordinates
+        .map((c) => {
+            if (!c || c.length < 2) return null;
+            let lng = typeof c[0] === 'string' ? parseFloat(c[0]) : Number(c[0]);
+            let lat = typeof c[1] === 'string' ? parseFloat(c[1]) : Number(c[1]);
+            if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+            // Philippines: lng ~ 100–140, lat ~ 5–20 — fix [lat,lng] if swapped
+            if (Math.abs(lng) <= 90 && Math.abs(lat) > 90) {
+                [lng, lat] = [lat, lng];
+            }
+            return [lng, lat];
+        })
+        .filter(Boolean);
+
+    if (coords.length < 2) return null;
+    return { type: 'LineString', coordinates: coords };
+}
+
+function parseCoordPair(coordStr) {
+    if (!coordStr || typeof coordStr !== 'string') return null;
+    const parts = coordStr.split(',').map((s) => parseFloat(s.trim()));
+    if (parts.length < 2 || parts.some((n) => !Number.isFinite(n))) return null;
+    let [lng, lat] = parts;
+    if (Math.abs(lng) <= 90 && Math.abs(lat) > 90) {
+        [lng, lat] = [lat, lng];
+    }
+    return [lng, lat];
+}
+
+function buildWaypointsFromRoute(route) {
+    const pts = [];
+    const terminal = currentTerminal || TERMINALS.north;
+    const start = parseCoordPair(route.start_coordinates) || terminal.coordinates;
+    pts.push(start);
+
+    (route.stops_data || []).forEach((stop) => {
+        const lng = stop.lng != null ? Number(stop.lng) : NaN;
+        const lat = stop.lat != null ? Number(stop.lat) : NaN;
+        if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            pts.push([lng, lat]);
+        }
+    });
+
+    const end = parseCoordPair(route.end_coordinates);
+    if (end) {
+        pts.push(end);
+    }
+    return pts;
+}
+
+async function fetchDrivingRouteGeometry(waypoints) {
+    if (!waypoints || waypoints.length < 2 || !mapboxgl.accessToken) return null;
+    const coordsStr = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(';');
+    try {
+        const res = await fetch(
+            `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsStr}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.routes?.[0]?.geometry) {
+            return normalizeLineStringGeometry(data.routes[0].geometry);
+        }
+    } catch (e) {
+        console.warn('fetchDrivingRouteGeometry failed:', e);
+    }
+    return null;
+}
+
+function fitMapToLineString(geoJson) {
+    if (!routeMap || !geoJson?.coordinates?.length) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    geoJson.coordinates.forEach((coord) => bounds.extend(coord));
+    routeMap.fitBounds(bounds, { padding: 50, maxZoom: 14 });
+}
+
+async function renderViewRoutePath(route) {
+    // Prefer saved driving geometry (same as legacy editRoute flow)
+    let geoJson = normalizeLineStringGeometry(route.geometry);
+
+    if (!geoJson) {
+        const waypoints = buildWaypointsFromRoute(route);
+        if (waypoints.length >= 2) {
+            geoJson = await fetchDrivingRouteGeometry(waypoints);
+        }
+    }
+
+    if (!geoJson || !routeMap) {
+        const waypoints = buildWaypointsFromRoute(route);
+        if (waypoints.length >= 2) {
+            showToast('Could not load route pathway. Check Mapbox token or network.', 'warning');
+        }
+        return;
+    }
+
+    drawRoute(geoJson);
+    fitMapToLineString(geoJson);
+    requestAnimationFrame(() => routeMap?.resize());
 }
 
 function geometryToFormString(geometry) {
@@ -73,6 +183,36 @@ function geometryToFormString(geometry) {
 
 let userTerminal = null;
 let currentTerminal = null;
+/** @type {'add'|'view'|null} */
+let activeFormMode = null;
+
+function addSection() {
+    return document.getElementById('routeFormSection');
+}
+
+function viewSection() {
+    return document.getElementById('viewRouteFormSection');
+}
+
+function addEl(id) {
+    const root = addSection();
+    if (!root) return null;
+    if (id === 'formTitle') {
+        return document.getElementById('add_formTitle');
+    }
+    return root.querySelector('#' + id);
+}
+
+function viewEl(id) {
+    const root = viewSection();
+    if (!root) return null;
+    const resolved = {
+        formTitle: 'view_formTitle',
+        routeMap: 'viewRouteMap',
+        stopsList: 'view_stopsList',
+    }[id] || (id.startsWith('view_') ? id : `view_${id}`);
+    return root.querySelector(`#${resolved}`) || document.getElementById(resolved);
+}
 
 const TERMINAL_BOUNDARIES = {
     north: {
@@ -122,21 +262,24 @@ function showToast(message, type = 'info') {
 }
 
 function clearValidationErrors() {
-    const inputs = document.querySelectorAll('.form-control, .form-select');
-    inputs.forEach(input => {
+    const root = addSection();
+    if (!root) return;
+    root.querySelectorAll('.form-control, .form-select').forEach(input => {
         input.classList.remove('is-invalid');
     });
-    const errorDivs = document.querySelectorAll('.invalid-feedback');
-    errorDivs.forEach(div => {
+    root.querySelectorAll('.invalid-feedback').forEach(div => {
         div.textContent = '';
     });
 }
 
 function showValidationErrors(errors) {
     clearValidationErrors();
+    const root = addSection();
+    if (!root) return;
     for (const [field, messages] of Object.entries(errors)) {
-        const input = document.getElementById(field === 'code' ? 'route_code' : field === 'name' ? 'route_name' : field === 'status' ? 'route_status' : field);
-        const errorDiv = document.getElementById(`${field}_error`);
+        const inputId = field === 'code' ? 'route_code' : field === 'name' ? 'route_name' : field === 'status' ? 'route_status' : field;
+        const input = root.querySelector(`#${inputId}`);
+        const errorDiv = root.querySelector(`#${field}_error`);
         if (input && errorDiv) {
             input.classList.add('is-invalid');
             errorDiv.textContent = messages[0];
@@ -145,16 +288,22 @@ function showValidationErrors(errors) {
 }
 
 //   FIXED: Proper map initialization with boundary
-function initializeMap() {
+function initializeMap(options = {}) {
+    const mode = options.mode || activeFormMode || 'add';
+    const readOnly = options.readOnly === true || mode === 'view';
+    const containerId = mode === 'view' ? 'viewRouteMap' : 'routeMap';
+    const onLoad = typeof options.onLoad === 'function' ? options.onLoad : null;
+
     if (routeMap) {
         routeMap.remove();
+        routeMap = null;
     }
     
     // ✅ Use current terminal or default to north
     const terminal = currentTerminal || TERMINALS.north;
     
     routeMap = new mapboxgl.Map({
-        container: 'routeMap',
+        container: containerId,
         style: 'mapbox://styles/mapbox/streets-v11',
         center: terminal.coordinates, // ✅ Center on user's terminal
         zoom: CEBU_COORDINATES.zoom
@@ -167,69 +316,74 @@ function initializeMap() {
         .setLngLat(terminal.coordinates)
         .addTo(routeMap);
 
-    routeMap.on('load', function() {
-        console.log('Map loaded with terminal:', terminal.name);
+    const setupBoundaryAndReady = function() {
+        // View mode: no terminal bounding box — only the solid blue route line + markers.
+        // The dashed rectangle was the operating-area boundary, not the pathway.
+        if (!readOnly) {
+            const boundary = getCurrentBoundary();
 
-        // ✅ USE dynamic boundary
-        const boundary = getCurrentBoundary();
-        
-        const cebuPolygon = {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-                type: 'Polygon',
-                coordinates: [[
-                    [boundary.swLng, boundary.swLat],
-                    [boundary.neLng, boundary.swLat],
-                    [boundary.neLng, boundary.neLat],
-                    [boundary.swLng, boundary.neLat],
-                    [boundary.swLng, boundary.swLat]
-                ]]
-            }
-        };
+            const cebuPolygon = {
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [boundary.swLng, boundary.swLat],
+                        [boundary.neLng, boundary.swLat],
+                        [boundary.neLng, boundary.neLat],
+                        [boundary.swLng, boundary.neLat],
+                        [boundary.swLng, boundary.swLat]
+                    ]]
+                }
+            };
 
-        routeMap.addSource('cebu-boundary', {
-            type: 'geojson',
-            data: cebuPolygon
-        });
+            routeMap.addSource('cebu-boundary', {
+                type: 'geojson',
+                data: cebuPolygon
+            });
 
-        routeMap.addLayer({
-            id: 'cebu-fill',
-            type: 'fill',
-            source: 'cebu-boundary',
-            paint: {
-                'fill-color': '#0080ff',
-                'fill-opacity': 0.15
-            }
-        });
+            routeMap.addLayer({
+                id: 'cebu-fill',
+                type: 'fill',
+                source: 'cebu-boundary',
+                paint: {
+                    'fill-color': '#0080ff',
+                    'fill-opacity': 0.15
+                }
+            });
 
-        routeMap.addLayer({
-            id: 'cebu-border',
-            type: 'line',
-            source: 'cebu-boundary',
-            paint: {
-                'line-color': '#0080ff',
-                'line-width': 2,
-                'line-dasharray': [2, 2]
-            }
-        });
-    });
-
-    routeMap.on('click', function(e) {
-        console.log('Map clicked at:', e.lngLat);
-        console.log('isAddingStop mode:', isAddingStop);
-        console.log('endMarker exists:', !!endMarker);
-
-        if (isAddingStop) {
-            console.log('Adding pathway stop...');
-            addStop(e.lngLat);
-        } else if (!endMarker) {
-            console.log('Setting end point...');
-            setEndPoint(e.lngLat);
-        } else {
-            console.log('Map click ignored - end marker already set and not in pathway mode');
+            routeMap.addLayer({
+                id: 'cebu-border',
+                type: 'line',
+                source: 'cebu-boundary',
+                paint: {
+                    'line-color': '#0080ff',
+                    'line-width': 2,
+                    'line-dasharray': [2, 2]
+                }
+            });
         }
-    });
+
+        if (onLoad) {
+            onLoad(routeMap);
+        }
+    };
+
+    if (routeMap.loaded()) {
+        setupBoundaryAndReady();
+    } else {
+        routeMap.once('load', setupBoundaryAndReady);
+    }
+
+    if (!readOnly) {
+        routeMap.on('click', function(e) {
+            if (isAddingStop) {
+                addStop(e.lngLat);
+            } else if (!endMarker) {
+                setEndPoint(e.lngLat);
+            }
+        });
+    }
 }
 
 function setEndPoint(coords) {
@@ -247,8 +401,8 @@ function setEndPoint(coords) {
         .addTo(routeMap);
 
     getPlaceName(coords.lng, coords.lat, function(placeName) {
-        document.getElementById('end_location').value = placeName;
-        document.getElementById('end_coordinates').value = `${coords.lng},${coords.lat}`;
+        if (addEl('end_location')) addEl('end_location').value = placeName;
+        if (addEl('end_coordinates')) addEl('end_coordinates').value = `${coords.lng},${coords.lat}`;
         autoGenerateRouteCode(placeName);
         showToast('Destination set! You can now add pathway or save route.', 'success');
         calculateRouteWithStops();
@@ -258,7 +412,7 @@ function setEndPoint(coords) {
 function autoGenerateRouteCode(placeName) {
     if (!placeName) return;
     let code = 'NT-' + placeName.split(',')[0].replace(/[^A-Za-z0-9]/g, '').substring(0, 6).toUpperCase();
-    document.getElementById('route_code').value = code;
+    if (addEl('route_code')) addEl('route_code').value = code;
 }
 
 function addStop(coords) {
@@ -300,15 +454,13 @@ function addStop(coords) {
 }
 
 function updateStopsList() {
-    const stopsList = document.getElementById('stopsList');
+    const isView = activeFormMode === 'view';
+    const stopsList = isView ? viewEl('stopsList') : addEl('stopsList');
+    const stopsDataEl = isView ? viewEl('stops_data') : addEl('stops_data');
+    if (!stopsList) return;
     stopsList.innerHTML = '';
     stops.forEach((stop, idx) => {
-        stopsList.innerHTML += `
-            <div class="d-flex align-items-center justify-content-between mb-2 p-2 bg-light rounded">
-                <div class="d-flex align-items-center gap-2" style="flex: 1; min-width: 0;">
-                    <span class="badge bg-primary">${idx + 1}</span>
-                    <span class="text-dark text-truncate">${stop.name}</span>
-                </div>
+        const removeBtn = isView ? '' : `
                 <button 
                     type="button" 
                     class="btn btn-sm btn-danger" 
@@ -317,11 +469,18 @@ function updateStopsList() {
                     style="width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 8px;"
                 >
                     <i class="fas fa-times"></i>
-                </button>
+                </button>`;
+        stopsList.innerHTML += `
+            <div class="d-flex align-items-center justify-content-between mb-2 p-2 bg-light rounded">
+                <div class="d-flex align-items-center gap-2" style="flex: 1; min-width: 0;">
+                    <span class="badge bg-primary">${idx + 1}</span>
+                    <span class="text-dark text-truncate">${stop.name}</span>
+                </div>
+                ${removeBtn}
             </div>
         `;
     });
-    document.getElementById('stops_data').value = JSON.stringify(stops);
+    if (stopsDataEl) stopsDataEl.value = JSON.stringify(stops);
 }
 
 window.removeStop = function(idx) {
@@ -368,9 +527,9 @@ function calculateRouteWithStops() {
                 const distanceKm = (route.distance / 1000);
                 const durationMins = Math.round(route.duration / 60);
 
-                const distanceInput = document.getElementById('distance_km');
-                const durationInput = document.getElementById('estimated_duration');
-                const geometryInput = document.getElementById('geometry');
+                const distanceInput = addEl('distance_km');
+                const durationInput = addEl('estimated_duration');
+                const geometryInput = addEl('geometry');
 
                 if (distanceInput) distanceInput.value = distanceKm.toFixed(1);
                 if (durationInput) durationInput.value = durationMins;
@@ -400,9 +559,9 @@ function calculateRouteWithStops() {
 }
 
 function calculateFare() {
-    const distanceInput = document.getElementById('distance_km');
-    const busTypeInput = document.getElementById('bus_type');
-    const routeFareInput = document.getElementById('route_fare');
+    const distanceInput = addEl('distance_km');
+    const busTypeInput = addEl('bus_type');
+    const routeFareInput = addEl('route_fare');
 
     //   Enhanced logging
     console.log('calculateFare called');
@@ -454,51 +613,58 @@ function calculateFare() {
     // showToast(`Route fare calculated: ₱${fare.toFixed(2)}`, 'success');
 }
 
-//   Add event listener for bus type change
-document.addEventListener('DOMContentLoaded', function() {
-    // Recalculate fare when bus type changes
-    const busTypeSelect = document.getElementById('bus_type');
-    if (busTypeSelect) {
-        busTypeSelect.addEventListener('change', function() {
-            console.log('Bus type changed to:', this.value);
-            const distanceInput = document.getElementById('distance_km');
-            if (distanceInput && distanceInput.value) {
-                calculateFare();
-            }
-        });
-    }
-});
-
 function drawRoute(geometry) {
-    window.lastRouteGeometry = geometry;
-    if (routeMap.getLayer('route')) {
-        routeMap.removeLayer('route');
+    if (!routeMap || !geometry) return;
+
+    const lineGeom = normalizeLineStringGeometry(geometry);
+    if (!lineGeom) {
+        console.warn('drawRoute: could not parse LineString geometry');
+        return;
     }
-    if (routeMap.getSource('route')) {
-        routeMap.removeSource('route');
+
+    const apply = () => {
+        window.lastRouteGeometry = lineGeom;
+        try {
+            if (routeMap.getLayer('route')) {
+                routeMap.removeLayer('route');
+            }
+            if (routeMap.getSource('route')) {
+                routeMap.removeSource('route');
+            }
+            routeMap.addSource('route', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: lineGeom
+                }
+            });
+
+            // On top of basemap — same weight as legacy routes.js (width 5)
+            routeMap.addLayer({
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': '#3b82f6',
+                    'line-width': 5,
+                    'line-opacity': 0.9
+                }
+            });
+        } catch (e) {
+            console.error('drawRoute failed:', e);
+        }
+    };
+
+    if (routeMap.isStyleLoaded()) {
+        apply();
+    } else {
+        routeMap.once('load', apply);
     }
-    routeMap.addSource('route', {
-        type: 'geojson',
-        data: {
-            type: 'Feature',
-            properties: {},
-            geometry: geometry
-        }
-    });
-    routeMap.addLayer({
-        id: 'route',
-        type: 'line',
-        source: 'route',
-        layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
-        },
-        paint: {
-            'line-color': '#3b82f6',
-            'line-width': 5,
-            'line-opacity': 0.8
-        }
-    });
 }
 
 function clearEndPoint() {
@@ -508,7 +674,7 @@ function clearEndPoint() {
     }
     clearStops();
 
-    const addStopBtn = document.getElementById('addStopBtn');
+    const addStopBtn = addEl('addStopBtn');
     if (addStopBtn) {
         isAddingStop = false;
         addStopBtn.classList.remove('btn-success');
@@ -516,18 +682,17 @@ function clearEndPoint() {
         addStopBtn.innerHTML = '<i class="fas fa-map-pin me-1"></i>Add Pathway';
     }
 
-    if (routeMap && routeMap.getLayer('route')) {
-        routeMap.removeLayer('route');
-        routeMap.removeSource('route');
+    if (routeMap) {
+        if (routeMap.getLayer('route')) routeMap.removeLayer('route');
+        if (routeMap.getSource('route')) routeMap.removeSource('route');
     }
     
-    // ✅ Check if elements exist before setting values
-    const endLocationInput = document.getElementById('end_location');
-    const endCoordinatesInput = document.getElementById('end_coordinates');
-    const distanceInput = document.getElementById('distance_km');
-    const durationInput = document.getElementById('estimated_duration');
-    const routeFareInput = document.getElementById('route_fare');
-    const geometryInput = document.getElementById('geometry');
+    const endLocationInput = addEl('end_location');
+    const endCoordinatesInput = addEl('end_coordinates');
+    const distanceInput = addEl('distance_km');
+    const durationInput = addEl('estimated_duration');
+    const routeFareInput = addEl('route_fare');
+    const geometryInput = addEl('geometry');
     
     if (endLocationInput) endLocationInput.value = '';
     if (endCoordinatesInput) endCoordinatesInput.value = '';
@@ -552,33 +717,43 @@ function centerMapToCebu() {
 
 // Form visibility functions
 function showAddRouteForm() {
-    document.getElementById('routeForm').reset();
-    document.getElementById('route_id').value = '';
-    document.getElementById('method_field').value = '';
+    activeFormMode = 'add';
+    hideViewRouteForm();
 
-    const returnTripInfo = document.getElementById('returnTripInfo');
-    const returnTripInfoText = document.getElementById('returnTripInfoText');
+    const form = addEl('routeForm');
+    if (form) form.reset();
+    if (addEl('route_id')) addEl('route_id').value = '';
+    if (addEl('method_field')) addEl('method_field').value = '';
+
+    const returnTripInfo = addEl('returnTripInfo');
+    const returnTripInfoText = addEl('returnTripInfoText');
     if (returnTripInfo) returnTripInfo.className = 'alert alert-info mb-0 py-2 d-flex align-items-center gap-2';
     if (returnTripInfoText) returnTripInfoText.textContent = 'A return trip route will be automatically created when you save.';
-    
-    // ✅ Set terminal-based start location
+
     const terminal = currentTerminal || TERMINALS.north;
-    document.getElementById('start_location').value = terminal.name;
-    document.getElementById('start_coordinates').value = `${terminal.coordinates[0]},${terminal.coordinates[1]}`;
-    
-    document.getElementById('formTitle').innerHTML = '<i class="fas fa-route me-2"></i>Add New Route';
-    document.getElementById('saveRouteBtn').innerHTML = '<i class="fas fa-save me-2"></i>Save Route';
+    if (addEl('start_location')) addEl('start_location').value = terminal.name;
+    if (addEl('start_coordinates')) addEl('start_coordinates').value = `${terminal.coordinates[0]},${terminal.coordinates[1]}`;
+
+    const title = addEl('formTitle');
+    if (title) title.innerHTML = '<i class="fas fa-route me-2"></i>Add New Route';
+    const saveBtn = addEl('saveRouteBtn');
+    if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Route';
+
     clearValidationErrors();
-    document.getElementById('routeFormSection').style.display = 'block';
-    document.getElementById('routeFormSection').scrollIntoView({ behavior: 'smooth' });
-    
+    endMarker = null;
+    clearStops();
+
+    const section = addSection();
+    if (section) {
+        section.style.display = 'block';
+        section.scrollIntoView({ behavior: 'smooth' });
+    }
+
     setTimeout(() => {
-        initializeMap();
-        // ✅ Dynamic message based on terminal
+        initializeMap({ mode: 'add', readOnly: false });
         showToast(`Click on the highlighted blue area to select destination from ${terminal.name}`, 'info');
-        
-        document.getElementById('geometry').value = '';
-        document.getElementById('stops_data').value = '[]';
+        if (addEl('geometry')) addEl('geometry').value = '';
+        if (addEl('stops_data')) addEl('stops_data').value = '[]';
     }, 100);
 }
 
@@ -615,14 +790,34 @@ function isPointNearLine(point, lineCoords, thresholdMeters = 50) {
 }
 
 function hideRouteForm() {
-    document.getElementById('routeFormSection').style.display = 'none';
-    document.getElementById('routeForm').reset();
+    const section = addSection();
+    if (section) section.style.display = 'none';
+    const form = addEl('routeForm');
+    if (form) form.reset();
     if (routeMap) {
         routeMap.remove();
         routeMap = null;
     }
     startMarker = endMarker = null;
-    clearStops();
+    stops = [];
+    stopMarkers = [];
+    isAddingStop = false;
+    if (activeFormMode === 'add') activeFormMode = null;
+}
+
+function hideViewRouteForm() {
+    const section = viewSection();
+    if (section) section.style.display = 'none';
+    const form = document.getElementById('viewRouteForm');
+    if (form) form.reset();
+    if (routeMap) {
+        routeMap.remove();
+        routeMap = null;
+    }
+    startMarker = endMarker = null;
+    stops = [];
+    stopMarkers = [];
+    if (activeFormMode === 'view') activeFormMode = null;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -637,7 +832,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ✅ Add Pathway button handler - SINGLE REGISTRATION
-    const addStopBtn = document.getElementById('addStopBtn');
+    const addStopBtn = addSection()?.querySelector('#addStopBtn');
     if (addStopBtn) {
         // Remove any existing listeners first
         const newAddStopBtn = addStopBtn.cloneNode(true);
@@ -674,8 +869,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Destination search — registered once here so initializeMap() re-runs don't stack listeners
-    const searchInput = document.getElementById('destinationSearch');
-    const resultsContainer = document.getElementById('geocodingResults');
+    const searchInput = addSection()?.querySelector('#destinationSearch');
+    const resultsContainer = addSection()?.querySelector('#geocodingResults');
     if (searchInput && resultsContainer) {
         let debounceTimer;
         searchInput.addEventListener('input', (e) => {
@@ -708,8 +903,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     if (endMarker) endMarker.remove();
                                     endMarker = new mapboxgl.Marker({ color: 'red' })
                                         .setLngLat(coords).addTo(routeMap);
-                                    document.getElementById('end_location').value = feature.place_name;
-                                    document.getElementById('end_coordinates').value = `${lng},${lat}`;
+                                    if (addEl('end_location')) addEl('end_location').value = feature.place_name;
+                                    if (addEl('end_coordinates')) addEl('end_coordinates').value = `${lng},${lat}`;
                                     autoGenerateRouteCode(feature.text);
                                     calculateRouteWithStops();
                                     showToast('Destination set via search!', 'success');
@@ -745,41 +940,49 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    const viewRouteFormEl = document.getElementById('viewRouteForm');
+    if (viewRouteFormEl) {
+        viewRouteFormEl.addEventListener('submit', function(e) {
+            e.preventDefault();
+        });
+        viewRouteFormEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') e.preventDefault();
+        });
+    }
+
     // Form submission handler
     const form = document.getElementById('routeForm');
     if (form) {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
 
-            if (!document.getElementById('end_location').value) {
+            if (!addEl('end_location')?.value) {
                 showToast('Please select a destination on the map.', 'error');
                 return;
             }
 
-            if (!document.getElementById('geometry').value) {
+            if (!addEl('geometry')?.value) {
                 showToast('Please calculate the route first by clicking on the map.', 'error');
                 return;
             }
 
-            if (!document.getElementById('end_coordinates')?.value?.trim()) {
+            if (!addEl('end_coordinates')?.value?.trim()) {
                 showToast('End coordinates are missing. Re-select the destination on the map.', 'error');
                 return;
             }
-            if (!document.getElementById('distance_km')?.value?.trim() || !document.getElementById('estimated_duration')?.value?.trim()) {
+            if (!addEl('distance_km')?.value?.trim() || !addEl('estimated_duration')?.value?.trim()) {
                 showToast('Distance and duration are not set. Wait for the route line to finish loading, then try again.', 'error');
                 return;
             }
 
             const formData = new FormData(form);
             
-            // ✅ Ensure start_location is set
             const terminal = currentTerminal || TERMINALS.north;
             formData.set('start_location', terminal.name);
             formData.set('start_coordinates', `${terminal.coordinates[0]},${terminal.coordinates[1]}`);
             
-            // ✅ Ensure stops_data is stringified
             formData.set('stops_data', JSON.stringify(stops));
-            formData.set('geometry', document.getElementById('geometry').value);
+            formData.set('geometry', addEl('geometry').value);
             
             // ✅ Log form data for debugging
             console.log('Submitting form data:');
@@ -787,9 +990,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log(`${key}:`, value);
             }
             
-            const saveBtn = document.getElementById('saveRouteBtn');
+            const saveBtn = addEl('saveRouteBtn');
             const originalText = saveBtn.innerHTML;
-            const routeId = document.getElementById('route_id').value;
+            const routeId = addEl('route_id')?.value || '';
             const isEdit = routeId !== '';
             
             saveBtn.disabled = true;
@@ -848,12 +1051,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Bus type change handler
-    const busTypeSelect = document.getElementById('bus_type');
+    // Bus type change handler (add form only)
+    const busTypeSelect = addSection()?.querySelector('#bus_type');
     if (busTypeSelect) {
         busTypeSelect.addEventListener('change', function() {
-            console.log('Bus type changed to:', this.value);
-            const distanceInput = document.getElementById('distance_km');
+            const distanceInput = addEl('distance_km');
             if (distanceInput && distanceInput.value) {
                 calculateFare();
             }
@@ -904,14 +1106,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 window.showAddRouteForm = showAddRouteForm;
 window.hideRouteForm = hideRouteForm;
+window.hideViewRouteForm = hideViewRouteForm;
 window.clearEndPoint = clearEndPoint;
 window.centerMapToCebu = centerMapToCebu;
 window.hideViewModal = hideViewModal;
 window.calculateFare = calculateFare;
 window.clearStops = clearStops;
 
-function editRoute(id) {
-  //   FIX: Use correct API endpoint
+function viewRoute(id) {
   fetch(`/api/routes/${id}`)
     .then(res => res.json())
     .then(data => {
@@ -919,90 +1121,92 @@ function editRoute(id) {
         showToast('Failed to load route details', 'error');
         return;
       }
-      showAddRouteForm();
+
+      activeFormMode = 'view';
+      hideRouteForm();
 
       const r = data.route;
-      document.getElementById('formTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Route';
-      document.getElementById('saveRouteBtn').innerHTML = '<i class="fas fa-save me-2"></i>Update Route';
+      const section = viewSection();
+      if (section) {
+        section.style.display = 'block';
+        section.scrollIntoView({ behavior: 'smooth' });
+      }
 
-      // Set form fields
-      document.getElementById('route_id').value = r.id;
-      document.getElementById('method_field').value = 'PUT';
-      document.getElementById('route_code').value = r.code || '';
-      document.getElementById('route_name').value = r.name || '';
-      document.getElementById('start_location').value = r.start_location || '';
-      document.getElementById('end_location').value = r.end_location || '';
-      document.getElementById('start_coordinates').value = r.start_coordinates || '';
-      document.getElementById('end_coordinates').value = r.end_coordinates || '';
-      document.getElementById('distance_km').value = r.distance_km || '';
-      document.getElementById('estimated_duration').value = r.estimated_duration || '';
-      document.getElementById('route_fare').value = r.route_fare || '';
-      document.getElementById('route_status').value = r.status || 'active';
-      document.getElementById('bus_type').value = r.bus_type || 'regular';
-      document.getElementById('description').value = r.description || '';
-      document.getElementById('geometry').value = geometryToFormString(r.geometry);
-      const returnTripInfo = document.getElementById('returnTripInfo');
-      const returnTripInfoText = document.getElementById('returnTripInfoText');
+      const title = document.getElementById('view_formTitle');
+      if (title) title.innerHTML = '<i class="fas fa-eye me-2"></i>View Route';
+
+      if (viewEl('route_id')) viewEl('route_id').value = r.id;
+      if (viewEl('route_code')) viewEl('route_code').value = r.code || '';
+      if (viewEl('route_name')) viewEl('route_name').value = r.name || '';
+      if (viewEl('start_location')) viewEl('start_location').value = r.start_location || '';
+      if (viewEl('end_location')) viewEl('end_location').value = r.end_location || '';
+      if (viewEl('start_coordinates')) viewEl('start_coordinates').value = r.start_coordinates || '';
+      if (viewEl('end_coordinates')) viewEl('end_coordinates').value = r.end_coordinates || '';
+      if (viewEl('distance_km')) viewEl('distance_km').value = r.distance_km || '';
+      if (viewEl('estimated_duration')) viewEl('estimated_duration').value = r.estimated_duration || '';
+      if (viewEl('route_fare')) viewEl('route_fare').value = r.route_fare || '';
+      if (viewEl('route_status')) {
+        viewEl('route_status').value = r.status === 'active' ? 'Active' : 'Inactive';
+      }
+      if (viewEl('bus_type')) {
+        viewEl('bus_type').value = r.bus_type === 'aircon' ? 'Air-Con' : 'Regular';
+      }
+      if (viewEl('description')) viewEl('description').value = r.description || '';
+      if (viewEl('geometry')) viewEl('geometry').value = geometryToFormString(r.geometry);
+
+      const returnTripInfo = viewEl('returnTripInfo');
+      const returnTripInfoText = viewEl('returnTripInfoText');
       if (returnTripInfoText) {
         if (r.has_return_trip) {
           if (returnTripInfo) returnTripInfo.className = 'alert alert-success mb-0 py-2 d-flex align-items-center gap-2';
           returnTripInfoText.textContent = 'Return trip data is stored in this route record.';
         } else {
           if (returnTripInfo) returnTripInfo.className = 'alert alert-info mb-0 py-2 d-flex align-items-center gap-2';
-          returnTripInfoText.textContent = 'Return trip data will be stored automatically when you save.';
+          returnTripInfoText.textContent = 'No return trip geometry stored for this route.';
         }
       }
-      
-      // Load stops data into global variable
+
       stops = r.stops_data || [];
-      document.getElementById('stops_data').value = JSON.stringify(stops);
+      if (viewEl('stops_data')) viewEl('stops_data').value = JSON.stringify(stops);
 
-      // Wait for map to initialize, then set end point and calculate route
-      setTimeout(() => {
-        if (!routeMap) return;
+      initializeMap({
+        mode: 'view',
+        readOnly: true,
+        onLoad: async () => {
+          if (!routeMap) return;
+          routeMap.resize();
 
-        // Set the end marker from saved coordinates
-        if (r.end_coordinates) {
-          const [lng, lat] = r.end_coordinates.split(',').map(Number);
-          if (!isNaN(lng) && !isNaN(lat)) {
+          endMarker = null;
+          stopMarkers = [];
+
+          const terminal = currentTerminal || TERMINALS.north;
+          if (startMarker) {
+            startMarker.setLngLat(terminal.coordinates);
+          }
+
+          const endPt = parseCoordPair(r.end_coordinates);
+          if (endPt) {
             endMarker = new mapboxgl.Marker({ color: 'red' })
-              .setLngLat([lng, lat])
+              .setLngLat(endPt)
               .addTo(routeMap);
           }
-        }
 
-        // Add stop markers
-        stopMarkers = [];
-        stops.forEach(stop => {
-          if (stop.lng && stop.lat) {
-            const marker = new mapboxgl.Marker({ color: 'blue' })
-              .setLngLat([stop.lng, stop.lat])
-              .setPopup(new mapboxgl.Popup().setText(`Stop: ${stop.name || ''}`))
-              .addTo(routeMap);
-            stopMarkers.push(marker);
-          }
-        });
+          stops.forEach(stop => {
+            const lng = stop.lng != null ? Number(stop.lng) : NaN;
+            const lat = stop.lat != null ? Number(stop.lat) : NaN;
+            if (Number.isFinite(lng) && Number.isFinite(lat)) {
+              const marker = new mapboxgl.Marker({ color: 'blue' })
+                .setLngLat([lng, lat])
+                .setPopup(new mapboxgl.Popup().setText(`Pathway Stop: ${stop.name || ''}`))
+                .addTo(routeMap);
+              stopMarkers.push(marker);
+            }
+          });
 
-        // Update stops list UI
-        updateStopsList();
-
-        // Force recalculate route using saved geometry/stops
-        if (r.geometry) {
-          const geoJson = parseRouteLineStringGeometry(r.geometry);
-          if (geoJson && Array.isArray(geoJson.coordinates)) {
-            drawRoute(geoJson);
-            const bounds = new mapboxgl.LngLatBounds();
-            geoJson.coordinates.forEach(coord => bounds.extend(coord));
-            routeMap.fitBounds(bounds, { padding: 40 });
-          } else {
-            console.error('Invalid geometry on edit: could not parse LineString');
-            calculateRouteWithStops();
-          }
-        } else {
-          // Fallback: recalculate via Mapbox if no geometry
-          calculateRouteWithStops();
-        }
-      }, 300);
+          updateStopsList();
+          await renderViewRoutePath(r);
+        },
+      });
     })
     .catch(error => {
       console.error('Error loading route:', error);
@@ -1084,68 +1288,6 @@ function performDeleteRoute() {
     });
 }
 
-function viewRoute(id) {
-    //   FIX: Use correct API endpoint
-    fetch(`/api/routes/${id}`)
-        .then(res => {
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-        })
-        .then(data => {
-            if (!data.success || !data.route) {
-                showToast('Failed to load route details', 'error');
-                return;
-            }
-
-            const r = data.route;
-
-            let stopsHtml = '';
-            if (r.stops_data && r.stops_data.length) {
-                stopsHtml = '<ol class="mb-0 ps-3">';
-                r.stops_data.forEach((stop, idx) => {
-                    stopsHtml += `<li class="mb-1">${stop.name || stop}</li>`;
-                });
-                stopsHtml += '</ol>';
-            } else {
-                stopsHtml = '<em>No stops for this route.</em>';
-            }
-
-            document.getElementById('viewRouteContent').innerHTML = `
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <h6 class="fw-bold mb-3"><i class="fas fa-info-circle me-2"></i>General Info</h6>
-                        <div class="mb-2"><strong>Code:</strong> ${r.code || 'N/A'}</div>
-                        <div class="mb-2"><strong>Name:</strong> ${r.name || 'N/A'}</div>
-                        <div class="mb-2"><strong>Status:</strong> <span class="badge ${r.status === 'active' ? 'bg-success' : 'bg-secondary'}">${r.status || 'inactive'}</span></div>
-                        <div class="mb-2"><strong>Bus Type:</strong> <span class="badge ${r.bus_type === 'aircon' ? 'bg-info' : 'bg-warning'}">${r.bus_type === 'aircon' ? 'Air-Con' : 'Regular'}</span></div>
-                        <div class="mb-2"><strong>Description:</strong> ${r.description || '-'}</div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <h6 class="fw-bold mb-3"><i class="fas fa-route me-2"></i>Route Details</h6>
-                        <div class="mb-2"><strong>Start:</strong> ${r.start_location || 'N/A'}</div>
-                        <div class="mb-2"><strong>End:</strong> ${r.end_location || 'N/A'}</div>
-                        <div class="mb-2"><strong>Distance:</strong> ${r.distance_km || 'N/A'} km</div>
-                        <div class="mb-2"><strong>Duration:</strong> ${r.estimated_duration || 'N/A'} mins</div>
-                        <div class="mb-2"><strong>Route Fare:</strong> ₱${parseFloat(r.route_fare || 0).toFixed(2)}</div>
-                    </div>
-                </div>
-                <div class="row mt-3">
-                    <div class="col-12">
-                        <h6 class="fw-bold mb-2"><i class="fas fa-map-pin me-2"></i>Pathway Stops</h6>
-                        ${stopsHtml}
-                    </div>
-                </div>
-            `;
-            document.getElementById('viewRouteModal').style.display = 'block';
-        })
-        .catch(error => {
-            console.error('Error loading route:', error);
-            showToast('Failed to load route details: ' + error.message, 'error');
-        });
-}
-
 function hideViewModal() {
     const modal = document.getElementById('viewRouteModal');
     if (modal) {
@@ -1156,7 +1298,7 @@ function hideViewModal() {
 window.hideViewModal = hideViewModal;
 window.showAddRouteForm = showAddRouteForm;
 window.hideRouteForm = hideRouteForm;
-window.editRoute = editRoute;
+// window.editRoute = editRoute;
 window.viewRoute = viewRoute;
 window.deleteRoute = deleteRoute;
 window.calculateFare = calculateFare;

@@ -61,9 +61,9 @@ class RouteApprovalWebController extends Controller
 
         $t = $terminal === 'north' ? 'North' : 'South';
 
-        return redirect()->route('route-requests.panel')->with(
+        return redirect()->route('route-stops.index')->with(
             'success',
-            "Routes submitted for the {$t} terminal. Only the {$t} terminal manager (Terminal Manager app) will see this — log in with that terminal’s account to add bus stops."
+            "Routes submitted for the {$t} terminal. Open Route stops to add bus stops on the map, then send to sysadmin when ready."
         );
     }
 
@@ -74,7 +74,7 @@ class RouteApprovalWebController extends Controller
         if ($routeApprovalRequest->status !== 'pending_stops') {
             return redirect()->route('route-requests.panel')->with(
                 'error',
-                'Only submissions still waiting for terminal stops can be cancelled.'
+                'Only submissions still waiting for bus stops can be cancelled.'
             );
         }
 

@@ -86,7 +86,7 @@ class DashboardController extends Controller
         $pendingQueue = RouteApprovalRequest::query()
             ->with('operator')
             ->where('status', 'pending_sysadmin')
-            ->orderByDesc('submitted_by_terminal_at')
+            ->orderByRaw('COALESCE(submitted_for_sysadmin_at, submitted_by_terminal_at) DESC')
             ->limit(10)
             ->get()
             ->map(function (RouteApprovalRequest $r) {

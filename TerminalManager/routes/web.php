@@ -12,8 +12,6 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TerminalSpaceController;
 use App\Http\Controllers\NorthTerminalSpaceController;
 use App\Http\Controllers\ApprovalController;
-use App\Http\Controllers\TerminalRouteStopsController;
-
 // Register and Login Routes
 Route::get('login', [UserController::class, 'login'])->name('login');
 Route::post('login', [UserController::class, 'authenticate'])->name('authenticate');
@@ -32,12 +30,6 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/api/dashboard/available-spaces', [DashboardController::class, 'getAvailableSpaces'])->name('dashboard.available-spaces');
     Route::get('/bus-schedule', [BusSchedulesController::class, 'index'])->name('bus-schedule');
-
-    Route::get('/route-stops', [TerminalRouteStopsController::class, 'index'])->name('terminal.route-stops');
-    Route::get('/route-stops/poll', [TerminalRouteStopsController::class, 'pollList'])->name('terminal.route-stops.poll');
-    Route::get('/route-stops/{routeApprovalRequest}/routes/{busRoute}/edit', [TerminalRouteStopsController::class, 'editRoute'])->name('terminal.route-stops.edit');
-    Route::put('/route-stops/{routeApprovalRequest}/stops', [TerminalRouteStopsController::class, 'updateStops'])->name('terminal.route-stops.update');
-    Route::post('/route-stops/{routeApprovalRequest}/submit-sysadmin', [TerminalRouteStopsController::class, 'submitToSysadmin'])->name('terminal.route-stops.submit');
 
     // Announcements Routes
     Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements');

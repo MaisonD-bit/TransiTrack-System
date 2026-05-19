@@ -19,7 +19,7 @@
                 Terminal <span class="badge bg-secondary text-uppercase">{{ $routeApprovalRequest->terminal }}</span>
                 · Operator:
                 <strong>{{ $routeApprovalRequest->operator?->name ?? ('#'.$routeApprovalRequest->operator_user_id) }}</strong>
-                · Submitted {{ $routeApprovalRequest->submitted_by_terminal_at?->diffForHumans() ?? $routeApprovalRequest->created_at->diffForHumans() }}
+                · Submitted {{ ($routeApprovalRequest->submitted_for_sysadmin_at ?? $routeApprovalRequest->submitted_by_terminal_at)?->diffForHumans() ?? $routeApprovalRequest->created_at->diffForHumans() }}
             </p>
         </div>
         <div class="d-flex flex-wrap gap-2">

@@ -1,5 +1,5 @@
 /**
- * Terminal manager: add bus stops on operator route paths (Mapbox).
+ * Bus operator: add bus stops on route paths (Mapbox).
  * Bundled via Vite so Mapbox loads before init (fixes blank map).
  */
 

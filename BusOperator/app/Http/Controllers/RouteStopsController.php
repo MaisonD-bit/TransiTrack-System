@@ -2,39 +2,38 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\BusRoute;
+use App\Models\Route;
 use App\Models\RouteApprovalRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\View\View;
 
 class RouteStopsController extends Controller
 {
-    public function index()
+    public function index(): View
     {
         $data = $this->routeStopsIndexData();
         $listChecksum = $this->routeStopsListChecksum($data['requests']);
 
         return view('panels.route-stops', [
+            'requests' => $data['requests'],
             'routePayloads' => $data['routePayloads'],
-            'terminal' => $data['terminal'],
-            'groupedByOperator' => $data['groupedByOperator'],
+            'operatorTerminal' => $data['operatorTerminal'],
             'listChecksum' => $listChecksum,
         ]);
     }
 
-    /**
-     * JSON for live refresh of the route-approval list (no full page reload).
-     */
     public function pollList(): JsonResponse
     {
         $data = $this->routeStopsIndexData();
         $checksum = $this->routeStopsListChecksum($data['requests']);
-        $html = view('panels.route-stops/poll', [
-            'groupedByOperator' => $data['groupedByOperator'],
+        $html = view('panels.route-stops-list', [
+            'requests' => $data['requests'],
             'routePayloads' => $data['routePayloads'],
-            'terminal' => $data['terminal'],
+            'operatorTerminal' => $data['operatorTerminal'],
         ])->render();
 
         return response()->json([
@@ -43,21 +42,97 @@ class RouteStopsController extends Controller
         ]);
     }
 
+    public function editRoute(RouteApprovalRequest $routeApprovalRequest, Route $route): View
+    {
+        $this->authorizeOperator($routeApprovalRequest);
+        $this->assertEditable($routeApprovalRequest);
+        $this->assertOperatorOwnsRoute($route);
+
+        abort_unless(
+            $this->requestContainsRouteId($routeApprovalRequest, (int) $route->id),
+            404
+        );
+
+        $allRoutePayloads = $this->payloadsForRequest($routeApprovalRequest);
+        $routePayload = [$this->mapRouteToPayload($route)];
+
+        $initialJson = old(
+            'stop_configuration',
+            $routeApprovalRequest->stop_configuration
+                ? json_encode($routeApprovalRequest->stop_configuration)
+                : '[]'
+        );
+
+        return view('panels.route-stops-edit', [
+            'routeApprovalRequest' => $routeApprovalRequest,
+            'route' => $route,
+            'routePayload' => $routePayload,
+            'allRoutePayloads' => $allRoutePayloads,
+            'operatorTerminal' => Auth::user()->terminal,
+            'initialJson' => $initialJson,
+        ]);
+    }
+
+    public function updateStops(Request $request, RouteApprovalRequest $routeApprovalRequest): RedirectResponse
+    {
+        $this->authorizeOperator($routeApprovalRequest);
+        $this->assertEditable($routeApprovalRequest);
+
+        $data = $request->validate([
+            'stop_configuration' => ['required', 'json'],
+        ]);
+
+        $decoded = json_decode($data['stop_configuration'], true);
+        if (! is_array($decoded)) {
+            return back()->withErrors(['stop_configuration' => 'Invalid stop data.']);
+        }
+
+        $routeApprovalRequest->update([
+            'stop_configuration' => $decoded,
+        ]);
+
+        return redirect()
+            ->route('route-stops.index')
+            ->with('success', 'Bus stops saved.');
+    }
+
+    public function submitToSysadmin(RouteApprovalRequest $routeApprovalRequest): RedirectResponse
+    {
+        $this->authorizeOperator($routeApprovalRequest);
+
+        if ($routeApprovalRequest->status !== 'pending_stops') {
+            return back()->with('error', 'This submission is not waiting for bus stops.');
+        }
+
+        $missingRoutes = $this->routesMissingStops($routeApprovalRequest);
+        if ($missingRoutes !== []) {
+            return back()->with(
+                'error',
+                'Add bus stops for every route before sending to sysadmin: '.implode(', ', $missingRoutes).'.'
+            );
+        }
+
+        $routeApprovalRequest->update([
+            'status' => 'pending_sysadmin',
+            'submitted_for_sysadmin_at' => now(),
+        ]);
+
+        return redirect()
+            ->route('route-stops.index')
+            ->with('success', 'Sent to TransiTrack sysadmin for approval.');
+    }
+
     /**
-     * @return array{terminal: string, requests: Collection<int, RouteApprovalRequest>, routePayloads: array<int, array<int, array<string, mixed>>>, groupedByOperator: Collection}
+     * @return array{operatorTerminal: string|null, requests: Collection<int, RouteApprovalRequest>, routePayloads: array<int, array<int, array<string, mixed>>>}
      */
     private function routeStopsIndexData(): array
     {
-        $terminal = Auth::user()->terminal ?? null;
-        abort_if(! $terminal, 403, 'Your account has no terminal assigned.');
-
-        $terminalNorm = strtolower((string) $terminal);
+        $userId = Auth::id();
 
         $requests = RouteApprovalRequest::query()
-            ->whereRaw('LOWER(COALESCE(terminal, "")) = ?', [$terminalNorm])
+            ->where('operator_user_id', $userId)
             ->whereIn('status', ['pending_stops', 'pending_sysadmin'])
             ->orderByDesc('created_at')
-            ->with('operator')
             ->get();
 
         $routePayloads = [];
@@ -65,13 +140,10 @@ class RouteStopsController extends Controller
             $routePayloads[$req->id] = $this->payloadsForRequest($req);
         }
 
-        $groupedByOperator = $requests->groupBy('operator_user_id');
-
         return [
-            'terminal' => $terminal,
+            'operatorTerminal' => Auth::user()->terminal,
             'requests' => $requests,
             'routePayloads' => $routePayloads,
-            'groupedByOperator' => $groupedByOperator,
         ];
     }
 
@@ -92,102 +164,9 @@ class RouteStopsController extends Controller
         return hash('sha256', implode(';;', $parts));
     }
 
-    public function editRoute(RouteApprovalRequest $routeApprovalRequest, BusRoute $busRoute)
-    {
-        $terminal = Auth::user()->terminal ?? null;
-        abort_if(! $terminal, 403);
-        abort_if(
-            strtolower((string) $routeApprovalRequest->terminal) !== strtolower((string) $terminal),
-            403
-        );
-
-        abort_unless(
-            $this->requestContainsRouteId($routeApprovalRequest, (int) $busRoute->id),
-            404
-        );
-
-        abort_if($routeApprovalRequest->status !== 'pending_stops', 403);
-
-        $routeApprovalRequest->load('operator');
-
-        $allRoutePayloads = $this->payloadsForRequest($routeApprovalRequest);
-        $routePayload = [$this->mapBusRouteToPayload($busRoute)];
-
-        $initialJson = old(
-            'stop_configuration',
-            $routeApprovalRequest->stop_configuration
-                ? json_encode($routeApprovalRequest->stop_configuration)
-                : '[]'
-        );
-
-        return view('panels.route-stops-edit', compact(
-            'routeApprovalRequest',
-            'busRoute',
-            'routePayload',
-            'allRoutePayloads',
-            'terminal',
-            'initialJson'
-        ));
-    }
-
-    public function updateStops(Request $request, RouteApprovalRequest $routeApprovalRequest)
-    {
-        $this->authorizeTerminal($routeApprovalRequest);
-
-        $data = $request->validate([
-            'stop_configuration' => ['required', 'json'],
-        ]);
-
-        $decoded = json_decode($data['stop_configuration'], true);
-        if (! is_array($decoded)) {
-            return back()->withErrors(['stop_configuration' => 'Invalid JSON.']);
-        }
-
-        $routeApprovalRequest->update([
-            'stop_configuration' => $decoded,
-        ]);
-
-        return redirect()
-            ->route('panels.route-stops')
-            ->with('success', 'Bus stops saved.');
-    }
-
-    public function submitToSysadmin(RouteApprovalRequest $routeApprovalRequest)
-    {
-        $this->authorizeTerminal($routeApprovalRequest);
-
-        if ($routeApprovalRequest->status !== 'pending_stops') {
-            return back()->with('error', 'This request is not waiting for terminal stops.');
-        }
-        if (empty($routeApprovalRequest->stop_configuration)) {
-            return back()->with('error', 'Add bus stops before sending to sysadmin.');
-        }
-
-        $routeApprovalRequest->update([
-            'status' => 'pending_sysadmin',
-            'submitted_by_terminal_at' => now(),
-        ]);
-
-        return redirect()->route('panels.route-stops')->with('success', 'Sent to TransiTrack sysadmin for approval.');
-    }
-
     /**
      * @return array<int, array<string, mixed>>
      */
-    /**
-     * JSON `route_ids` may be int or string; avoid strict in_array false negatives.
-     */
-    private function requestContainsRouteId(RouteApprovalRequest $r, int $routeId): bool
-    {
-        foreach ((array) ($r->route_ids ?? []) as $id) {
-            if ((int) $id === $routeId) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function payloadsForRequest(RouteApprovalRequest $req): array
     {
         $ids = array_map('intval', (array) ($req->route_ids ?? []));
@@ -195,11 +174,12 @@ class RouteStopsController extends Controller
             return [];
         }
 
-        return BusRoute::query()
+        return Route::query()
             ->whereIn('id', $ids)
+            ->where('user_id', Auth::id())
             ->orderBy('name')
             ->get()
-            ->map(fn (BusRoute $r) => $this->mapBusRouteToPayload($r))
+            ->map(fn (Route $r) => $this->mapRouteToPayload($r))
             ->values()
             ->all();
     }
@@ -207,7 +187,7 @@ class RouteStopsController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function mapBusRouteToPayload(BusRoute $r): array
+    private function mapRouteToPayload(Route $r): array
     {
         $g = $r->geometry;
         if (is_string($g)) {
@@ -230,13 +210,69 @@ class RouteStopsController extends Controller
         ];
     }
 
-    private function authorizeTerminal(RouteApprovalRequest $routeApprovalRequest): void
+    /**
+     * Route IDs in this submission that have no saved stops yet.
+     *
+     * @return list<string> Route names missing stops
+     */
+    private function routesMissingStops(RouteApprovalRequest $request): array
     {
-        $t = Auth::user()->terminal ?? null;
-        abort_if(! $t, 403);
-        abort_if(
-            strtolower((string) $routeApprovalRequest->terminal) !== strtolower((string) $t),
-            403
-        );
+        $routeIds = array_map('intval', (array) ($request->route_ids ?? []));
+        if ($routeIds === []) {
+            return [];
+        }
+
+        $routes = Route::query()
+            ->whereIn('id', $routeIds)
+            ->where('user_id', Auth::id())
+            ->get()
+            ->keyBy('id');
+
+        $stopsByRouteId = [];
+        foreach ((array) ($request->stop_configuration ?? []) as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $rid = (int) ($block['route_id'] ?? 0);
+            $stops = $block['stops'] ?? [];
+            if ($rid > 0 && is_array($stops) && count($stops) > 0) {
+                $stopsByRouteId[$rid] = true;
+            }
+        }
+
+        $missing = [];
+        foreach ($routeIds as $rid) {
+            if (empty($stopsByRouteId[$rid])) {
+                $missing[] = $routes->get($rid)?->name ?? "Route #{$rid}";
+            }
+        }
+
+        return $missing;
+    }
+
+    private function requestContainsRouteId(RouteApprovalRequest $request, int $routeId): bool
+    {
+        foreach ((array) ($request->route_ids ?? []) as $id) {
+            if ((int) $id === $routeId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function authorizeOperator(RouteApprovalRequest $routeApprovalRequest): void
+    {
+        abort_if($routeApprovalRequest->operator_user_id !== Auth::id(), 403);
+    }
+
+    private function assertEditable(RouteApprovalRequest $routeApprovalRequest): void
+    {
+        abort_if($routeApprovalRequest->status !== 'pending_stops', 403);
+    }
+
+    private function assertOperatorOwnsRoute(Route $route): void
+    {
+        abort_if((int) $route->user_id !== (int) Auth::id(), 403);
     }
 }

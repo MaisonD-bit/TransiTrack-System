@@ -65,7 +65,7 @@ Route::middleware('auth')->group(function () {
     //Route Stops
     Route::get('/panel/route-stops', [RouteStopsController::class, 'index'])->name('route-stops.index');
     Route::get('/panel/route-stops/poll', [RouteStopsController::class, 'pollList'])->name('route-stops.poll');
-    Route::get('/panel/route-stops/{routeApprovalRequest}/routes/{busRoute}/edit', [RouteStopsController::class, 'editRoute'])->name('route-stops.edit');
+    Route::get('/panel/route-stops/{routeApprovalRequest}/routes/{route}/edit', [RouteStopsController::class, 'editRoute'])->name('route-stops.edit');
     Route::put('/panel/route-stops/{routeApprovalRequest}/stops', [RouteStopsController::class, 'updateStops'])->name('route-stops.update');
     Route::post('/panel/route-stops/{routeApprovalRequest}/submit-sysadmin', [RouteStopsController::class, 'submitToSysadmin'])->name('route-stops.submit');
 
@@ -102,10 +102,7 @@ Route::middleware('auth')->group(function () {
     // Route management routes
     Route::prefix('routes')->group(function () {
         Route::get('/', [RouteController::class, 'index'])->name('routes.index');
-        Route::post('/', [RouteController::class, 'store'])->name('routes.store');
         Route::get('/{id}', [RouteController::class, 'show'])->name('routes.show');
-        Route::put('/{id}', [RouteController::class, 'update'])->name('routes.update');
-        Route::delete('/{id}', [RouteController::class, 'destroy'])->name('routes.destroy');
     });
 
     // Bus management routes

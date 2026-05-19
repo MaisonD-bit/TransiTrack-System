@@ -1,4 +1,4 @@
-@extends('layouts.app-sidebar')
+@extends('layouts.app')
 
 @section('title', 'Add bus stops')
 
@@ -6,8 +6,8 @@
 <div class="container-fluid px-0">
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item"><a href="{{ route('route-stops') }}">Route stops</a></li>
-            <li class="breadcrumb-item active" aria-current="page">{{ $busRoute->name }}</li>
+            <li class="breadcrumb-item"><a href="{{ route('route-stops.index') }}">Route stops</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ $route->name }}</li>
         </ol>
     </nav>
 
@@ -15,13 +15,14 @@
         <div>
             <h2 class="mb-1 fw-bold">Add bus stops</h2>
             <p class="text-muted small mb-0">
-                Submission <strong>#{{ $routeApprovalRequest->id }}</strong> ·
-                Operator:
-                <strong>{{ optional($routeApprovalRequest->operator)->name ?? optional($routeApprovalRequest->operator)->email ?? ('#' . $routeApprovalRequest->operator_user_id) }}</strong>
-                · Route <strong>{{ $busRoute->name }}</strong> ({{ $busRoute->code }})
+                Submission <strong>#{{ $routeApprovalRequest->id }}</strong>
+                · Route <strong>{{ $route->name }}</strong> ({{ $route->code }})
+                @if($operatorTerminal)
+                    · {{ strtoupper($operatorTerminal) }} terminal
+                @endif
             </p>
         </div>
-        <a href="{{ route('route-stops') }}" class="btn btn-outline-secondary btn-sm">
+        <a href="{{ route('route-stops.index') }}" class="btn btn-outline-secondary btn-sm">
             <i class="fas fa-arrow-left me-1"></i> Back to list
         </a>
     </div>
@@ -49,7 +50,6 @@
                  data-request-id="{{ $routeApprovalRequest->id }}"
                  data-terminal="{{ $routeApprovalRequest->terminal }}"
                  data-single-route="1">
-                {{-- Large GeoJSON must not live in data-* attributes (length / escaping breaks JSON.parse) --}}
                 <script type="application/json" class="tm-editor-json">
 @json(['routesForMap' => $routePayload, 'fullRoutes' => $allRoutePayloads])
                 </script>

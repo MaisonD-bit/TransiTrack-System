@@ -65,7 +65,7 @@
                         <i class="fas fa-map-marker-alt fs-1 text-info"></i>
                     </div>
                     <h2 id="dash-stat-pending-stops" class="fw-bold text-dark mb-1">{{ $pendingStopsCount }}</h2>
-                    <p class="text-muted mb-0">With terminal managers</p>
+                    <p class="text-muted mb-0">With bus operators</p>
                     <small class="text-info">Awaiting stop mapping</small>
                 </div>
             </div>
@@ -121,7 +121,7 @@
             <div class="text-center py-5">
                 <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
                 <h4 class="text-muted">No pending route approvals</h4>
-                <p class="text-muted">New packages from terminal managers will appear here when they are ready for sysadmin review.</p>
+                <p class="text-muted">Route packages will appear here after bus operators add stops and submit for sysadmin review.</p>
                 <a href="{{ route('sysadmin.manager-approvals', ['status' => 'inactive']) }}" class="btn btn-outline-primary me-2">
                     <i class="fas fa-user-tie me-1"></i> Manager approvals
                 </a>
@@ -186,7 +186,7 @@
                     </div>
                     <div class="alert alert-info alert-sm py-2 mb-0">
                         <i class="fas fa-map-marker-alt me-2"></i>
-                        <small><strong>{{ $pendingStopsCount }}</strong> with terminal managers (stop mapping)</small>
+                        <small><strong>{{ $pendingStopsCount }}</strong> with bus operators (adding stops)</small>
                     </div>
                 </div>
             </div>

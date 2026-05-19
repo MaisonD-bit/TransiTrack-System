@@ -45,7 +45,7 @@
             @if(isset($routes) && $routes->count() === 0)
                 <div class="alert alert-warning mb-4">
                     <i class="fas fa-route me-2"></i>
-                    No routes are available for scheduling yet. Submit routes for approval and complete <strong>terminal bus-stop configuration</strong>; once sysadmin approves the package, approved routes will appear here for drivers and commuters (pathway + stops).
+                    No routes are available for scheduling yet. Submit routes for approval, add <strong>bus stops on the map</strong> under Route stops, then send to sysadmin; once approved, routes will appear here for drivers and commuters.
                 </div>
             @endif
             <!-- Step 1: Select Driver -->

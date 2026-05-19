@@ -1,7 +1,4 @@
-<div class="topbar bg-white shadow-sm py-2 px-4 d-flex justify-content-between align-items-center">
-    <div class="text-muted small">
-        TransiTrack central approvals — route pathways &amp; bus stops
-    </div>
+<div class="topbar bg-white shadow-sm py-2 px-4 d-flex justify-content-end align-items-center">
     @auth('sysadmin')
         <div class="d-flex align-items-center gap-3">
             <div class="text-end">

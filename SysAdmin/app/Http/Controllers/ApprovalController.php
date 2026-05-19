@@ -146,7 +146,7 @@ class ApprovalController extends Controller
         $pending = RouteApprovalRequest::query()
             ->with('operator')
             ->where('status', 'pending_sysadmin')
-            ->orderByDesc('submitted_by_terminal_at')
+            ->orderByRaw('COALESCE(submitted_for_sysadmin_at, submitted_by_terminal_at) DESC')
             ->orderByDesc('created_at')
             ->get();
 
@@ -178,7 +178,9 @@ class ApprovalController extends Controller
         $p = $pending->map(function (array $item) {
             $r = $item['request'];
 
-            return $r->id.':'.($r->updated_at?->timestamp ?? 0).':'.($r->submitted_by_terminal_at?->timestamp ?? 0);
+            $submitted = $r->submitted_for_sysadmin_at ?? $r->submitted_by_terminal_at;
+
+            return $r->id.':'.($r->updated_at?->timestamp ?? 0).':'.($submitted?->timestamp ?? 0);
         })->sort()->values()->implode(',');
 
         $h = $history->map(fn (RouteApprovalRequest $r) => $r->id.':'.$r->status.':'.($r->decided_at?->timestamp ?? 0))

@@ -14,7 +14,8 @@ export default defineConfig({
                 'resources/js/panels/drivers.js',
                 'resources/js/panels/buses.js',
                 'resources/js/panels/profile.js',
-                'resources/js/panels/terminal.js'
+                'resources/js/panels/terminal.js',
+                'resources/js/panels/route-stops.js'
             ],
             refresh: true,
         }),

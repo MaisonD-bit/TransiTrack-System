@@ -20,9 +20,10 @@
             </div>
         </td>
         <td>
-            <span class="fw-semibold">{{ $r->submitted_by_terminal_at?->format('M d, Y') ?? '' }}</span>
-            @if($r->submitted_by_terminal_at)
-                <br><small class="text-muted">{{ $r->submitted_by_terminal_at->format('g:i A') }}</small>
+            @php $submittedAt = $r->submitted_for_sysadmin_at ?? $r->submitted_by_terminal_at; @endphp
+            <span class="fw-semibold">{{ $submittedAt?->format('M d, Y') ?? '' }}</span>
+            @if($submittedAt)
+                <br><small class="text-muted">{{ $submittedAt->format('g:i A') }}</small>
             @endif
         </td>
         <td>
