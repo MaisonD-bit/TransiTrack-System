@@ -12,17 +12,16 @@ class RouteApprovalWebController extends Controller
     public function index()
     {
         $userId = Auth::id();
+        $operatorTerminal = Auth::user()->terminal;
+
         $requests = RouteApprovalRequest::query()
             ->where('operator_user_id', $userId)
             ->orderByDesc('created_at')
             ->get();
 
-        $routes = Route::query()
-            ->where('user_id', $userId)
+        $routes = $this->availableRoutesQuery($userId, $operatorTerminal)
             ->orderBy('name')
             ->get();
-
-        $operatorTerminal = Auth::user()->terminal;
 
         return view('panels.route-requests', compact('requests', 'routes', 'operatorTerminal'));
     }
@@ -45,8 +44,11 @@ class RouteApprovalWebController extends Controller
         ]);
 
         foreach ($data['route_ids'] as $rid) {
-            $owns = Route::query()->where('id', $rid)->where('user_id', $userId)->exists();
-            if (! $owns) {
+            $available = $this->availableRoutesQuery($userId, $terminal)
+                ->where('id', $rid)
+                ->exists();
+
+            if (! $available) {
                 return back()->withErrors(['route_ids' => 'Invalid route selection.'])->withInput();
             }
         }
@@ -86,5 +88,16 @@ class RouteApprovalWebController extends Controller
     private function authorizeOperator(RouteApprovalRequest $routeApprovalRequest): void
     {
         abort_if($routeApprovalRequest->operator_user_id !== Auth::id(), 403);
+    }
+
+    private function availableRoutesQuery(int $userId, ?string $terminal)
+    {
+        return Route::query()
+            ->where('terminal', $terminal)
+            ->where('status', 'active')
+            ->where(function ($query) use ($userId) {
+                $query->whereNull('user_id')
+                    ->orWhere('user_id', $userId);
+            });
     }
 }

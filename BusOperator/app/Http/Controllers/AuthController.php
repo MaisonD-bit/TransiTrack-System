@@ -110,7 +110,7 @@ class AuthController extends Controller
                 'company_email' => $request->company_email,
                 'fleet_size' => $request->fleet_size,
                 'photo_url' => $photoPath,
-                'status' => 'active',
+                'status' => 'inactive',
             ]);
 
             return redirect()->route('login')->with('success', 'Registration successful! Please login with your credentials.');

@@ -82,7 +82,8 @@ class DriverController extends Controller
             'emergency_name' => 'string|max:255|nullable',
             'emergency_relation' => 'string|max:100|nullable',
             'emergency_contact' => 'string|max:20|nullable',
-            'status' => 'required|string|in:active,inactive,pending',
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
+            'suspension_days' => 'required_if:status,suspended|nullable|integer|min:1|max:365',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
@@ -104,6 +105,10 @@ class DriverController extends Controller
                 $photoUrl = 'drivers/' . $fileName;
             }
 
+            $suspendedUntil = $request->status === 'suspended'
+                ? Carbon::now()->addDays((int) $request->suspension_days)
+                : null;
+
             //   FIX: Automatically set user_id to logged-in user
             $driver = Driver::create([
                 'name' => $request->name,
@@ -119,6 +124,7 @@ class DriverController extends Controller
                 'emergency_relation' => $request->emergency_relation,
                 'emergency_contact' => $request->emergency_contact,
                 'status' => $request->status,
+                'suspended_until' => $suspendedUntil,
                 'photo_url' => $photoUrl,
                 'app_registered' => false,
                 'registration_source' => 'web_admin',

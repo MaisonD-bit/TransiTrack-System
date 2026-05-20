@@ -647,7 +647,9 @@ document.addEventListener('DOMContentLoaded', function() {
             let url = '/drivers';
             if (isEdit) {
                 url = `/drivers/${driverId}`;
-                formData.append('_method', 'PUT');
+                formData.set('_method', 'PUT');
+            } else {
+                formData.delete('_method');
             }
             
             const submitBtn = document.getElementById('submitBtn');

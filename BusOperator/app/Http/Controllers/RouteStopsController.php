@@ -46,7 +46,7 @@ class RouteStopsController extends Controller
     {
         $this->authorizeOperator($routeApprovalRequest);
         $this->assertEditable($routeApprovalRequest);
-        $this->assertOperatorOwnsRoute($route);
+        $this->assertOperatorCanUseRoute($route);
 
         abort_unless(
             $this->requestContainsRouteId($routeApprovalRequest, (int) $route->id),
@@ -176,7 +176,11 @@ class RouteStopsController extends Controller
 
         return Route::query()
             ->whereIn('id', $ids)
-            ->where('user_id', Auth::id())
+            ->where('terminal', Auth::user()->terminal)
+            ->where(function ($query) {
+                $query->whereNull('user_id')
+                    ->orWhere('user_id', Auth::id());
+            })
             ->orderBy('name')
             ->get()
             ->map(fn (Route $r) => $this->mapRouteToPayload($r))
@@ -224,7 +228,11 @@ class RouteStopsController extends Controller
 
         $routes = Route::query()
             ->whereIn('id', $routeIds)
-            ->where('user_id', Auth::id())
+            ->where('terminal', Auth::user()->terminal)
+            ->where(function ($query) {
+                $query->whereNull('user_id')
+                    ->orWhere('user_id', Auth::id());
+            })
             ->get()
             ->keyBy('id');
 
@@ -271,8 +279,12 @@ class RouteStopsController extends Controller
         abort_if($routeApprovalRequest->status !== 'pending_stops', 403);
     }
 
-    private function assertOperatorOwnsRoute(Route $route): void
+    private function assertOperatorCanUseRoute(Route $route): void
     {
-        abort_if((int) $route->user_id !== (int) Auth::id(), 403);
+        $belongsToOperator = (int) $route->user_id === (int) Auth::id();
+        $isSharedSysadminRoute = $route->user_id === null;
+        $sameTerminal = $route->terminal === Auth::user()->terminal;
+
+        abort_unless($sameTerminal && ($belongsToOperator || $isSharedSysadminRoute), 403);
     }
 }

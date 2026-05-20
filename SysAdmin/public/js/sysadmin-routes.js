@@ -12,6 +12,7 @@
     let userTerminal = 'north';
     let currentTerminal = null;
     let routeToDelete = null;
+    let destinationSearchRequestId = 0;
 
     const CEBU_COORDINATES = {
         center: [123.8854, 10.3157],
@@ -574,7 +575,7 @@
 
     // ---------------- add-mode interactions ----------------
 
-    function setEndPoint(coords) {
+    function setEndPoint(coords, knownPlaceName) {
         if (!isPointInAllowedArea(coords.lng, coords.lat)) {
             const tname = userTerminal === 'south' ? 'Southern Cebu' : 'Northern Cebu';
             showToast('Destination must be in ' + tname + '. Please pick inside the highlighted blue area.', 'error');
@@ -583,12 +584,15 @@
         if (endMarker) endMarker.remove();
         endMarker = new mapboxgl.Marker({ color: 'red' }).setLngLat(coords).addTo(routeMap);
 
-        getPlaceName(coords.lng, coords.lat, (placeName) => {
+        const applyPlaceName = (placeName) => {
             if (addEl('end_location')) addEl('end_location').value = placeName;
             if (addEl('end_coordinates')) addEl('end_coordinates').value = coords.lng + ',' + coords.lat;
             autoGenerateRouteCode(placeName);
             calculateRouteWithStops();
-        });
+        };
+
+        if (knownPlaceName) applyPlaceName(knownPlaceName);
+        else getPlaceName(coords.lng, coords.lat, applyPlaceName);
     }
 
     function autoGenerateRouteCode(placeName) {
@@ -720,6 +724,108 @@
         routeMap.flyTo({ center: (currentTerminal || TERMINALS.north).coordinates, zoom: CEBU_COORDINATES.zoom });
     }
 
+    function getSearchBoundsParam() {
+        const b = getCurrentBoundary();
+        return [b.swLng, b.swLat, b.neLng, b.neLat].join(',');
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function clearDestinationSearchResults() {
+        destinationSearchRequestId += 1;
+        const results = addEl('geocodingResults');
+        if (!results) return;
+        results.innerHTML = '';
+        results.style.display = 'none';
+    }
+
+    function renderDestinationSearchResults(features) {
+        const results = addEl('geocodingResults');
+        if (!results) return;
+        results.innerHTML = '';
+
+        if (!features.length) {
+            results.innerHTML = '<div class="list-group-item text-muted small">No Cebu destinations found.</div>';
+            results.style.display = 'block';
+            return;
+        }
+
+        features.forEach((feature) => {
+            const coords = feature?.center;
+            if (!Array.isArray(coords) || coords.length < 2) return;
+
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'list-group-item list-group-item-action';
+            item.innerHTML = '<div class="fw-semibold">' + escapeHtml(feature.text || feature.place_name || 'Destination') + '</div>'
+                + '<div class="small text-muted">' + escapeHtml(feature.place_name || '') + '</div>';
+            item.addEventListener('mousedown', (e) => e.preventDefault());
+            item.addEventListener('click', () => {
+                clearDestinationSearchResults();
+                const input = addEl('destinationSearch');
+                const placeName = feature.place_name || feature.text || '';
+                const lng = Number(coords[0]);
+                const lat = Number(coords[1]);
+                if (input) input.value = placeName;
+                if (routeMap) routeMap.flyTo({ center: [lng, lat], zoom: 12, duration: 600 });
+                setEndPoint({ lng, lat }, placeName);
+            });
+            results.appendChild(item);
+        });
+
+        results.style.display = results.children.length ? 'block' : 'none';
+    }
+
+    async function searchDestinations(query) {
+        const requestId = ++destinationSearchRequestId;
+        if (!query || query.trim().length < 2 || !window.mapboxgl?.accessToken) {
+            clearDestinationSearchResults();
+            return;
+        }
+
+        const terminal = currentTerminal || TERMINALS.north;
+        const params = new URLSearchParams({
+            access_token: mapboxgl.accessToken,
+            autocomplete: 'true',
+            country: 'ph',
+            language: 'en',
+            limit: '8',
+            proximity: terminal.coordinates.join(','),
+            bbox: getSearchBoundsParam(),
+            types: 'place,locality,neighborhood,address,poi',
+        });
+
+        try {
+            const res = await fetch('https://api.mapbox.com/geocoding/v5/mapbox.places/'
+                + encodeURIComponent(query.trim()) + '.json?' + params.toString());
+            if (!res.ok) throw new Error('Mapbox geocoding ' + res.status);
+            const data = await res.json();
+            if (requestId !== destinationSearchRequestId) return;
+            const features = (data.features || []).filter((feature) => {
+                const coords = feature?.center;
+                return Array.isArray(coords)
+                    && coords.length >= 2
+                    && isPointInAllowedArea(Number(coords[0]), Number(coords[1]));
+            });
+            renderDestinationSearchResults(features);
+        } catch (err) {
+            if (requestId !== destinationSearchRequestId) return;
+            console.error('Destination search failed:', err);
+            const results = addEl('geocodingResults');
+            if (results) {
+                results.innerHTML = '<div class="list-group-item text-danger small">Unable to load destination suggestions.</div>';
+                results.style.display = 'block';
+            }
+        }
+    }
+
     function getPlaceName(lng, lat, cb) {
         fetch('https://api.mapbox.com/geocoding/v5/mapbox.places/' + lng + ',' + lat + '.json?access_token=' + mapboxgl.accessToken)
             .then((r) => r.json())
@@ -734,6 +840,7 @@
         if (section) section.style.display = 'none';
         const form = addEl('routeForm');
         if (form) form.reset();
+        clearDestinationSearchResults();
         destroyMap();
         stops = [];
         isAddingStop = false;
@@ -773,6 +880,7 @@
         if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Route';
 
         clearValidationErrors();
+        clearDestinationSearchResults();
         endMarker = null;
         clearStops();
 
@@ -1136,6 +1244,22 @@
             });
         }
 
+        const destinationSearch = addSection()?.querySelector('#destinationSearch');
+        if (destinationSearch) {
+            let destinationSearchTimer = null;
+            destinationSearch.addEventListener('input', () => {
+                clearTimeout(destinationSearchTimer);
+                const query = destinationSearch.value.trim();
+                destinationSearchTimer = setTimeout(() => searchDestinations(query), 250);
+            });
+            destinationSearch.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') clearDestinationSearchResults();
+            });
+            destinationSearch.addEventListener('blur', () => {
+                setTimeout(clearDestinationSearchResults, 200);
+            });
+        }
+
         const confirmBtn = document.getElementById('confirmDeleteRouteBtn');
         if (confirmBtn) confirmBtn.addEventListener('click', performDeleteRoute);
         const cancelBtn = document.getElementById('cancelDeleteRouteBtn');
@@ -1151,6 +1275,7 @@
         if (terminalSelect) {
             setTerminal(terminalSelect.value || 'north', { flyTo: false, skipBoundary: true });
             terminalSelect.addEventListener('change', function () {
+                clearDestinationSearchResults();
                 setTerminal(this.value, { flyTo: true });
                 if (endMarker) {
                     const c = endMarker.getLngLat();

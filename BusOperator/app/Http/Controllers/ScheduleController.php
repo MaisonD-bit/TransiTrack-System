@@ -548,9 +548,6 @@ class ScheduleController extends Controller
                 if (!$route || !$bus) {
                     throw new \Exception('Invalid route or bus ID.');
                 }
-                if ((int) $route->user_id !== (int) auth()->id()) {
-                    throw new \Exception('Invalid route for your account.');
-                }
                 $this->ensureRouteApprovedForOperator((int) $route->id, (int) auth()->id());
                 
                 // Calculate fare based on route fare if available, otherwise use regular/aircon prices
