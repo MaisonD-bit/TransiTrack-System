@@ -436,7 +436,12 @@ function loadSpacesFromDatabase() {
 }
 
 function fillCompanyOperator() {
-    const driverId = document.getElementById('panelDriver').value;
+    const driverSelect = document.getElementById('panelDriver');
+    const driverId = driverSelect.value;
+    const selectedDriver = driverSelect.options[driverSelect.selectedIndex];
+    const driverOperatorId = selectedDriver?.dataset.operatorId || '';
+    const driverCompany = selectedDriver?.dataset.company || '';
+
     // Driver selected, now populate operator dropdown and fetch driver's routes
     if (driverId) {
         // Fetch operators
@@ -445,6 +450,9 @@ function fillCompanyOperator() {
             .then(data => {
                 const operatorSelect = document.getElementById('panelOperator');
                 operatorSelect.innerHTML = '<option value="">-- Select Operator --</option>';
+                const apiDriver = (data.drivers || []).find(driver => String(driver.id) === String(driverId));
+                const apiOperator = apiDriver?.user || null;
+                const resolvedOperatorId = driverOperatorId || (apiOperator?.id ? String(apiOperator.id) : '');
                 
                 // Populate with all available operators
                 data.operators.forEach(op => {
@@ -454,6 +462,24 @@ function fillCompanyOperator() {
                     option.textContent = op.name;
                     operatorSelect.appendChild(option);
                 });
+
+                if (resolvedOperatorId && !Array.from(operatorSelect.options).some(option => option.value === resolvedOperatorId)) {
+                    const option = document.createElement('option');
+                    option.value = resolvedOperatorId;
+                    option.dataset.company = apiOperator?.company_name || driverCompany || '';
+                    option.textContent = apiOperator?.name || 'Assigned operator';
+                    operatorSelect.appendChild(option);
+                }
+
+                if (resolvedOperatorId) {
+                    operatorSelect.value = resolvedOperatorId;
+                }
+
+                operatorSelect.value = '';
+                document.getElementById('panelCompany').value = '';
+
+                const selectedOperator = operatorSelect.options[operatorSelect.selectedIndex];
+                document.getElementById('panelCompany').value = selectedOperator?.dataset.company || apiOperator?.company_name || driverCompany || '';
             })
             .catch(error => console.error('Error fetching operators:', error));
 
@@ -896,15 +922,10 @@ function saveSpaceOccupancy() {
     } else {
         // OCCUPY MODE
         const driverId = document.getElementById('panelDriver').value;
-        const operatorId = document.getElementById('panelOperator').value;
+        const operatorId = document.getElementById('panelOperator').value || null;
         
         if (!driverId) {
             showSpaceAlert('Please select a driver');
-            return;
-        }
-
-        if (!operatorId) {
-            showSpaceAlert('Please select an operator');
             return;
         }
 
@@ -916,7 +937,7 @@ function saveSpaceOccupancy() {
         const occupyPayload = {
             space_id: spaceId,
             driver_id: parseInt(driverId),
-            operator_id: parseInt(operatorId),
+            operator_id: operatorId ? parseInt(operatorId) : null,
             duration_minutes: mins,
             route_name: document.getElementById('panelRouteName').value || null,
             accommodation_type: document.getElementById('panelAccommodationType').value || null
@@ -1332,8 +1353,16 @@ function showHistoryDetail(recordId) {
                                 <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.driver_contact || 'N/A'}</p>
                             </div>
                             <div>
+                                <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Bus Operator</p>
+                                <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.bus_operator_name || 'N/A'}</p>
+                            </div>
+                            <div>
                                 <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Company Name</p>
                                 <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.company_name || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Operator Email</p>
+                                <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.bus_operator_email || 'N/A'}</p>
                             </div>
                             <div>
                                 <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Company Contact</p>

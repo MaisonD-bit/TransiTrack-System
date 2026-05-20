@@ -513,6 +513,21 @@
                                 <div class="invalid-feedback" id="gender_error"></div>
                             </div>
                             <div class="col-md-6 mb-3">
+                                <label for="user_id" class="form-label">Bus Operator <span class="text-danger">*</span></label>
+                                <select id="user_id" name="user_id" class="form-select" required>
+                                    <option value="">Select Bus Operator</option>
+                                    @foreach(($busOperators ?? collect()) as $operator)
+                                        <option value="{{ $operator->id }}" {{ (int) $operator->id === (int) auth()->id() ? 'selected' : '' }}>
+                                            {{ $operator->company_name ?: $operator->name }}
+                                            @if($operator->company_name && $operator->name)
+                                                - {{ $operator->name }}
+                                            @endif
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="invalid-feedback" id="user_id_error"></div>
+                            </div>
+                            <div class="col-md-6 mb-3">
                                 <label for="status" class="form-label">Status <span class="text-danger">*</span></label>
                                 <select id="status" name="status" class="form-select" required>
                                     <option value="active">Active</option>

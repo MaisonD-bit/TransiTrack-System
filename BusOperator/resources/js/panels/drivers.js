@@ -30,6 +30,7 @@ function saveCurrentFormData() {
         contact_number: document.getElementById('contact_number')?.value || '',
         date_of_birth: document.getElementById('date_of_birth')?.value || '',
         gender: document.getElementById('gender')?.value || '',
+        user_id: document.getElementById('user_id')?.value || '',
         address: document.getElementById('address')?.value || '',
         license_number: document.getElementById('license_number')?.value || '',
         license_expiry: document.getElementById('license_expiry')?.value || '',
@@ -59,6 +60,7 @@ function restoreFormData() {
     setFieldValue('contact_number', currentFormData.contact_number);
     setFieldValue('date_of_birth', currentFormData.date_of_birth);
     setFieldValue('gender', currentFormData.gender);
+    setFieldValue('user_id', currentFormData.user_id);
     setFieldValue('address', currentFormData.address);
     setFieldValue('license_number', currentFormData.license_number);
     setFieldValue('license_expiry', currentFormData.license_expiry);
@@ -235,6 +237,7 @@ function editDriver(driverId) {
             setFieldValue('license_expiry', formattedExpiry);
             
             setFieldValue('gender', data.gender);
+            setFieldValue('user_id', data.user_id);
             setFieldValue('address', data.address);
             setFieldValue('license_number', data.license_number);
             setFieldValue('emergency_name', data.emergency_name);

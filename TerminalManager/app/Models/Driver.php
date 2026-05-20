@@ -45,7 +45,7 @@ class Driver extends Authenticatable
 
     public function user()
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(OperatorUser::class, 'user_id');
     }
 
     public function schedules()
@@ -65,6 +65,6 @@ class Driver extends Authenticatable
 
     public function company()
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(OperatorUser::class, 'user_id');
     }
 }

@@ -36,12 +36,16 @@ class NorthTerminalSpaceController extends Controller
         $spaces = NorthTerminalSpace::with('currentDriver.user', 'currentCompany')->get();
 
         // Get actual drivers for the DRIVER dropdown
-        $drivers = Driver::with('user')->where('status', 'active')->get();
+        $drivers = Driver::with('user')
+            ->where('status', 'active')
+            ->whereHas('user', fn ($query) => $query->where('terminal', 'north'))
+            ->get();
 
         // Get operators/companies for reference
         $operators = DB::table('users')
             ->where('role', 'bus_operator')
             ->where('status', 'active')
+            ->where('terminal', 'north')
             ->select('id', 'name', 'first_name', 'last_name', 'company_name', 'company_contact')
             ->get();
 
@@ -156,7 +160,7 @@ class NorthTerminalSpaceController extends Controller
             $request->validate([
                 'space_id' => 'required|string|max:16',
                 'driver_id' => 'required|exists:drivers,id',
-                'operator_id' => 'required|exists:users,id',
+                'operator_id' => 'nullable|exists:users,id',
                 'duration_minutes' => 'required|integer|between:1,360',
                 'route_name' => 'nullable|string',
                 'accommodation_type' => 'nullable|string',
@@ -179,7 +183,19 @@ class NorthTerminalSpaceController extends Controller
                 ]
             );
             $driver = Driver::with('user')->findOrFail($request->driver_id);
-            $operator = DB::table('users')->find($request->operator_id);
+            $operatorId = (int) ($driver->user_id ?: $request->operator_id);
+            $operator = DB::table('users')
+                ->where('id', $operatorId)
+                ->where('role', 'bus_operator')
+                ->where('terminal', 'north')
+                ->first();
+
+            if (! $operator) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Selected driver is not assigned to a North Terminal bus operator.'
+                ], 422);
+            }
 
             $occupiedAt = now();
             $availableAt = $occupiedAt->copy()->addMinutes($request->duration_minutes);
@@ -480,6 +496,18 @@ class NorthTerminalSpaceController extends Controller
 
         if (!$history) {
             return response()->json(['success' => false, 'message' => 'History record not found'], 404);
+        }
+
+        if ($history->company_id) {
+            $operator = DB::table('users')
+                ->where('id', $history->company_id)
+                ->where('role', 'bus_operator')
+                ->first();
+
+            if ($operator) {
+                $history->setAttribute('bus_operator_name', $operator->name);
+                $history->setAttribute('bus_operator_email', $operator->email);
+            }
         }
 
         return response()->json(['success' => true, 'data' => $history]);

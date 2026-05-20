@@ -616,7 +616,7 @@
                 <select class="form-control" id="panelDriver" onchange="fillCompanyOperator()">
                     <option value="">-- Select Driver --</option>
                     @forelse($drivers as $driver)
-                    <option value="{{ $driver->id }}" data-company="{{ $driver->user->company_name ?? '' }}" data-operator="{{ $driver->name }}">
+                    <option value="{{ $driver->id }}" data-company="{{ $driver->user->company_name ?? '' }}" data-operator-id="{{ $driver->user_id }}" data-operator="{{ $driver->user->name ?? '' }}">
                         {{ $driver->name }}
                     </option>
                     @empty
