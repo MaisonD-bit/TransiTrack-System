@@ -143,16 +143,16 @@
             </a>
         </div>
 
-        <!-- Chat Messages -->
+        <!-- Pending Approvals -->
         <div class="col-12 col-sm-6 col-md-3">
-            <a href="{{ route('chat') }}" class="clickable-card">
+            <a href="{{ route('approval') }}" class="clickable-card">
                 <div class="card border-indigo dashboard-card">
                     <div class="dashboard-icon icon-purple">
-                        <i class="bi bi-envelope-fill"></i>
+                        <i class="bi bi-person-check-fill"></i>
                     </div>
                     <div>
-                        <div class="dashboard-label">New Messages</div>
-                        <div class="dashboard-value">{{ $stats['new_messages'] }}</div>
+                        <div class="dashboard-label">Pending Approvals</div>
+                        <div class="dashboard-value">{{ $stats['pending_approvals'] }}</div>
                     </div>
                 </div>
             </a>

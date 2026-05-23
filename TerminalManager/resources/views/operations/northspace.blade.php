@@ -628,8 +628,8 @@
             <div class="form-row" id="companyOperatorSection">
                 <div class="form-group">
                     <label class="form-label">Operator</label>
-                    <select class="form-control" id="panelOperator" onchange="fillCompanyFromOperator()">
-                        <option value="">-- Select Operator --</option>
+                    <select class="form-control" id="panelOperator" onchange="fillCompanyFromOperator()" disabled>
+                        <option value=""></option>
                     </select>
                 </div>
                 <div class="form-group">

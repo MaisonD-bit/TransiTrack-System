@@ -475,9 +475,6 @@ function fillCompanyOperator() {
                     operatorSelect.value = resolvedOperatorId;
                 }
 
-                operatorSelect.value = '';
-                document.getElementById('panelCompany').value = '';
-
                 const selectedOperator = operatorSelect.options[operatorSelect.selectedIndex];
                 document.getElementById('panelCompany').value = selectedOperator?.dataset.company || apiOperator?.company_name || driverCompany || '';
             })

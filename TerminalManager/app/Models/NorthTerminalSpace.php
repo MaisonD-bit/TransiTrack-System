@@ -41,7 +41,7 @@ class NorthTerminalSpace extends Model
 
     public function currentCompany()
     {
-        return $this->belongsTo(User::class, 'current_company_id');
+        return $this->belongsTo(OperatorUser::class, 'current_company_id');
     }
 
     public function history()

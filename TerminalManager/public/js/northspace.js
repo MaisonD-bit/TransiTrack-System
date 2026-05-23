@@ -29,8 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('❌ SVG element not found');
         return;
     }
-    const svgRect = svgEl.getBoundingClientRect();
-    const svgWidth = svgRect.width;
+    const svgWidth = svgEl.viewBox?.baseVal?.width || svgEl.getBBox().width;
 
     // Step 3-4: Smart clustering - find TOP row first, then LEFT/RIGHT
     const bayEntries = bays.map(el => {
@@ -73,14 +72,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     topBays.sort((a, b) => a.x - b.x);
 
-    // Remaining elements: split into LEFT and RIGHT by X
+    // Remaining elements: split into LEFT and RIGHT by their actual SVG side.
+    // North Terminal has only one side column, so midpoint of the remaining
+    // bays would incorrectly label the right-side column as LEFT.
     const remaining = bayEntries.filter(e => !topBays.includes(e));
-    const minX = Math.min(...remaining.map(e => e.x));
-    const maxX = Math.max(...remaining.map(e => e.x));
-    const midX = minX + (maxX - minX) / 2;
-
-    const leftBays = remaining.filter(e => e.x <= midX).sort((a, b) => a.y - b.y);
-    const rightBays = remaining.filter(e => e.x > midX).sort((a, b) => a.y - b.y);
+    const leftBays = remaining
+        .filter(e => e.x + e.width / 2 < svgWidth / 2)
+        .sort((a, b) => a.y - b.y);
+    const rightBays = remaining
+        .filter(e => e.x + e.width / 2 >= svgWidth / 2)
+        .sort((a, b) => a.y - b.y);
 
     // Assign IDs
     const idMap = new Map();
@@ -476,8 +477,8 @@ function fillCompanyOperator() {
                     operatorSelect.value = resolvedOperatorId;
                 }
 
-                operatorSelect.value = '';
-                document.getElementById('panelCompany').value = '';
+                const selectedOperator = operatorSelect.options[operatorSelect.selectedIndex];
+                document.getElementById('panelCompany').value = selectedOperator?.dataset.company || apiOperator?.company_name || driverCompany || '';
             })
             .catch(error => console.error('Error fetching operators:', error));
 

@@ -10,8 +10,8 @@ use App\Models\Space;
 use App\Models\TerminalOccupancyHistory;
 use App\Models\TerminalSpace;
 use App\Support\ManagerTerminalScope;
-use GetStream\StreamChat\Client as StreamChat;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -47,26 +47,7 @@ class DashboardController extends Controller
             $total = Space::count();
         }
 
-        $unreadCount = 0;
-        try {
-            $streamClient = new StreamChat(
-                env('STREAM_API_KEY'),
-                env('STREAM_API_SECRET')
-            );
-            $streamUserId = $user->streamUserId();
-
-            $channels = $streamClient->queryChannels(
-                ['members' => ['$in' => [$streamUserId]]],
-                [],
-                ['state' => true]
-            );
-
-            foreach ($channels['channels'] as $channel) {
-                $unreadCount += $channel['channel']['read'][$streamUserId]['unread_messages'] ?? 0;
-            }
-        } catch (\Exception $e) {
-            $unreadCount = 0;
-        }
+        $pendingApprovals = $this->pendingOperatorApprovalCount();
 
         $scheduleAnalytics = Schedule::query();
         $this->scopeSchedulesByTerminal($scheduleAnalytics);
@@ -101,7 +82,7 @@ class DashboardController extends Controller
             'available_spaces' => $available,
             'total_spaces' => $total,
             'total_schedules' => $scheduleCountQuery->count(),
-            'new_messages' => $unreadCount,
+            'pending_approvals' => $pendingApprovals,
         ];
 
         $analytics = [
@@ -162,5 +143,22 @@ class DashboardController extends Controller
             'available' => $available,
             'total' => $total,
         ]);
+    }
+
+    private function pendingOperatorApprovalCount(): int
+    {
+        $terminal = Auth::user()?->terminal;
+        $terminal = is_string($terminal) ? strtolower(trim($terminal)) : null;
+
+        if ($terminal === null || $terminal === '') {
+            return 0;
+        }
+
+        return DB::table('users')
+            ->where('role', 'bus_operator')
+            ->where('status', 'inactive')
+            ->whereNull('status_reason_action')
+            ->whereRaw('LOWER(terminal) = ?', [$terminal])
+            ->count();
     }
 }
