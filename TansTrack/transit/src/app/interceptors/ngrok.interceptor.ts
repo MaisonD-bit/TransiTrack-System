@@ -6,7 +6,9 @@ import { environment } from '../../environments/environment';
 @Injectable()
 export class NgrokInterceptor implements HttpInterceptor {
   intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    if ((environment.apiUrl || '').includes('ngrok')) {
+    const needsNgrokHeader =
+      req.url.includes('ngrok') || (environment.apiUrl || '').includes('ngrok');
+    if (needsNgrokHeader) {
       const modified = req.clone({
         setHeaders: {
           'ngrok-skip-browser-warning': 'true',

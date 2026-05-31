@@ -1,16 +1,19 @@
-@extends('layouts.app-sidebar')
+@extends('layouts.app')
 
-@section('title', 'Route stops & sysadmin')
+@section('title', 'Route stops')
 
 @section('content')
 <div class="container-fluid px-0">
     <div class="d-flex align-items-center mb-4">
         <i class="fas fa-map-marked-alt me-3 text-primary fs-4"></i>
         <div>
-            <h2 class="mb-0 fw-bold">Terminal route stops</h2>
+            <h2 class="mb-0 fw-bold">Route stops</h2>
             <p class="text-muted small mb-0">
-                Open a <strong>bus operator</strong> below, then choose a <strong>route</strong> to add stops on the map. Save each route, then send the submission to sysadmin when ready
-                ({{ strtoupper($terminal) }} terminal).
+                Open a <strong>submission</strong> below, then choose a <strong>route</strong> to add bus stops on the map.
+                Save each route, then send the submission to sysadmin when ready
+                @if($operatorTerminal)
+                    ({{ strtoupper($operatorTerminal) }} terminal).
+                @endif
             </p>
         </div>
     </div>
@@ -29,8 +32,8 @@
 
     <div id="route-stops-live"
          data-initial-checksum="{{ $listChecksum }}"
-         data-poll-url="{{ route('terminal.route-stops.poll') }}">
-        @include('operations.partials.route-stops-list')
+         data-poll-url="{{ route('route-stops.poll') }}">
+        @include('panels.route-stops-list')
     </div>
 </div>
 @endsection
@@ -39,7 +42,20 @@
 <script>
 (function () {
     const root = document.getElementById('route-stops-live');
-    if (!root || !root.dataset.pollUrl) return;
+    if (!root) return;
+
+    root.addEventListener('submit', async (e) => {
+        const form = e.target.closest('.js-bo-submit-sysadmin');
+        if (!form) return;
+        e.preventDefault();
+        const message = form.dataset.confirm || 'Send this submission to sysadmin for approval?';
+        const confirmed = typeof showSpaceConfirm === 'function'
+            ? await showSpaceConfirm(message, 'Send', 'Cancel')
+            : confirm(message);
+        if (confirmed) form.submit();
+    });
+
+    if (!root.dataset.pollUrl) return;
     let lastChecksum = root.dataset.initialChecksum || '';
     const pollUrl = root.dataset.pollUrl;
     const intervalMs = 6000;

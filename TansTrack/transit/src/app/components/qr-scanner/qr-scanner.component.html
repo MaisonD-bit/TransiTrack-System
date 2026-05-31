@@ -1,0 +1,47 @@
+<div class="scanner-wrapper">
+
+  <div class="scanner-topbar">
+    <span class="scanner-title">Scan e-Ticket</span>
+  </div>
+
+  <div class="mode-toggle">
+    <button [class.active]="mode === 'camera'" (click)="setMode('camera')">
+      <ion-icon name="camera-outline"></ion-icon> Camera
+    </button>
+    <button [class.active]="mode === 'upload'" (click)="setMode('upload')">
+      <ion-icon name="image-outline"></ion-icon> Upload QR
+    </button>
+  </div>
+
+  <div *ngIf="mode === 'camera'" id="driver-qr-reader-element" class="qr-reader-container"></div>
+
+  <div class="upload-area" *ngIf="mode === 'upload'">
+    <ion-icon name="qr-code-outline" class="upload-icon"></ion-icon>
+    <p>Select a photo of the commuter e-ticket QR</p>
+    <ion-button expand="block" color="primary" (click)="triggerFileInput()" [disabled]="isProcessingFile">
+      <ion-icon name="image-outline" slot="start"></ion-icon>
+      {{ isProcessingFile ? 'Reading QR...' : 'Choose Image' }}
+    </ion-button>
+    <input #fileInput type="file" accept="image/*" hidden (change)="onFileSelected($event)" />
+    <div id="driver-qr-file-decoder" style="display:none"></div>
+  </div>
+
+  <div class="error-msg" *ngIf="error">
+    <ion-icon name="warning-outline"></ion-icon> {{ error }}
+  </div>
+
+  <div class="retry-row" *ngIf="error && mode === 'camera'">
+    <ion-button expand="block" color="primary" (click)="startCamera()" [disabled]="isStartingCamera">
+      {{ isStartingCamera ? 'Starting camera…' : 'Retry camera' }}
+    </ion-button>
+  </div>
+
+  <p class="scan-hint">{{ hint }}</p>
+
+  <div class="cancel-row">
+    <ion-button expand="block" fill="outline" color="light" (click)="dismiss()">
+      Cancel
+    </ion-button>
+  </div>
+
+</div>

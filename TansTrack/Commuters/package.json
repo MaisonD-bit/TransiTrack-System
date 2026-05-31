@@ -12,7 +12,8 @@
     "lint": "ng lint",
     "patch:android-gradle": "node scripts/patch-capacitor-cordova-gradle.cjs",
     "cap:sync": "cap sync android && npm run patch:android-gradle",
-    "build:android": "ng build --configuration=production && cap sync android && npm run patch:android-gradle"
+    "build:android": "ng build --configuration=production && npm run cap:sync",
+    "ionic:build:android": "ionic build --prod && npm run cap:sync"
   },
   "private": true,
   "dependencies": {
@@ -24,6 +25,7 @@
     "@angular/platform-browser": "^20.0.0",
     "@angular/platform-browser-dynamic": "^20.0.0",
     "@angular/router": "^20.0.0",
+    "@capacitor/android": "7.4.2",
     "@capacitor/app": "7.0.1",
     "@capacitor/camera": "^7.0.1",
     "@capacitor/core": "7.4.2",

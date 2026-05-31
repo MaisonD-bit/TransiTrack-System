@@ -311,13 +311,25 @@ export class ApiService {
     }, { headers: this.getHeaders() });
   }
 
-  sendEmergencyAlert(driverId: number, emergencyType: string, message: string): Observable<any> {
-      return this.http.post(`${this.apiUrl}/notifications/driver-send`, {
-          driver_id: driverId,
-          type: 'emergency',
-          message: message || `Driver triggered an emergency alert: ${emergencyType}`,
-          emergency_type: emergencyType
-      }, { headers: this.getHeaders() });
+  sendEmergencyAlert(payload: {
+    driver_id: number;
+    emergency_type: string;
+    message: string;
+    latitude: number;
+    longitude: number;
+    location_label?: string;
+    schedule_id?: number;
+  }): Observable<any> {
+    return this.http.post(`${this.apiUrl}/notifications/driver-send`, {
+      driver_id: payload.driver_id,
+      type: 'emergency',
+      message: payload.message,
+      emergency_type: payload.emergency_type,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      location_label: payload.location_label,
+      ...(payload.schedule_id ? { schedule_id: payload.schedule_id } : {}),
+    }, { headers: this.getHeaders() });
   }
 
   /**
@@ -440,6 +452,14 @@ export class ApiService {
   getPassengerManifest(scheduleId: number): Observable<any> {
     return this.http.get(
       `${this.apiUrl}/schedules/${scheduleId}/manifest`,
+      { headers: this.getHeaders() }
+    ).pipe(catchError(this.handleError));
+  }
+
+  confirmCashPayment(scheduleId: number, publicTicketId: string): Observable<any> {
+    return this.http.patch(
+      `${this.apiUrl}/schedules/${scheduleId}/tickets/${encodeURIComponent(publicTicketId)}/confirm-cash`,
+      {},
       { headers: this.getHeaders() }
     ).pipe(catchError(this.handleError));
   }

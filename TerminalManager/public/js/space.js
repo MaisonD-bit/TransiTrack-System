@@ -329,7 +329,7 @@ function updateTooltipTimer(spaceId, timeEl) {
 function completeSpaceFromTooltip(e) {
     if (e) e.preventDefault();
     if (!currentSpace) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -353,7 +353,7 @@ function completeSpaceFromTooltip(e) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('✓ Space marked as COMPLETE');
+                showSpaceAlert('✓ Space marked as COMPLETE');
                 if (spaceElement) {
                     spaceElement.classList.remove('occupied-bay');
                     spaceElement.setAttribute('fill', '#35d335');
@@ -364,12 +364,12 @@ function completeSpaceFromTooltip(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Complete error:', error);
-            alert('Error completing occupancy: ' + error.message);
+            showSpaceAlert('Error completing occupancy: ' + error.message);
         });
     });
 }
@@ -436,7 +436,12 @@ function loadSpacesFromDatabase() {
 }
 
 function fillCompanyOperator() {
-    const driverId = document.getElementById('panelDriver').value;
+    const driverSelect = document.getElementById('panelDriver');
+    const driverId = driverSelect.value;
+    const selectedDriver = driverSelect.options[driverSelect.selectedIndex];
+    const driverOperatorId = selectedDriver?.dataset.operatorId || '';
+    const driverCompany = selectedDriver?.dataset.company || '';
+
     // Driver selected, now populate operator dropdown and fetch driver's routes
     if (driverId) {
         // Fetch operators
@@ -445,6 +450,9 @@ function fillCompanyOperator() {
             .then(data => {
                 const operatorSelect = document.getElementById('panelOperator');
                 operatorSelect.innerHTML = '<option value="">-- Select Operator --</option>';
+                const apiDriver = (data.drivers || []).find(driver => String(driver.id) === String(driverId));
+                const apiOperator = apiDriver?.user || null;
+                const resolvedOperatorId = driverOperatorId || (apiOperator?.id ? String(apiOperator.id) : '');
                 
                 // Populate with all available operators
                 data.operators.forEach(op => {
@@ -454,6 +462,21 @@ function fillCompanyOperator() {
                     option.textContent = op.name;
                     operatorSelect.appendChild(option);
                 });
+
+                if (resolvedOperatorId && !Array.from(operatorSelect.options).some(option => option.value === resolvedOperatorId)) {
+                    const option = document.createElement('option');
+                    option.value = resolvedOperatorId;
+                    option.dataset.company = apiOperator?.company_name || driverCompany || '';
+                    option.textContent = apiOperator?.name || 'Assigned operator';
+                    operatorSelect.appendChild(option);
+                }
+
+                if (resolvedOperatorId) {
+                    operatorSelect.value = resolvedOperatorId;
+                }
+
+                const selectedOperator = operatorSelect.options[operatorSelect.selectedIndex];
+                document.getElementById('panelCompany').value = selectedOperator?.dataset.company || apiOperator?.company_name || driverCompany || '';
             })
             .catch(error => console.error('Error fetching operators:', error));
 
@@ -521,7 +544,7 @@ function editSpaceMode(e) {
     const accommodationType = currentSpace.getAttribute('data-accommodation-type');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -627,23 +650,24 @@ function approveExtensionRequest(e) {
                 if (data.expiration_time) {
                     spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
                 }
-                alert('Extension approved.');
+                showSpaceAlert('Extension approved.');
                 refreshExtensionBanner(spaceId);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert(data.message || 'Failed to approve extension');
+                showSpaceAlert(data.message || 'Failed to approve extension');
             }
         })
-        .catch(err => alert('Error: ' + err.message));
+        .catch(err => showSpaceAlert('Error: ' + err.message));
 }
 
 function denyExtensionRequest(e) {
     if (e) e.preventDefault();
     const spaceId = selectedSpaceElement && selectedSpaceElement.getAttribute('data-space-id');
     if (!spaceId) return;
-    if (!confirm('Decline this extension request?')) return;
-    fetch('/api/terminal/deny-extension', {
+    showSpaceConfirm('Decline this extension request?').then((confirmed) => {
+        if (!confirmed) return;
+        fetch('/api/terminal/deny-extension', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -654,15 +678,16 @@ function denyExtensionRequest(e) {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                alert('Extension request declined.');
+                showSpaceAlert('Extension request declined.');
                 refreshExtensionBanner(spaceId);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert(data.message || 'Failed to deny extension');
+                showSpaceAlert(data.message || 'Failed to deny extension');
             }
         })
-        .catch(err => alert('Error: ' + err.message));
+        .catch(err => showSpaceAlert('Error: ' + err.message));
+    });
 }
 
 function occupySpace(e) {
@@ -673,7 +698,7 @@ function occupySpace(e) {
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
 
     if (!spaceId) {
-        alert('Invalid space selected');
+        showSpaceAlert('Invalid space selected');
         return;
     }
 
@@ -766,14 +791,15 @@ function updateCountdownDisplay() {
 
 function markSpaceComplete() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
     const spaceId = selectedSpaceElement.getAttribute('data-space-id');
     if (!spaceId) return;
 
-    if (confirm('Mark this space as complete and available?')) {
+    showSpaceConfirm('Mark this space as complete and available?').then((confirmed) => {
+        if (!confirmed) return;
         fetch('/api/terminal/release', {
             method: 'POST',
             headers: {
@@ -786,22 +812,22 @@ function markSpaceComplete() {
         .then(data => {
             if (data.success) {
                 console.log('Space marked as complete');
-                alert('Space is now available!');
+                showSpaceAlert('Space is now available!', 'success');
                 selectedSpaceElement.classList.remove('occupied-bay');
                 selectedSpaceElement.style.fill = '#35d335'; // Green
                 closePanel();
                 loadHistoryFromDatabase(currentHistoryPage);
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message, 'error');
             }
         })
         .catch(error => console.error('Complete error:', error));
-    }
+    });
 }
 
 function saveSpaceOccupancy() {
     if (!selectedSpaceElement) {
-        alert('No space selected');
+        showSpaceAlert('No space selected');
         return;
     }
 
@@ -815,7 +841,7 @@ function saveSpaceOccupancy() {
     if (isEditMode && isOccupied) {
         // ADD TIME TO OCCUPIED SPACE
         if (mins < 1) {
-            alert('Please enter at least 1 minute');
+            showSpaceAlert('Please enter at least 1 minute');
             return;
         }
 
@@ -841,16 +867,16 @@ function saveSpaceOccupancy() {
                         updateTooltip(currentSpace);
                     }
                 }
-                alert(`✓ Added ${mins} minutes to space`);
+                showSpaceAlert(`✓ Added ${mins} minutes to space`);
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to add time'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to add time'));
             }
         })
         .catch(error => {
             console.error('Error adding time:', error);
-            alert('Error adding time: ' + error.message);
+            showSpaceAlert('Error adding time: ' + error.message);
         });
     } else if (isEditMode && !isOccupied) {
         // EDIT SPACE DETAILS (for available space)
@@ -858,7 +884,7 @@ function saveSpaceOccupancy() {
         const accType = document.getElementById('panelAccommodationType').value;
         
         if (!newRouteName && !accType) {
-            alert('Please enter at least a route name or accommodation type');
+            showSpaceAlert('Please enter at least a route name or accommodation type');
             return;
         }
 
@@ -879,41 +905,36 @@ function saveSpaceOccupancy() {
             if (data.success) {
                 selectedSpaceElement.setAttribute('data-route', newRouteName);
                 selectedSpaceElement.setAttribute('data-accommodation-type', accType);
-                alert('Space updated successfully!');
+                showSpaceAlert('Space updated successfully!');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
-                alert('Error: ' + (data.message || 'Failed to update space'));
+                showSpaceAlert('Error: ' + (data.message || 'Failed to update space'));
             }
         })
         .catch(error => {
             console.error('Error updating space:', error);
-            alert('Error updating space: ' + error.message);
+            showSpaceAlert('Error updating space: ' + error.message);
         });
     } else {
         // OCCUPY MODE
         const driverId = document.getElementById('panelDriver').value;
-        const operatorId = document.getElementById('panelOperator').value;
+        const operatorId = document.getElementById('panelOperator').value || null;
         
         if (!driverId) {
-            alert('Please select a driver');
-            return;
-        }
-
-        if (!operatorId) {
-            alert('Please select an operator');
+            showSpaceAlert('Please select a driver');
             return;
         }
 
         if (!spaceId) {
-            alert('Invalid space selected');
+            showSpaceAlert('Invalid space selected');
             return;
         }
 
         const occupyPayload = {
             space_id: spaceId,
             driver_id: parseInt(driverId),
-            operator_id: parseInt(operatorId),
+            operator_id: operatorId ? parseInt(operatorId) : null,
             duration_minutes: mins,
             route_name: document.getElementById('panelRouteName').value || null,
             accommodation_type: document.getElementById('panelAccommodationType').value || null
@@ -944,7 +965,7 @@ function saveSpaceOccupancy() {
                     spaceExpirationTimes.set(spaceId, new Date(data.expiration_time).getTime());
                 }
                 
-                alert('Space occupied successfully!');
+                showSpaceAlert('Space occupied successfully!', 'success');
                 loadHistoryFromDatabase(currentHistoryPage);
                 closePanel();
             } else {
@@ -953,12 +974,12 @@ function saveSpaceOccupancy() {
                     console.error('Validation errors:', data.errors);
                     errorMsg += '\n' + Object.entries(data.errors).map(([key, msgs]) => `${key}: ${msgs.join(', ')}`).join('\n');
                 }
-                alert('Error: ' + errorMsg);
+                showSpaceAlert('Error: ' + errorMsg);
             }
         })
         .catch(error => {
             console.error('Error occupying space:', error);
-            alert('Error: ' + error.message);
+            showSpaceAlert('Error: ' + error.message);
         });
     }
 }
@@ -1023,7 +1044,7 @@ function cancelSpaceOccupancy(e) {
         })
         .then(data => {
             if (data.success) {
-                alert('✓ Occupancy CANCELLED');
+                showSpaceAlert('Occupancy cancelled.', 'success');
                 if (spaceElement) {
                     spaceElement.setAttribute('fill', '#35d335');
                     spaceElement.classList.remove('occupied-bay');
@@ -1034,12 +1055,12 @@ function cancelSpaceOccupancy(e) {
                 loadHistoryFromDatabase(currentHistoryPage);
                 closeTooltip();
             } else {
-                alert('Error: ' + data.message);
+                showSpaceAlert('Error: ' + data.message);
             }
         })
         .catch(error => {
             console.error('Cancel error:', error);
-            alert('Error cancelling occupancy: ' + error.message);
+            showSpaceAlert('Error cancelling occupancy: ' + error.message);
         });
     });
 }
@@ -1329,8 +1350,16 @@ function showHistoryDetail(recordId) {
                                 <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.driver_contact || 'N/A'}</p>
                             </div>
                             <div>
+                                <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Bus Operator</p>
+                                <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.bus_operator_name || 'N/A'}</p>
+                            </div>
+                            <div>
                                 <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Company Name</p>
                                 <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.company_name || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Operator Email</p>
+                                <p style="margin: 5px 0 15px 0; font-size: 14px; color: #333;">${record.bus_operator_email || 'N/A'}</p>
                             </div>
                             <div>
                                 <p style="margin: 0; font-weight: 700; color: #666; font-size: 11px; text-transform: uppercase;">Company Contact</p>

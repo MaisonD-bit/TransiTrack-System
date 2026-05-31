@@ -20,6 +20,11 @@ interface Schedule {
   end_time: string;
   ends_next_day?: boolean;
   status: string;
+  leg_status?: string;
+  trip_leg?: number;
+  leg_direction?: 'outbound' | 'return';
+  has_return_trip?: boolean;
+  return_trip_status?: string;
   fare_regular?: number;
   fare_aircon?: number;
   notes?: string;
@@ -217,7 +222,23 @@ export class SchedulePage implements OnInit, OnDestroy {
   }
 
   canAccept(schedule: Schedule): boolean {
-    return schedule.status === 'scheduled';
+    const status = (schedule.status || '').toLowerCase();
+    const leg = (schedule.leg_status || 'pending').toLowerCase();
+    if (leg !== 'pending') {
+      return false;
+    }
+    return status === 'scheduled' || status === 'accepted' || status === 'active';
+  }
+
+  acceptScheduleLabel(schedule: Schedule): string {
+    const leg = schedule.trip_leg ?? 1;
+    if (schedule.has_return_trip && leg > 1) {
+      return 'Accept return trip';
+    }
+    if (schedule.has_return_trip && (schedule.status || '').toLowerCase() === 'active') {
+      return 'Accept next leg';
+    }
+    return 'Accept schedule';
   }
 
   canDecline(schedule: Schedule): boolean {
@@ -229,11 +250,15 @@ export class SchedulePage implements OnInit, OnDestroy {
   }
 
   canStart(schedule: Schedule): boolean {
-    return schedule.status === 'accepted';
+    const leg = schedule.leg_status ?? 'pending';
+    if (leg === 'accepted') {
+      return schedule.status === 'accepted' || schedule.status === 'active';
+    }
+    return schedule.status === 'active' && leg === 'pending';
   }
 
   canComplete(schedule: Schedule): boolean {
-    return schedule.status === 'active';
+    return schedule.status === 'active' && (schedule.leg_status ?? '') === 'active';
   }
 
   canCancel(schedule: Schedule): boolean {
@@ -257,11 +282,17 @@ export class SchedulePage implements OnInit, OnDestroy {
               const response = await this.apiService.acceptSchedule(schedule.id).toPromise();
               if (response && response.success) {
                 await this.loadSchedules();
-                await this.presentToast('Schedule accepted successfully!', 'success');
+                await this.presentToast(response.message || 'Schedule accepted successfully!', 'success');
+              } else {
+                await this.presentToast(response?.message || 'Failed to accept schedule', 'danger');
               }
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error accepting schedule:', error);
-              await this.presentToast('Failed to accept schedule', 'danger');
+              const msg =
+                error?.error?.message ||
+                error?.message ||
+                'Failed to accept schedule';
+              await this.presentToast(msg, 'danger');
             }
           }
         }
@@ -389,9 +420,13 @@ export class SchedulePage implements OnInit, OnDestroy {
                 await this.loadSchedules();
                 await this.presentToast('Trip completed successfully!', 'success');
               }
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error completing schedule:', error);
-              await this.presentToast('Failed to complete trip', 'danger');
+              const msg =
+                error?.error?.message ||
+                error?.message ||
+                'Failed to complete trip. Start the trip first if you have not already.';
+              await this.presentToast(msg, 'danger');
             }
           }
         }

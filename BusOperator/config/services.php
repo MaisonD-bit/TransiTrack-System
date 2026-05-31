@@ -40,6 +40,15 @@ return [
         'secret_key'    => env('MAYA_SECRET_KEY', ''),
         'base_url'      => env('MAYA_BASE_URL', 'https://pg-sandbox.paymaya.com'),
         'callback_url'  => env('MAYA_CALLBACK_URL', env('APP_URL')),
+        'dev_mock'      => (bool) env('MAYA_DEV_MOCK', false),
+    ],
+
+    'bus_operator' => [
+        'url' => env('BUS_OPERATOR_URL', env('APP_URL', 'http://localhost:8000')),
+    ],
+
+    'terminal_manager' => [
+        'url' => env('TERMINAL_MANAGER_URL', 'http://localhost:8001'),
     ],
 
 ];

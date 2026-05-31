@@ -6,10 +6,42 @@ use App\Models\Bus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth; 
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class BusController extends Controller
 {
+    private function uniqueBusRule(string $column, int $userId, ?int $ignoreId = null)
+    {
+        $rule = Rule::unique('buses', $column)
+            ->where(fn ($q) => $q->where('user_id', $userId)->whereNull('deleted_at'));
+
+        return $ignoreId ? $rule->ignore($ignoreId) : $rule;
+    }
+
+    /** Free plate/bus number slots held by soft-deleted rows for this operator. */
+    private function purgeTrashedBusDuplicates(int $userId, string $busNumber, string $plateNumber): void
+    {
+        Bus::onlyTrashed()
+            ->where('user_id', $userId)
+            ->where(function ($q) use ($busNumber, $plateNumber) {
+                $q->where('bus_number', $busNumber)->orWhere('plate_number', $plateNumber);
+            })
+            ->each(fn (Bus $bus) => $bus->forceDelete());
+    }
+
+    /** Rename unique fields so a soft-deleted bus does not block re-registration. */
+    private function releaseUniqueFieldsForSoftDelete(Bus $bus): void
+    {
+        $tag = '-d'.$bus->id;
+        $max = 20 - strlen($tag);
+
+        $bus->bus_number = Str::limit((string) $bus->bus_number, max(1, $max), '').$tag;
+        $bus->plate_number = Str::limit((string) $bus->plate_number, max(1, $max), '').$tag;
+        $bus->saveQuietly();
+    }
+
     /**
      * Display buses panel with terminal filtering
      */
@@ -72,9 +104,11 @@ class BusController extends Controller
             return response()->json(['success' => false, 'message' => 'Access denied. Terminal not assigned.'], 403);
         }
 
+        $userId = (int) $user->id;
+
         $validator = Validator::make($request->all(), [
-            'plate_number' => 'required|string|max:20|unique:buses',
-            'bus_number' => 'required|string|max:20|unique:buses',
+            'plate_number' => ['required', 'string', 'max:20', $this->uniqueBusRule('plate_number', $userId)],
+            'bus_number' => ['required', 'string', 'max:20', $this->uniqueBusRule('bus_number', $userId)],
             'model' => 'required|string|max:100',
             'capacity' => 'required|integer|min:1',
             'accommodation_type' => 'required|in:regular,air-conditioned',
@@ -86,8 +120,20 @@ class BusController extends Controller
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
+        if (empty($user->company_name)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your operator profile has no company name. Update your profile before adding buses.',
+            ], 422);
+        }
+
         try {
-            //   FIX: Explicitly set user_id in the array
+            $this->purgeTrashedBusDuplicates(
+                $userId,
+                trim((string) $request->bus_number),
+                trim((string) $request->plate_number)
+            );
+
             $busData = [
                 'user_id' => $user->id,
                 'plate_number' => $request->plate_number,
@@ -112,7 +158,14 @@ class BusController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Bus creation error: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString()); //   More detailed error
+
+            if (str_contains($e->getMessage(), 'Duplicate') || str_contains($e->getMessage(), 'unique')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A bus with this number or plate already exists. Use different values or contact support.',
+                ], 422);
+            }
+
             return response()->json(['success' => false, 'message' => 'Failed to add bus: ' . $e->getMessage()], 500);
         }
     }
@@ -163,12 +216,13 @@ class BusController extends Controller
 
         $bus = Bus::where('user_id', $user->id)->where('terminal', $user->terminal)->findOrFail($id);
 
+        $userId = (int) $user->id;
+
         $validator = Validator::make($request->all(), [
-            'bus_number' => 'required|string|max:20|unique:buses,bus_number,' . $id,
-            'plate_number' => 'required|string|max:20|unique:buses,plate_number,' . $id,
+            'bus_number' => ['required', 'string', 'max:20', $this->uniqueBusRule('bus_number', $userId, (int) $id)],
+            'plate_number' => ['required', 'string', 'max:20', $this->uniqueBusRule('plate_number', $userId, (int) $id)],
             'model' => 'required|string|max:100',
             'capacity' => 'required|integer|min:1',
-            'bus_company' => 'nullable|string|max:100',
             'accommodation_type' => 'required|in:regular,air-conditioned',
             'status' => 'required|in:available,in_service,maintenance,out_of_service',
             'description' => 'nullable|string|max:500',
@@ -182,11 +236,16 @@ class BusController extends Controller
         }
 
         try {
-            // Keep the existing terminal, don't allow changing it
-            $busData = $request->all();
-            unset($busData['terminal']); // Remove terminal from update data
-            
-            $bus->update($busData);
+            $bus->update([
+                'plate_number' => $request->plate_number,
+                'bus_number' => $request->bus_number,
+                'model' => $request->model,
+                'capacity' => $request->capacity,
+                'accommodation_type' => $request->accommodation_type,
+                'status' => $request->status,
+                'description' => $request->description,
+                'bus_company' => $user->company_name,
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -221,7 +280,12 @@ class BusController extends Controller
                 return response()->json(['success' => false, 'message' => 'Cannot delete bus with active schedules'], 400);
             }
 
-            $bus->delete();
+            if (! $bus->schedules()->exists()) {
+                $bus->forceDelete();
+            } else {
+                $this->releaseUniqueFieldsForSoftDelete($bus);
+                $bus->delete();
+            }
 
             return response()->json(['success' => true, 'message' => 'Bus deleted successfully']);
         } catch (\Exception $e) {

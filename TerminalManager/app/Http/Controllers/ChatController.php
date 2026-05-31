@@ -12,9 +12,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use App\Support\ManagerTerminalScope;
+use App\Support\PublicMediaUrl;
 
 class ChatController extends Controller
 {
+    use ManagerTerminalScope;
     protected $streamClient;
 
     public function __construct()
@@ -95,6 +98,9 @@ class ChatController extends Controller
                 $userIds[] = (int) $m[1];
             } elseif (preg_match('/^m_(\d+)$/', $s, $m)) {
                 $managerRowIds[] = (int) $m[1];
+            } elseif (ctype_digit($s)) {
+                // Legacy numeric ids from older UI builds
+                $userIds[] = (int) $s;
             }
         }
 
@@ -111,11 +117,7 @@ class ChatController extends Controller
             ->where('role', 'bus_operator')
             ->where('status', 'active');
 
-        if ($manager->terminal) {
-            $q->where('terminal', $manager->terminal);
-        }
-
-        return $q;
+        return $this->scopeOperatorsByTerminal($q);
     }
 
     public function index()
@@ -210,7 +212,7 @@ class ChatController extends Controller
                     'id' => 'u_'.$user->id,
                     'name' => $user->name,
                     'role' => 'user',
-                    'image' => $user->photo_url ?? null,
+                    'image' => PublicMediaUrl::forProfilePhoto($user->photo_url),
                 ];
             }
 
@@ -275,7 +277,7 @@ class ChatController extends Controller
                     return [
                         'id' => $user->streamUserId(),
                         'name' => $user->name,
-                        'photo_url' => $user->photo_url,
+                        'photo_url' => PublicMediaUrl::forProfilePhoto($user->photo_url),
                         'role' => $user->role,
                         'formatted_role' => $user->formatted_role,
                         'terminal' => $user->terminal,
@@ -297,7 +299,7 @@ class ChatController extends Controller
                     return [
                         'id' => 'u_'.$user->id,
                         'name' => $user->name,
-                        'photo_url' => $user->photo_url,
+                        'photo_url' => PublicMediaUrl::forProfilePhoto($user->photo_url),
                         'role' => $user->role,
                         'formatted_role' => 'Bus Operator',
                         'terminal' => $user->terminal ?? null,
@@ -364,7 +366,7 @@ class ChatController extends Controller
                     'id' => 'u_'.$user->id,
                     'name' => $user->name,
                     'role' => 'user',
-                    'image' => $user->photo_url ?? null,
+                    'image' => PublicMediaUrl::forProfilePhoto($user->photo_url),
                 ];
             }
 

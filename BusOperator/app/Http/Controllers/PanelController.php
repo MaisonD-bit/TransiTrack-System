@@ -147,7 +147,10 @@ class PanelController extends Controller
 
         $unread = Notification::query()
             ->where('recipient_id', $userId)
-            ->whereNull('sender_id')
+            ->where(function ($query) {
+                $query->whereNull('sender_id')
+                    ->orWhere('type', 'manager_announcement');
+            })
             ->where('is_read', false)
             ->count();
 

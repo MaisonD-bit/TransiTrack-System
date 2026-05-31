@@ -5,12 +5,12 @@
         <td>{{ $r->operator?->name ?? 'User #'.$r->operator_user_id }}</td>
         <td><span class="badge bg-secondary text-uppercase">{{ $r->terminal }}</span></td>
         <td class="small">{{ $item['route_names'] ?: '—' }}</td>
-        <td class="small text-muted">{{ $r->submitted_by_terminal_at?->diffForHumans() ?? $r->created_at->diffForHumans() }}</td>
+        <td class="small text-muted">{{ ($r->submitted_for_sysadmin_at ?? $r->submitted_by_terminal_at)?->diffForHumans() ?? $r->created_at->diffForHumans() }}</td>
         <td class="text-end text-nowrap">
             <a href="{{ route('sysadmin.approvals.review', $r) }}" class="btn btn-sm btn-outline-primary">
                 <i class="fas fa-map"></i> Review
             </a>
-            <form action="{{ route('sysadmin.approvals.approve', $r) }}" method="POST" class="d-inline" onsubmit="return confirm('Approve this route package?');">
+            <form action="{{ route('sysadmin.approvals.approve', $r) }}" method="POST" class="d-inline js-sysadmin-approve-form" data-confirm-message="Approve this route package?">
                 @csrf
                 <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-check"></i> Approve</button>
             </form>

@@ -17,6 +17,7 @@ class RouteApprovalRequest extends Model
         'status',
         'submitted_by_operator_at',
         'submitted_by_terminal_at',
+        'submitted_for_sysadmin_at',
         'decided_at',
         'decided_by_sysadmin_id',
         'sysadmin_notes',
@@ -28,6 +29,7 @@ class RouteApprovalRequest extends Model
         'stop_configuration' => 'array',
         'submitted_by_operator_at' => 'datetime',
         'submitted_by_terminal_at' => 'datetime',
+        'submitted_for_sysadmin_at' => 'datetime',
         'decided_at' => 'datetime',
     ];
 

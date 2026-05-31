@@ -4,7 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Announcement;
 use App\Models\OperatorUser;
-use App\Notifications\NewAnnouncement;
+use App\Support\ManagerTerminalScope;
+use App\Support\ManagerUsersLink;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -12,9 +13,20 @@ use Illuminate\Support\Facades\Log;
 
 class AnnouncementController extends Controller
 {
+    use ManagerTerminalScope;
+    use ManagerUsersLink;
+
     public function index()
     {
-        $announcements = Announcement::whereNull('recipient_id')
+        $senderUserId = $this->resolveManagerUsersId();
+
+        if (! $senderUserId) {
+            return view('operations.announcement', ['announcements' => collect()]);
+        }
+
+        $announcements = Announcement::query()
+            ->where('sender_id', $senderUserId)
+            ->whereNull('recipient_id')
             ->where('recipient_type', 'operators')
             ->latest()
             ->get();
@@ -30,36 +42,17 @@ class AnnouncementController extends Controller
         ]);
 
         $currentUser = Auth::user();
-        if (!$currentUser) {
-            Log::warning('Announcement create failed: No authenticated user');
-
+        if (! $currentUser) {
             return redirect()->route('announcements')
                 ->with('error', 'Your session has expired. Please log in again.');
         }
 
-        $userCheck = DB::table('managers')->where('id', $currentUser->id)->first();
-        if (!$userCheck) {
-            Log::warning('Announcement create failed: User not found in database', [
-                'user_id' => $currentUser->id,
-                'user_name' => $currentUser->name,
-            ]);
-
-            return redirect()->route('announcements')
-                ->with('error', 'Your user record was not found. Please log in again.');
-        }
-
         try {
-            $senderUserId = $currentUser->user_id
-                ?: DB::table('users')->where('email', $currentUser->email)->value('id');
+            $senderUserId = $this->resolveManagerUsersId($currentUser);
 
-            if (!$senderUserId) {
-                Log::warning('Announcement create failed: Manager has no linked users row', [
-                    'manager_id' => $currentUser->id,
-                    'manager_email' => $currentUser->email,
-                ]);
-
+            if (! $senderUserId) {
                 return redirect()->route('announcements')
-                    ->with('error', 'Your manager account is not linked to a user record. Please contact the administrator.');
+                    ->with('error', 'Could not link your manager account to the operator database. Please contact the administrator.');
             }
 
             $announcement = Announcement::create([
@@ -70,15 +63,21 @@ class AnnouncementController extends Controller
                 'recipient_type' => 'operators',
             ]);
 
-            $recipients = OperatorUser::where('role', 'bus_operator')->get();
+            $recipientQuery = OperatorUser::where('role', 'bus_operator')
+                ->where('status', 'active');
+            $this->scopeOperatorsByTerminal($recipientQuery);
+            $recipients = $recipientQuery->get();
+
+            if ($recipients->isEmpty()) {
+                return redirect()->route('announcements')
+                    ->with('warning', 'Announcement saved, but no active bus operators were found for your terminal.');
+            }
 
             foreach ($recipients as $recipient) {
-                $recipient->notify(new NewAnnouncement($announcement));
-
                 try {
                     DB::table('notifications')->insert([
                         'type' => 'manager_announcement',
-                        'message' => $validated['subject'] . ': ' . $validated['body'],
+                        'message' => $validated['subject'].': '.$validated['body'],
                         'sender_id' => $senderUserId,
                         'recipient_id' => $recipient->id,
                         'driver_id' => null,
@@ -102,42 +101,30 @@ class AnnouncementController extends Controller
                 }
             }
 
-            return redirect()->route('announcements')->with('success', 'Announcement sent successfully.');
+            return redirect()->route('announcements')->with(
+                'success',
+                'Announcement sent to '.$recipients->count().' bus operator(s).'
+            );
         } catch (\Exception $e) {
             Log::error('Failed to create announcement', [
                 'user_id' => $currentUser->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->route('announcements')
-                ->with('error', 'Failed to send announcement: ' . $e->getMessage());
+                ->with('error', 'Failed to send announcement: '.$e->getMessage());
         }
     }
 
     public function show($id)
     {
-        $announcement = Announcement::findOrFail($id);
-        $currentUser = Auth::user();
-        $senderUserId = $currentUser?->user_id
-            ?: DB::table('users')->where('email', $currentUser?->email)->value('id');
+        $senderUserId = $this->resolveManagerUsersId();
 
-        if ((int) $announcement->sender_id !== (int) $senderUserId) {
-            $userRole = Auth::user()->role;
-            $canView = false;
-
-            if ($announcement->recipient_type === 'operators' && $userRole === 'bus_operator') {
-                $canView = true;
-            } elseif ($announcement->recipient_type === 'managers' && $userRole === 'terminalManager') {
-                $canView = true;
-            } elseif ($announcement->recipient_type === 'all' && in_array($userRole, ['bus_operator', 'terminalManager'], true)) {
-                $canView = true;
-            }
-
-            if (!$canView) {
-                abort(403, 'You are not authorized to view this announcement.');
-            }
+        if (! $senderUserId) {
+            abort(403, 'You are not authorized to view this announcement.');
         }
+
+        $announcement = Announcement::where('sender_id', $senderUserId)->findOrFail($id);
 
         return view('announcements.show', compact('announcement'));
     }

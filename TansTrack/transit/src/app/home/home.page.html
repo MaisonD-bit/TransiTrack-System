@@ -39,11 +39,11 @@
       <div *ngIf="currentSchedule; else noCurrent">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
-          <span>{{ hasReturnTrip ? getCurrentLegRoute() : getScheduleRoute(currentSchedule) }}</span>
+          <span>{{ getScheduleLegTitle(currentSchedule, legDirection) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="location-outline"></ion-icon>
-          <span>{{ hasReturnTrip ? getCurrentLegDestination() : getScheduleDestination(currentSchedule) }}</span>
+          <span>{{ getScheduleLegDestination(currentSchedule, legDirection) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="time-outline"></ion-icon>
@@ -147,15 +147,15 @@
       <div *ngIf="returnTripSchedule">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
-          <span>{{ getNextLegRoute() }}</span>
+          <span>{{ getScheduleLegTitle(currentSchedule, nextLegDirection) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="location-outline"></ion-icon>
-          <span>{{ getNextLegDestination() }}</span>
+          <span>{{ getScheduleLegDestination(currentSchedule, nextLegDirection) }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="time-outline"></ion-icon>
-          <span>{{ getScheduleTime(returnTripSchedule) }}</span>
+          <span>{{ getReturnLegTime(currentSchedule) }}</span>
         </div>
         <div class="schedule-row" *ngIf="returnTripSchedule.bus">
           <ion-icon name="car-outline"></ion-icon>
@@ -166,11 +166,11 @@
       <div *ngIf="!returnTripSchedule && nextSchedule">
         <div class="schedule-row">
           <ion-icon name="bus-outline"></ion-icon>
-          <span>{{ getScheduleRoute(nextSchedule) }}</span>
+          <span>{{ getScheduleLegTitle(nextSchedule, 'outbound') }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="location-outline"></ion-icon>
-          <span>{{ getScheduleDestination(nextSchedule) }}</span>
+          <span>{{ getScheduleLegDestination(nextSchedule, 'outbound') }}</span>
         </div>
         <div class="schedule-row">
           <ion-icon name="time-outline"></ion-icon>
@@ -212,7 +212,7 @@
               <ion-icon name="person-circle-outline" color="primary"></ion-icon>
             </div>
             <div class="passenger-number">{{ currentPassengers }}</div>
-            <div class="passenger-label">Current (ticketed)</div>
+            <div class="passenger-label">Current (on board)</div>
           </ion-card-content>
         </ion-card>
       </ion-col>
@@ -275,10 +275,19 @@
             <h3>{{ p.commuter_name }}</h3>
             <p>₱{{ p.fare.toFixed(2) }} · {{ getPaymentMethodLabel(p.payment_method) }}</p>
           </ion-label>
-          <ion-note slot="end">
+          <ion-note slot="end" class="manifest-actions">
             <span *ngIf="p.alighted" class="alighted-tag">Alighted</span>
+            <ion-button
+              *ngIf="canConfirmCash(p)"
+              size="small"
+              fill="outline"
+              color="success"
+              (click)="confirmCashFromPassenger(p); $event.stopPropagation()"
+            >
+              Cash received
+            </ion-button>
             <ion-badge
-              *ngIf="!p.alighted"
+              *ngIf="!p.alighted && !canConfirmCash(p)"
               [color]="p.payment_status === 'paid' ? 'success' : 'warning'"
               class="status-chip">
               {{ p.payment_status === 'paid' ? 'Paid' : 'Pending' }}
@@ -322,8 +331,8 @@
             </ion-button>
           </ion-col>
         </ion-row>
-        <ion-row class="actions-second-row">
-          <ion-col size="12">
+        <ion-row>
+          <ion-col size="6">
             <ion-button
               expand="block"
               fill="outline"
@@ -333,6 +342,18 @@
             >
               <ion-icon name="alert-circle" slot="start"></ion-icon>
               Emergency Alert
+            </ion-button>
+          </ion-col>
+          <ion-col size="6">
+            <ion-button
+              expand="block"
+              fill="outline"
+              color="tertiary"
+              class="action-btn emergency-contact"
+              (click)="presentEmergencyContact()"
+            >
+              <ion-icon name="call-outline" slot="start"></ion-icon>
+              Emergency Contact
             </ion-button>
           </ion-col>
         </ion-row>

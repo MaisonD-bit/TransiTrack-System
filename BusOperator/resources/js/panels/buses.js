@@ -1,3 +1,17 @@
+async function busConfirm(message, confirmLabel = 'Confirm', cancelLabel = 'Cancel') {
+    if (typeof showSpaceConfirm === 'function') {
+        return showSpaceConfirm(message, confirmLabel, cancelLabel);
+    }
+    return confirm(message);
+}
+
+function busAlert(message, type = 'info') {
+    if (typeof showSpaceAlert === 'function') {
+        return showSpaceAlert(message, type);
+    }
+    alert(message);
+}
+
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `position-fixed top-0 end-0 m-3 alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} alert-dismissible fade show`;
@@ -20,7 +34,6 @@ function showToast(message, type = 'info') {
 function showBusModal() {
     document.getElementById('busForm').reset();
     document.getElementById('bus_id').value = '';
-    document.getElementById('method_field').value = '';
     document.getElementById('modalTitleText').textContent = 'Add New Bus';
     document.getElementById('submitText').textContent = 'Save Bus';
     
@@ -67,12 +80,6 @@ function editBus(busId) {
             setElementValue('bus_status', data.status); //   Note: form field is 'bus_status', not 'status'
             setElementValue('description', data.description);
             
-            // Set method field for update
-            const methodField = document.getElementById('method_field');
-            if (methodField) {
-                methodField.value = 'PUT';
-            }
-            
             // Update modal title and button text
             const modalTitle = document.getElementById('modalTitleText');
             const submitText = document.getElementById('submitText');
@@ -98,18 +105,20 @@ function saveBus() {
     const formData = new FormData(form);
     const busId = document.getElementById('bus_id').value;
     const isEdit = busId !== '';
-    
-    // Determine URL and method
+
+    // bus_id is UI-only; never send on create/update
+    formData.delete('bus_id');
+
     const url = isEdit ? `/buses/${busId}` : '/buses';
-    
+
     const submitBtn = document.getElementById('submitBtn');
     const submitText = document.getElementById('submitText');
     const originalText = submitText.textContent;
-    
+
     submitBtn.disabled = true;
     submitText.textContent = 'Saving...';
-    
-    // Add method for Laravel
+
+    // Only spoof PUT on edit (empty _method breaks Laravel and returns 400)
     if (isEdit) {
         formData.append('_method', 'PUT');
     }
@@ -147,21 +156,17 @@ function saveBus() {
     })
     .catch(error => {
         console.error('Error:', error);
-        
+
         if (error.errors) {
             showValidationErrors(error.errors);
-        } else {
-            let errorMessage = 'Error saving bus';
-            
-            if (error.errors) {
-                const errors = Object.values(error.errors).flat();
-                errorMessage = errors.join('\n');
-            } else if (error.message) {
-                errorMessage = error.message;
+            const messages = Object.values(error.errors).flat();
+            if (messages.length) {
+                showToast(messages.join(' '), 'error');
             }
-            
-            showToast(errorMessage, 'error');
+            return;
         }
+
+        showToast(error.message || 'Error saving bus', 'error');
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -170,33 +175,36 @@ function saveBus() {
 }
 
 // Delete bus function
-function deleteBus(busId) {
-    if (confirm('Are you sure you want to delete this bus? This action cannot be undone.')) {
-        fetch(`/buses/${busId}`, {
+async function deleteBus(busId) {
+    const confirmed = await busConfirm(
+        'Are you sure you want to delete this bus? This action cannot be undone.',
+        'Delete',
+        'Cancel'
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/buses/${busId}`, {
             method: 'DELETE',
             headers: {
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
-                'Accept': 'application/json'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                showToast(data.message || 'Bus deleted successfully', 'success');
-                setTimeout(() => window.location.reload(), 1000);
-            } else {
-                throw new Error(data.message || 'Unknown error occurred');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showToast('Error deleting bus: ' + (error.message || 'Unknown error'), 'error');
+                'Accept': 'application/json',
+            },
         });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to delete bus');
+        }
+
+        showToast(data.message || 'Bus deleted successfully', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+        console.error('Error:', error);
+        busAlert('Error deleting bus: ' + (error.message || 'Unknown error'), 'error');
     }
 }
 
@@ -225,9 +233,12 @@ function clearValidationErrors() {
 function showValidationErrors(errors) {
     clearValidationErrors();
     
+    const fieldIdMap = { status: 'bus_status' };
+
     for (const [field, messages] of Object.entries(errors)) {
-        const input = document.getElementById(field);
-        const errorDiv = document.getElementById(`${field}_error`);
+        const inputId = fieldIdMap[field] || field;
+        const input = document.getElementById(inputId);
+        const errorDiv = document.getElementById(`${inputId}_error`);
         
         if (input && errorDiv) {
             input.classList.add('is-invalid');

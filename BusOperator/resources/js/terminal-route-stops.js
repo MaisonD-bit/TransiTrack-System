@@ -1,5 +1,5 @@
 /**
- * Terminal manager: add bus stops on operator route paths (Mapbox).
+ * Bus operator: add bus stops on route paths (Mapbox).
  * Bundled via Vite so Mapbox loads before init (fixes blank map).
  */
 
@@ -11,6 +11,21 @@ let tmStopNameResolver = null;
 
 /** Assumed average speed (km/h) along the drawn path for ETA = f(distance). Tune if needed. */
 const TM_ETA_AVG_SPEED_KMH = 25;
+
+function tmAlert(message, type = 'warning') {
+    if (typeof showSpaceAlert === 'function') {
+        showSpaceAlert(message, type);
+    } else {
+        alert(message);
+    }
+}
+
+function tmConfirm(message, confirmLabel = 'Confirm', cancelLabel = 'Cancel') {
+    if (typeof showSpaceConfirm === 'function') {
+        return showSpaceConfirm(message, confirmLabel, cancelLabel);
+    }
+    return Promise.resolve(confirm(message));
+}
 
 /**
  * ETA in whole minutes from cumulative distance (km) along the route from the terminal.
@@ -148,6 +163,30 @@ function projectOntoLine(coords, plng, plat) {
         }
     }
     return best;
+}
+
+function parseLngLatPair(str) {
+    if (!str || typeof str !== 'string') return null;
+    const parts = str.split(',').map((s) => parseFloat(String(s).trim()));
+    if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return null;
+    return [parts[0], parts[1]];
+}
+
+/**
+ * Route destination for map marker: saved end_coordinates, else last point on geometry.
+ */
+function getRouteEndPoint(routeMeta) {
+    if (!routeMeta) return null;
+    const label = (routeMeta.end_location || 'End point').trim() || 'End point';
+    const fromField = parseLngLatPair(routeMeta.end_coordinates);
+    if (fromField) {
+        return { lngLat: fromField, label };
+    }
+    const coords = normalizeLineString(routeMeta.geometry);
+    if (coords?.length) {
+        return { lngLat: coords[coords.length - 1], label };
+    }
+    return null;
 }
 
 function normalizeLineString(geometry) {
@@ -288,6 +327,7 @@ function initTerminalStopMaps() {
 
         const routeLayers = [];
         const markersByReq = [];
+        const endpointMarkers = [];
         let stopsByRoute = {};
         let activeRouteId = routesMetaForMap.length ? String(routesMetaForMap[0].id) : null;
 
@@ -326,6 +366,27 @@ function initTerminalStopMaps() {
             if (stopJsonField) stopJsonField.value = JSON.stringify(payload);
             renderStopTable();
             redrawMarkers();
+        }
+
+        function redrawEndpointMarkers() {
+            endpointMarkers.forEach((m) => m.remove());
+            endpointMarkers.length = 0;
+            const routesToMark = activeRouteId
+                ? routesMetaForMap.filter((r) => String(r.id) === String(activeRouteId))
+                : routesMetaForMap;
+            routesToMark.forEach((r) => {
+                const end = getRouteEndPoint(r);
+                if (!end) return;
+                const mk = new mapboxgl.Marker({ color: '#e74c3c' })
+                    .setLngLat(end.lngLat)
+                    .setPopup(
+                        new mapboxgl.Popup({ offset: 25 }).setHTML(
+                            `<strong>${escapeHtml(end.label)}</strong><br><span class="small text-muted">Route end</span>`
+                        )
+                    )
+                    .addTo(map);
+                endpointMarkers.push(mk);
+            });
         }
 
         function redrawMarkers() {
@@ -425,12 +486,16 @@ function initTerminalStopMaps() {
                 .addTo(map);
 
             const bounds = new mapboxgl.LngLatBounds();
+            bounds.extend(term.coordinates);
             routesMetaForMap.forEach((r) => {
                 const c = normalizeLineString(r.geometry);
                 if (c) c.forEach((pt) => bounds.extend(pt));
+                const end = getRouteEndPoint(r);
+                if (end) bounds.extend(end.lngLat);
             });
             if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
 
+            redrawEndpointMarkers();
             syncHiddenJson();
         });
 
@@ -438,6 +503,7 @@ function initTerminalStopMaps() {
             routeSelect.classList.remove('d-none');
             routeSelect.addEventListener('change', () => {
                 activeRouteId = routeSelect.value;
+                redrawEndpointMarkers();
                 redrawMarkers();
                 renderStopTable();
             });
@@ -446,7 +512,7 @@ function initTerminalStopMaps() {
 
         map.on('click', (e) => {
             if (!activeRouteId) {
-                alert('Select a route first, then click the line to add a stop.');
+                tmAlert('Select a route first, then click the line to add a stop.', 'info');
                 return;
             }
             const meta = routesMetaForMap.find((x) => String(x.id) === String(activeRouteId));
@@ -455,7 +521,7 @@ function initTerminalStopMaps() {
             if (!coords || coords.length < 2) return;
             const proj = projectOntoLine(coords, e.lngLat.lng, e.lngLat.lat);
             if (!proj || proj.dClick > 0.08) {
-                alert('Click closer to the highlighted route path.');
+                tmAlert('Click closer to the highlighted route path.', 'warning');
                 return;
             }
             const defaultStopLabel = `Stop ${(stopsByRoute[activeRouteId]?.length || 0) + 1}`;
@@ -476,9 +542,10 @@ function initTerminalStopMaps() {
 
         const clearBtn = card.querySelector(`[data-clear-stops="${reqId}"]`);
         if (clearBtn) {
-            clearBtn.addEventListener('click', () => {
+            clearBtn.addEventListener('click', async () => {
                 if (!activeRouteId) return;
-                if (!confirm('Remove all stops for this route?')) return;
+                const confirmed = await tmConfirm('Remove all stops for this route?', 'Remove all', 'Cancel');
+                if (!confirmed) return;
                 stopsByRoute[activeRouteId] = [];
                 syncHiddenJson();
             });

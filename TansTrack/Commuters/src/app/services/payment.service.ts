@@ -53,6 +53,8 @@ export class PaymentService {
     amount: number;
     route_name?: string;
     commuter_name?: string;
+    /** Capacitor / mobile: app URL to return after PayMaya (e.g. https://localhost/#/tabs/home) */
+    return_url?: string;
   }): Promise<{ success: boolean; checkout_url?: string; message?: string }> {
     try {
       console.log('[PaymentService] Creating Maya checkout with payload:', payload);
@@ -60,6 +62,12 @@ export class PaymentService {
         this.http.post(`${environment.apiUrl}/payments/maya/checkout`, payload)
       );
       console.log('[PaymentService] Maya checkout response:', res);
+      if (!res?.success || !res?.checkout_url) {
+        return {
+          success: false,
+          message: res?.message ?? 'Could not start Maya payment.',
+        };
+      }
       return { success: true, checkout_url: res.checkout_url };
     } catch (err: any) {
       const msg = err?.error?.message ?? 'Could not start Maya payment.';

@@ -229,7 +229,6 @@
                 <form id="busForm">
                     @csrf
                     <input type="hidden" id="bus_id" name="bus_id">
-                    <input type="hidden" id="method_field" name="_method">
                     
                     <div class="row">
                         <!-- Left Column - Bus Details -->
@@ -250,12 +249,6 @@
                                 <label for="model" class="form-label">Model <span class="text-danger">*</span></label>
                                 <input type="text" id="model" name="model" class="form-control" required placeholder="e.g., Hyundai County">
                                 <div class="invalid-feedback" id="model_error"></div>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="bus_company" class="form-label">Company</label>
-                                <input type="text" id="bus_company" name="bus_company" class="form-control" placeholder="e.g., JULILA TRANSIT">
-                                <div class="invalid-feedback" id="bus_company_error"></div>
                             </div>
                         </div>
 
@@ -298,10 +291,12 @@
                         <div class="invalid-feedback" id="description_error"></div>
                     </div>
 
-                    <!-- Terminal Display (Read-only) -->
+                    <!-- Operator context (read-only) -->
                     <div class="alert alert-light border" style="font-size: 0.9rem;">
                         <small class="text-muted">
                             <i class="fas fa-info-circle me-1"></i>
+                            <strong>Company:</strong> {{ Auth::user()->company_name ?? '—' }}
+                            &nbsp;·&nbsp;
                             <strong>Terminal:</strong> {{ ucfirst(Auth::user()->terminal) }} Terminal
                         </small>
                     </div>
@@ -321,5 +316,6 @@
 @endsection
 
 @push('scripts')
+<script src="{{ asset('js/chat-feedback.js') }}"></script>
 @vite('resources/js/panels/buses.js')
 @endpush

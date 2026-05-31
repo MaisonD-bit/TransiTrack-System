@@ -18,7 +18,7 @@
   </div>
 
   <!-- Camera viewfinder (html5-qrcode mounts here) -->
-  <div id="qr-reader-element" class="qr-reader-container" [class.hidden]="mode !== 'camera'"></div>
+  <div *ngIf="mode === 'camera'" id="qr-reader-element" class="qr-reader-container"></div>
 
   <!-- E-Ticket mode -->
   <div class="eticket-area" *ngIf="mode === 'eticket'">
@@ -35,7 +35,7 @@
       </div>
     </ng-template>
     <ion-button expand="block" color="success" [disabled]="!eTicketPayload" (click)="confirmETicket()">
-      <ion-icon name="checkmark-circle-outline" slot="start"></ion-icon>
+      <ion-icon name="checkmark-circle" slot="start"></ion-icon>
       Confirm Payment
     </ion-button>
   </div>

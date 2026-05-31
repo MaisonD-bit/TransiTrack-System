@@ -2,134 +2,77 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use App\Models\Bus;
-use App\Models\Space;
-use App\Models\TerminalSpace;
+use App\Models\NorthTerminalOccupancyHistory;
 use App\Models\NorthTerminalSpace;
 use App\Models\Schedule;
+use App\Models\Space;
 use App\Models\TerminalOccupancyHistory;
-use App\Models\NorthTerminalOccupancyHistory;
+use App\Models\TerminalSpace;
+use App\Support\ManagerTerminalScope;
 use Illuminate\Support\Facades\Auth;
-use GetStream\StreamChat\Client as StreamChat;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    use ManagerTerminalScope;
 
     public function index()
     {
         $user = Auth::user();
 
-        $query = Schedule::with(['bus', 'driver', 'route']);
-
-        // Filter schedules by terminal for bus managers
-        if ($user && $user->role === 'northBusManager') {
-            $query->whereHas('bus', function ($q) {
-                $q->where('terminal', 'north');
-            });
-        } elseif ($user && $user->role === 'southBusManager') {
-            $query->whereHas('bus', function ($q) {
-                $q->where('terminal', 'south');
-            });
-        }
-
-        // Get only recent 10 schedules for dashboard
-        $busSchedules = $query->orderBy('date', 'desc')->limit(10)->get();
-
-        $drivers = User::where('role', 'driver')->get();
+        $scheduleQuery = Schedule::with(['bus', 'driver', 'route']);
+        $this->scopeSchedulesByTerminal($scheduleQuery);
+        $busSchedules = (clone $scheduleQuery)->orderBy('date', 'desc')->limit(10)->get();
 
         $statuses = ['scheduled', 'active', 'completed', 'cancelled'];
 
-        // Build stats based on terminal
-        $busQuery = Bus::whereIn('status', ['available', 'in_service']);
-        $scheduleQuery = Schedule::query();
+        $busQuery = Bus::query()->whereIn('status', ['available', 'in_service']);
+        $this->scopeBusesByTerminal($busQuery);
 
-        if ($user && $user->role === 'northBusManager') {
-            $busQuery->where('terminal', 'north');
-            $scheduleQuery->whereHas('bus', function ($q) {
-                $q->where('terminal', 'north');
-            });
-        } elseif ($user && $user->role === 'southBusManager') {
-            $busQuery->where('terminal', 'south');
-            $scheduleQuery->whereHas('bus', function ($q) {
-                $q->where('terminal', 'south');
-            });
-        }
+        $scheduleCountQuery = Schedule::query();
+        $this->scopeSchedulesByTerminal($scheduleCountQuery);
 
-        // Get terminal spaces (updated occupancy tracking) - filtered by manager's terminal
         $available = 0;
         $total = 0;
 
-        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
-            // North Terminal spaces
+        if ($this->isNorthTerminal()) {
             $available = NorthTerminalSpace::where('is_occupied', false)->count();
             $total = NorthTerminalSpace::count();
-        } elseif ($user && ($user->role === 'southBusManager' || $user->terminal === 'south')) {
-            // South Terminal spaces
+        } elseif ($this->isSouthTerminal()) {
             $available = TerminalSpace::where('is_occupied', false)->count();
             $total = TerminalSpace::count();
         } else {
-            // Default fallback if no terminal specified
             $available = Space::where('is_occupied', false)->count();
             $total = Space::count();
         }
 
-        // Get unread messages count from Stream
-        $unreadCount = 0;
-        try {
-            $streamClient = new StreamChat(
-                env('STREAM_API_KEY'),
-                env('STREAM_API_SECRET')
-            );
+        $pendingApprovals = $this->pendingOperatorApprovalCount();
 
-            $channels = $streamClient->queryChannels(
-                ['members' => ['$in' => [(string)$user->id]]],
-                [],
-                ['state' => true]
-            );
-
-            foreach ($channels['channels'] as $channel) {
-                $unreadCount += $channel['channel']['read'][(string)$user->id]['unread_messages'] ?? 0;
-            }
-        } catch (\Exception $e) {
-            $unreadCount = 0;
-        }
-
-        // Get schedule status breakdown for analytics
         $scheduleAnalytics = Schedule::query();
+        $this->scopeSchedulesByTerminal($scheduleAnalytics);
 
-        if ($user && $user->role === 'northBusManager') {
-            $scheduleAnalytics->whereHas('bus', function ($q) {
-                $q->where('terminal', 'north');
-            });
-        } elseif ($user && $user->role === 'southBusManager') {
-            $scheduleAnalytics->whereHas('bus', function ($q) {
-                $q->where('terminal', 'south');
-            });
-        }
-
-        $statusCounts = $scheduleAnalytics->groupBy('status')
+        $statusCountsRaw = $scheduleAnalytics->groupBy('status')
             ->selectRaw('status, COUNT(*) as count')
             ->pluck('count', 'status');
 
-        // Get bus utilization
+        $statusCounts = [
+            'completed' => (int) ($statusCountsRaw['completed'] ?? 0),
+            'active' => (int) ($statusCountsRaw['active'] ?? 0),
+            'scheduled' => (int) ($statusCountsRaw['scheduled'] ?? 0),
+            'cancelled' => (int) ($statusCountsRaw['cancelled'] ?? 0),
+        ];
+
         $totalBuses = Bus::query();
         $busInService = Bus::query()->whereIn('status', ['available', 'in_service']);
-
-        if ($user && $user->role === 'northBusManager') {
-            $totalBuses->where('terminal', 'north');
-            $busInService->where('terminal', 'north');
-        } elseif ($user && $user->role === 'southBusManager') {
-            $totalBuses->where('terminal', 'south');
-            $busInService->where('terminal', 'south');
-        }
+        $this->scopeBusesByTerminal($totalBuses);
+        $this->scopeBusesByTerminal($busInService);
 
         $totalBusesCount = $totalBuses->count();
         $busUtilizationPercent = $totalBusesCount > 0
             ? round(($busInService->count() / $totalBusesCount) * 100, 1)
             : 0;
 
-        // Get space utilization
         $spaceUtilizationPercent = $total > 0
             ? round((($total - $available) / $total) * 100, 1)
             : 0;
@@ -138,12 +81,12 @@ class DashboardController extends Controller
             'active_busses' => $busQuery->count(),
             'available_spaces' => $available,
             'total_spaces' => $total,
-            'total_schedules' => $scheduleQuery->count(),
-            'new_messages' => $unreadCount,
+            'total_schedules' => $scheduleCountQuery->count(),
+            'pending_approvals' => $pendingApprovals,
         ];
 
         $analytics = [
-            'status_counts' => $statusCounts->toArray(),
+            'status_counts' => $statusCounts,
             'bus_utilization' => $busUtilizationPercent,
             'total_buses' => $totalBusesCount,
             'buses_in_service' => $busInService->count(),
@@ -151,20 +94,15 @@ class DashboardController extends Controller
             'total_spaces' => $total,
             'occupied_spaces' => $total - $available,
             'available_spaces' => $available,
-            'occupancy_by_hour' => $this->getOccupancyByHour($user),
+            'occupancy_by_hour' => $this->getOccupancyByHour(),
         ];
 
-        return view('operations.dashboard', compact('stats', 'busSchedules', 'drivers', 'statuses', 'analytics'));
+        return view('operations.dashboard', compact('stats', 'busSchedules', 'statuses', 'analytics'));
     }
 
-    /**
-     * Get occupancy data grouped by hour of day
-     * Returns the count of occupied spaces for each hour
-     */
-    private function getOccupancyByHour($user)
+    private function getOccupancyByHour(): array
     {
-        // Use appropriate history table based on terminal
-        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
+        if ($this->isNorthTerminal()) {
             $query = NorthTerminalOccupancyHistory::selectRaw('HOUR(time_occupied) as hour, COUNT(*) as occupancy_count')
                 ->groupBy('hour')
                 ->whereNotNull('time_occupied')
@@ -177,8 +115,6 @@ class DashboardController extends Controller
         }
 
         $occupancyData = $query->get();
-
-        // Create array for all 24 hours
         $hoursData = array_fill(0, 24, 0);
         foreach ($occupancyData as $data) {
             $hoursData[$data->hour] = $data->occupancy_count;
@@ -187,27 +123,18 @@ class DashboardController extends Controller
         return $hoursData;
     }
 
-    /**
-     * Get available spaces count (for real-time updates)
-     * This endpoint allows the dashboard to poll for updated space availability
-     */
     public function getAvailableSpaces()
     {
-        $user = Auth::user();
         $available = 0;
         $total = 0;
 
-        // Get spaces for the manager's terminal
-        if ($user && ($user->role === 'northBusManager' || $user->terminal === 'north')) {
-            // North Terminal spaces
+        if ($this->isNorthTerminal()) {
             $available = NorthTerminalSpace::where('is_occupied', false)->count();
             $total = NorthTerminalSpace::count();
-        } elseif ($user && ($user->role === 'southBusManager' || $user->terminal === 'south')) {
-            // South Terminal spaces
+        } elseif ($this->isSouthTerminal()) {
             $available = TerminalSpace::where('is_occupied', false)->count();
             $total = TerminalSpace::count();
         } else {
-            // Default fallback if no terminal specified
             $available = Space::where('is_occupied', false)->count();
             $total = Space::count();
         }
@@ -216,5 +143,22 @@ class DashboardController extends Controller
             'available' => $available,
             'total' => $total,
         ]);
+    }
+
+    private function pendingOperatorApprovalCount(): int
+    {
+        $terminal = Auth::user()?->terminal;
+        $terminal = is_string($terminal) ? strtolower(trim($terminal)) : null;
+
+        if ($terminal === null || $terminal === '') {
+            return 0;
+        }
+
+        return DB::table('users')
+            ->where('role', 'bus_operator')
+            ->where('status', 'inactive')
+            ->whereNull('status_reason_action')
+            ->whereRaw('LOWER(terminal) = ?', [$terminal])
+            ->count();
     }
 }

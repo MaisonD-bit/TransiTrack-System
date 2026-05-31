@@ -11,10 +11,7 @@
 @section('content')
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fw-bold mb-0"><i class="fas fa-route text-primary me-2"></i>Route Management</h2>
-        <button class="btn btn-sm btn-outline-primary ms-2 active" onclick="showAddRouteForm()">
-            <i class="fas fa-plus me-1"></i> Add Route
-        </button>
+        <h2 class="fw-bold mb-0"><i class="fas fa-route text-primary me-2"></i>Available Routes</h2>
     </div>
 
     <!-- Search and Filter Section -->
@@ -62,38 +59,37 @@
     </div>
     </div>
 
-    <!-- Add/Edit Form (Initially Hidden) -->
-    <div id="routeFormSection" class="card border-0 bg-white shadow-sm mb-4" style="display: none;">
+    <!-- View -->
+    <div id="viewRouteFormSection" class="card border-0 bg-white shadow-sm mb-4" style="display: none;">
         <div class="card-header bg-primary text-white">
             <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0" id="formTitle">
-                    <i class="fas fa-route me-2"></i>Add New Route
+                <h5 class="mb-0" id="view_formTitle">
+                    <i class="fas fa-eye me-2"></i>View Route
                 </h5>
-                <button type="button" class="btn-close btn-close-white" onclick="hideRouteForm()"></button>
+                <button type="button" class="btn-close btn-close-white" onclick="hideViewRouteForm()"></button>
             </div>
         </div>
         <div class="card-body">
-            <form id="routeForm" method="POST" data-routes-store-url="{{ route('routes.store') }}">
+            <form id="viewRouteForm" method="POST">
                 @csrf
-                <input type="hidden" id="route_id" name="route_id">
-                {{-- Empty name="_method" in POST breaks method spoofing and returns 400; PUT is appended in routes.js for updates only. --}}
-                <input type="hidden" id="method_field" value="">
-                <input type="hidden" id="distance_km" name="distance_km">
-                <input type="hidden" id="estimated_duration" name="estimated_duration">
-                <input type="hidden" id="start_coordinates" name="start_coordinates" value="123.920994,10.311008">
-                <input type="hidden" id="end_coordinates" name="end_coordinates">
-                <input type="hidden" id="stops_data" name="stops_data">
-                <input type="hidden" id="geometry" name="geometry">
+                <input type="hidden" id="view_route_id" name="route_id">
+                <input type="hidden" id="view_method_field" value="" view-only>
+                <input type="hidden" id="view_distance_km" name="distance_km" view-only>
+                <input type="hidden" id="view_estimated_duration" name="estimated_duration" view-only>
+                <input type="hidden" id="view_start_coordinates" name="start_coordinates" value="123.920994,10.311008" view-only>
+                <input type="hidden" id="view_end_coordinates" name="end_coordinates" view-only>
+                <input type="hidden" id="view_stops_data" name="stops_data" view-only>
+                <input type="hidden" id="view_geometry" name="geometry" view-only>
 
                 <div class="row">
                     <div class="col-md-6 mb-3">
-                        <label for="route_code" class="form-label">Route Code <span class="text-danger">*</span></label>
-                        <input type="text" id="route_code" name="code" class="form-control" required placeholder="e.g., RT01">
+                        <label for="view_route_code" class="form-label">Route Code <span class="text-danger">*</span></label>
+                        <input type="text" id="view_route_code" name="code" class="form-control" readonly>
                         <div class="invalid-feedback" id="code_error"></div>
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label for="route_name" class="form-label">Route Name <span class="text-danger">*</span></label>
-                        <input type="text" id="route_name" name="name" class="form-control" required placeholder="e.g., Downtown Express">
+                        <label for="view_route_name" class="form-label">Route Name <span class="text-danger">*</span></label>
+                        <input type="text" id="view_route_name" name="name" class="form-control" readonly>
                         <div class="invalid-feedback" id="name_error"></div>
                     </div>
                 </div>
@@ -111,32 +107,32 @@
                 </div>
 
                 <!-- Destination Search -->
-                <div class="mb-3">
+                <!-- <div class="mb-3">
                 <label for="destinationSearch" class="form-label">Search Destination in Cebu</label>
                 <input type="text" id="destinationSearch" class="form-control" placeholder="Type a destination (e.g., Tabogon, Daanbantayan)">
                 <div id="geocodingResults" class="list-group mt-1" style="max-height: 200px; overflow-y: auto; display: none;"></div>
-                </div>
+                </div> -->
 
                 <!-- Map for End Location and Stops Selection -->
                 <div class="row mb-4">
                     <div class="col-12">
                         <div class="card">
-                            <div class="card-header bg-light">
+                            <!-- <div class="card-header bg-light">
                                 <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Select Destination & Stops in Cebu</h6>
                                 <small class="text-muted">Click on the map to set the destination (red marker). Add a pathway by clicking "Add Pathway" and then clicking on the map for each stop.</small>
-                            </div>
+                            </div> -->
                             <div class="card-body p-0">
-                                <div id="routeMap" style="height: 400px; width: 100%;"></div>
+                                <div id="viewRouteMap" style="height: 400px; width: 100%;"></div>
                             </div>
                             <div class="card-footer bg-light">
                                 <div class="row">
-                                    <div class="col-md-4">
+                                    <!-- <div class="col-md-4">
                                         <small class="text-success">
                                             <i class="fas fa-circle text-success me-1"></i>
                                             Start: Cebu North Bus Terminal (Fixed)
                                         </small>
-                                    </div>
-                                    <div class="col-md-4">
+                                    </div> -->
+                                    <!-- <div class="col-md-4">
                                         <small class="text-danger">
                                             <i class="fas fa-circle text-danger me-1"></i>
                                             Click to Set Destination
@@ -147,9 +143,9 @@
                                         <i class="fas fa-route text-primary me-1"></i>
                                         Add Pathway (Optional)
                                         </small>
-                                    </div>
+                                    </div> -->
                                 </div>
-                                <div class="mt-2 d-flex gap-2">
+                                <!-- <div class="mt-2 d-flex gap-2">
                                     <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearEndPoint()">
                                         <i class="fas fa-trash me-1"></i>Clear Destination
                                     </button>
@@ -159,8 +155,8 @@
                                     <button type="button" class="btn btn-sm btn-outline-success" id="addStopBtn">
                                     <i class="fas fa-route me-1"></i>Add Pathway
                                     </button>
-                                </div>
-                                <div class="mt-2" id="stopsList"></div>
+                                </div> -->
+                                <div class="mt-2" id="view_stopsList"></div>
                             </div>
                         </div>
                     </div>
@@ -168,13 +164,13 @@
 
                 <div class="row">
                     <div class="col-md-6 mb-3">
-                        <label for="start_location" class="form-label">Start Location</label>
-                        <input type="text" id="start_location" name="start_location" class="form-control" readonly value="Cebu North Bus Terminal (SM City)" style="background-color: #e9ecef;">
+                        <label for="view_start_location" class="form-label">Start Location</label>
+                        <input type="text" id="view_start_location" name="start_location" class="form-control" readonly value="Cebu North Bus Terminal (SM City)" style="background-color: #e9ecef;">
                         <small class="text-muted">Fixed starting point for all routes</small>
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label for="end_location" class="form-label">Destination <span class="text-danger">*</span></label>
-                        <input type="text" id="end_location" name="end_location" class="form-control" required readonly placeholder="Click on map to select destination">
+                        <label for="view_end_location" class="form-label">Destination <span class="text-danger">*</span></label>
+                        <input type="text" id="view_end_location" name="end_location" class="form-control" required readonly placeholder="Click on map to select destination">
                         <small class="text-muted">Auto-filled from map selection</small>
                         <div class="invalid-feedback" id="end_location_error"></div>
                     </div>
@@ -182,52 +178,55 @@
 
                 <div class="row">
                     <div class="col-md-3 mb-3">
-                    <label for="route_fare" class="form-label">Route Fare <span class="text-danger">*</span></label>
+                    <label for="view_route_fare" class="form-label">Route Fare <span class="text-danger">*</span></label>
                     <div class="input-group">
-                        <span class="input-group-text">₱</span>
-                        <input type="number" step="0.01" id="route_fare" name="route_fare" class="form-control" required readonly>
+                        <span class="input-group-text">&#8369;</span>
+                        <input type="number" step="0.01" id="view_route_fare" name="route_fare" class="form-control" required readonly>
                     </div>
                     <small class="text-muted">Auto-calculated based on distance and bus type</small>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <label for="route_status" class="form-label">Status <span class="text-danger">*</span></label>
-                        <select id="route_status" name="status" class="form-select" required>
+                        <label for="view_route_status" class="form-label">Status <span class="text-danger">*</span></label>
+                        <!-- <select id="view_route_status" name="status" class="form-select" required>
                             <option value="inactive">Inactive</option>
                             <option value="active">Active</option>
-                        </select>
+                        </select> -->
+                        <input id="view_route_status" name="status" class="form-control" required readonly>
                         <div class="invalid-feedback" id="status_error"></div>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <label for="bus_type" class="form-label">Bus Type <span class="text-danger">*</span></label>
-                        <select id="bus_type" name="bus_type" class="form-select" required>
+                        <label for="view_bus_type" class="form-label">Bus Type <span class="text-danger">*</span></label>
+                        <!-- <select id="view_bus_type" name="bus_type" class="form-select" required>
                             <option value="regular">Regular (Non Air-Con)</option>
                             <option value="aircon">Air-Conditioned</option>
-                        </select>
+                        </select> -->
+
+                        <input id="view_bus_type" name="bus_type" class="form-control" required readonly>
                         <div class="invalid-feedback" id="bus_type_error"></div>
                     </div>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Return Trip Route</label>
-                    <div id="returnTripInfo" class="alert alert-info mb-0 py-2 d-flex align-items-center gap-2">
+                    <div id="view_returnTripInfo" class="alert alert-info mb-0 py-2 d-flex align-items-center gap-2">
                         <i class="fas fa-exchange-alt"></i>
-                        <span id="returnTripInfoText">A return trip route will be automatically created when you save.</span>
+                        <span id="view_returnTripInfoText">A return trip route will be automatically created when you save.</span>
                     </div>
                 </div>
 
                 <div class="mb-3">
-                    <label for="description" class="form-label">Description</label>
-                    <textarea id="description" name="description" class="form-control" rows="3" placeholder="Additional route information..."></textarea>
+                    <label for="view_description" class="form-label">Description</label>
+                    <textarea id="view_description" name="description" class="form-control" rows="3" readonly></textarea>
                     <div class="invalid-feedback" id="description_error"></div>
                 </div>
 
                 <div class="d-flex justify-content-end gap-2">
-                    <button type="button" class="btn btn-secondary" onclick="hideRouteForm()">
+                    <button type="button" class="btn btn-secondary" onclick="hideViewRouteForm()">
                         <i class="fas fa-times me-2"></i>Cancel
                     </button>
-                    <button type="submit" class="btn btn-primary" id="saveRouteBtn">
+                    <!-- <button type="submit" class="btn btn-primary" id="saveRouteBtn">
                         <i class="fas fa-save me-2"></i>Save Route
-                    </button>
+                    </button> -->
                 </div>
             </form>
         </div>
@@ -235,7 +234,7 @@
 
     <!-- Routes Table -->
     <div class="card border-0 bg-white shadow-sm mt-3">
-        <div class="card-body p-0"> 
+        <div class="card-body p-0">
             @if(isset($routes) && $routes->count() > 0)
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
@@ -261,31 +260,42 @@
                             <td>{{ $route->name }}</td>
                             <td>{{ $route->start_location }}</td>
                             <td>{{ $route->end_location }}</td>
-                            <td> ₱{{ number_format($route->route_fare ?? ($route->regular_price ?? 0), 2) }}</td>
+                            <td>&#8369;{{ number_format($route->route_fare ?? ($route->regular_price ?? 0), 2) }}</td>
                             <td>{{ $route->estimated_duration ?? '-' }} mins</td>
                             <td>{{ $route->distance_km ?? '-' }} km</td>
                             <td>
-                            @if($route->bus_type == 'aircon')
-                                <span class="badge bg-info">Air-Con</span>
-                            @else
-                                <span class="badge bg-warning text-dark">Regular</span>
-                            @endif
+                                @if($route->bus_type == 'aircon')
+                                    <span class="badge bg-info">Air-Con</span>
+                                @else
+                                    <span class="badge bg-warning text-dark">Regular</span>
+                                @endif
                             </td>
                             <td>
-                            @if($route->status == 'active')
-                                <span class="badge bg-success">Active</span>
-                            @else
-                                <span class="badge bg-secondary">Inactive</span>
-                            @endif
+                                @if($route->status == 'active')
+                                    <span class="badge bg-success">Active</span>
+                                @else
+                                    <span class="badge bg-secondary">Inactive</span>
+                                @endif
                             </td>
                             <td>
                                 @if($route->return_geometry)
                                     @php
-                                        $returnFrom = trim(explode(',', $route->end_location)[0]);
-                                        $returnTo   = trim(explode(' ', $route->start_location)[0]);
+                                        // Pick the municipality from the end_location string. The
+                                        // first comma-segment is usually the city, but for routes
+                                        // whose destination was geocoded against a specific street
+                                        // or landmark it's a long road label — fall back to the
+                                        // second segment in that case.
+                                        $parts  = array_values(array_filter(array_map('trim', explode(',', $route->end_location ?? ''))));
+                                        $first  = $parts[0] ?? '';
+                                        $second = $parts[1] ?? '';
+                                        $looksLikeStreet = (bool) preg_match('/\b(Road|Street|Avenue|Highway|Hwy|Drive|Blvd|Boulevard|Rd|St\.?|Ave|Lane|Ln|Sitio|Purok)\b/i', $first);
+                                        $tooLong = mb_strlen($first) > 18;
+                                        $returnFrom = (($looksLikeStreet || $tooLong) && $second !== '') ? $second : $first;
+                                        $returnTo   = trim(explode(' ', $route->start_location ?? '')[0]) ?: 'Terminal';
+                                        $returnLabel = ($returnFrom ?: '—') . ' to ' . $returnTo;
                                     @endphp
-                                    <span class="badge bg-primary">
-                                        <i class="fas fa-exchange-alt me-1"></i>{{ $returnFrom }} to {{ $returnTo }}
+                                    <span class="badge bg-primary text-truncate" style="max-width: 180px; display: inline-block; vertical-align: middle;" title="{{ $returnLabel }}">
+                                        <i class="fas fa-exchange-alt me-1"></i>{{ $returnLabel }}
                                     </span>
                                 @else
                                     <span class="text-muted small">—</span>
@@ -293,14 +303,8 @@
                             </td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <button class="btn btn-sm btn-outline-info" onclick="viewRoute({{ $route->id }})" title="View">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="viewRoute({{ $route->id }})" title="View">
                                         <i class="fas fa-eye"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-primary" onclick="editRoute({{ $route->id }})" title="Edit">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRoute({{ $route->id }})" title="Delete">
-                                        <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
                             </td>
@@ -356,7 +360,7 @@
                         <i class="fas fa-arrow-left me-1"></i> View All Routes
                     </a>
                 @else
-                    <p class="text-muted">Add your first route using the button above.</p>
+                    <p class="text-muted">Routes for your terminal are created by the system administrator.</p>
                 @endif
             </div>
             @endif
@@ -365,7 +369,7 @@
 </div>
 
 <!-- View Route Modal -->
-<div id="viewRouteModal" class="position-fixed top-0 start-0 w-100 h-100" style="background: rgba(0,0,0,0.5); z-index: 1050; display: none;">
+<!-- <div id="viewRouteModal" class="position-fixed top-0 start-0 w-100 h-100" style="background: rgba(0,0,0,0.5); z-index: 1050; display: none;">
     <div class="d-flex align-items-center justify-content-center h-100 p-3">
         <div class="bg-white rounded shadow-lg" style="max-width: 800px; width: 100%;">
             <div class="bg-info text-white p-3 rounded-top d-flex justify-content-between align-items-center">
@@ -375,14 +379,13 @@
                 <button type="button" class="btn-close btn-close-white" onclick="hideViewModal()"></button>
             </div>
             <div class="p-4" id="viewRouteContent">
-                <!-- Content will be loaded dynamically -->
             </div>
             <div class="p-3 border-top d-flex justify-content-end">
                 <button type="button" class="btn btn-secondary" onclick="hideViewModal()">Close</button>
             </div>
         </div>
     </div>
-</div>
+</div> -->
 @endsection
 
 @push('scripts')

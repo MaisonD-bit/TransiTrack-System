@@ -48,9 +48,10 @@ interface Passenger {
   commuter_name: string;
   fare: number;
   payment_method: string | null;
-  payment_status: 'pending' | 'paid';
+  payment_status: 'pending' | 'paid' | 'pending_boarding';
   boarded_at: string | null;
   alighted: boolean;
+  is_boarding_request?: boolean;
 }
 
 // ✅ UPDATE THIS INTERFACE TO MATCH API RESPONSE
@@ -88,6 +89,9 @@ export class HomePage implements OnInit, ViewWillEnter {
   /** Bus seating capacity for the current schedule */
   expectedCapacity: number = 0;
   userName: string = 'Driver';
+  emergencyName = '';
+  emergencyRelation = '';
+  emergencyContact = '';
   currentSchedule: Schedule | null = null;
   nextSchedule: Schedule | null = null;
   recentNotifications: Notification[] = []; 
@@ -319,6 +323,58 @@ export class HomePage implements OnInit, ViewWillEnter {
     if (name) {
       this.userName = name;
     }
+    const driverId = Number(this.authService.getDriverId());
+    if (!driverId) {
+      return;
+    }
+    this.apiService.getDriverProfile(driverId).subscribe({
+      next: (response: any) => {
+        const profile = response?.driver ?? response?.data ?? response;
+        if (profile?.name) {
+          this.userName = profile.name;
+        }
+        this.emergencyName = String(profile?.emergency_name ?? '').trim();
+        this.emergencyRelation = String(profile?.emergency_relation ?? '').trim();
+        this.emergencyContact = String(profile?.emergency_contact ?? '').trim();
+      },
+      error: () => {
+        /* keep session name; emergency contact may be unavailable offline */
+      },
+    });
+  }
+
+  async presentEmergencyContact(): Promise<void> {
+    if (!this.emergencyContact) {
+      const toast = await this.toastController.create({
+        message: 'No emergency contact on file. Ask your operator to update your profile.',
+        duration: 3000,
+        color: 'warning',
+      });
+      await toast.present();
+      return;
+    }
+
+    const name = this.emergencyName || 'Emergency contact';
+    const phone = this.emergencyContact;
+    const message = this.emergencyRelation
+      ? `${this.emergencyRelation}\n\n${phone}`
+      : phone;
+
+    const alert = await this.alertController.create({
+      header: 'Emergency Contact',
+      subHeader: name,
+      message,
+      buttons: [
+        { text: 'Close', role: 'cancel' },
+        {
+          text: 'Call',
+          handler: () => {
+            window.location.href = `tel:${phone}`;
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   async respondToSchedule(scheduleId: number, action: 'accept' | 'decline') {
@@ -534,6 +590,48 @@ export class HomePage implements OnInit, ViewWillEnter {
   getPaymentMethodLabel(method: string | null): string {
     const map: Record<string, string> = { cash: 'Cash', gcash: 'GCash', paymaya: 'PayMaya', card: 'Card' };
     return method ? (map[method] ?? method) : '—';
+  }
+
+  canConfirmCash(p: Passenger): boolean {
+    return (
+      !p.alighted &&
+      p.payment_status !== 'paid' &&
+      !p.is_boarding_request &&
+      (p.payment_method === 'cash' || !p.payment_method)
+    );
+  }
+
+  async confirmCashFromPassenger(p: Passenger): Promise<void> {
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId || !p.ticket_id) {
+      return;
+    }
+    const alert = await this.alertController.create({
+      header: 'Confirm cash payment',
+      message: `Mark ₱${p.fare.toFixed(2)} received from ${p.commuter_name}?`,
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Confirm',
+          handler: () => {
+            this.apiService.confirmCashPayment(scheduleId, p.ticket_id).subscribe({
+              next: () => {
+                void this.presentToast('Cash payment recorded.', 'success');
+                this.loadPassengerManifest();
+                this.loadDriverSchedules();
+              },
+              error: (err) => {
+                void this.presentToast(
+                  err?.error?.message || 'Could not record cash payment.',
+                  'danger'
+                );
+              },
+            });
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   private detectScheduleChanges(current: Schedule | null) {
@@ -877,6 +975,20 @@ export class HomePage implements OnInit, ViewWillEnter {
     await alert.present();
   }
 
+  private async getDevicePosition(): Promise<GeolocationPosition | null> {
+    return new Promise<GeolocationPosition | null>((resolve) => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve(p),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 22000, maximumAge: 0 }
+      );
+    });
+  }
+
   private async submitIncidentWithGps(
     incidentType: string,
     details: string
@@ -893,17 +1005,7 @@ export class HomePage implements OnInit, ViewWillEnter {
     await loading.present();
 
     try {
-      const pos = await new Promise<GeolocationPosition | null>((resolve) => {
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          resolve(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (p) => resolve(p),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 22000, maximumAge: 0 }
-        );
-      });
+      const pos = await this.getDevicePosition();
 
       if (!pos) {
         await loading.dismiss();
@@ -942,6 +1044,71 @@ export class HomePage implements OnInit, ViewWillEnter {
       await loading.dismiss();
       await this.presentToast(
         'Could not send incident. Check connection and try again.',
+        'danger'
+      );
+    }
+  }
+
+  private async submitEmergencyWithGps(emergencyType: string): Promise<void> {
+    const driverIdNum = Number(this.authService.getDriverId());
+    if (isNaN(driverIdNum)) {
+      await this.presentToast('Invalid driver ID', 'danger');
+      return;
+    }
+
+    const loading = await this.loadingController.create({
+      message: 'Getting location…',
+    });
+    await loading.present();
+
+    try {
+      const pos = await this.getDevicePosition();
+
+      if (!pos) {
+        await loading.dismiss();
+        await this.presentToast(
+          'Location required. Enable GPS and try again.',
+          'danger'
+        );
+        return;
+      }
+
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const locationLabel = await this.reverseGeocode(lng, lat);
+      const scheduleId = this.currentSchedule?.id;
+      const message = `EMERGENCY: ${emergencyType}.`;
+
+      const response = await firstValueFrom(
+        this.apiService.sendEmergencyAlert({
+          driver_id: driverIdNum,
+          emergency_type: emergencyType,
+          message,
+          latitude: lat,
+          longitude: lng,
+          location_label: locationLabel,
+          ...(scheduleId ? { schedule_id: scheduleId } : {}),
+        })
+      );
+
+      await loading.dismiss();
+
+      if (response?.success) {
+        await this.presentToast(
+          'Emergency alert sent with your location. Your operator can see it on the map.',
+          'danger'
+        );
+      } else {
+        await this.presentToast(
+          response?.message || 'Error sending emergency alert.',
+          'danger'
+        );
+      }
+    } catch (error) {
+      console.error('Emergency alert error:', error);
+      await loading.dismiss();
+      await this.presentToast(
+        'Could not send emergency alert. Check connection and try again.',
         'danger'
       );
     }
@@ -1012,14 +1179,7 @@ export class HomePage implements OnInit, ViewWillEnter {
   async presentEmergencyConfirmation(emergencyType: string) {
     const alert = await this.alertController.create({
       header: '⚠️ Confirm Emergency',
-      message: `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>This will immediately notify your operator and emergency services. Are you sure?`,
-      inputs: [
-        {
-          name: 'location',
-          type: 'textarea',
-          placeholder: 'Your current location (optional)',
-        },
-      ],
+      message: `You are about to send an emergency alert for: <strong>${emergencyType}</strong>.<br><br>Your current GPS location will be sent to your operator immediately.`,
       buttons: [
         {
           text: 'Cancel',
@@ -1028,31 +1188,8 @@ export class HomePage implements OnInit, ViewWillEnter {
         {
           text: 'Send Alert',
           cssClass: 'alert-button-confirm',
-          handler: async (data) => {
-            try {
-              const driverId = this.authService.getDriverId();
-              const driverIdNum = Number(driverId);
-              
-              if (isNaN(driverIdNum)) {
-                console.error('Invalid driver ID');
-                this.presentToast('Invalid driver ID', 'danger');
-                return;
-              }
-
-              const location = data.location ? ` Location: ${data.location}` : '';
-              const message = `EMERGENCY: ${emergencyType}.${location}`;
-              
-              const response = await this.apiService.sendEmergencyAlert(driverIdNum, emergencyType, message).toPromise();
-              
-              if (response.success) {
-                this.presentToast('🚨 Emergency alert sent!', 'danger');
-              } else {
-                this.presentToast(response.message || 'Error sending emergency alert.', 'danger');
-              }
-            } catch (error) {
-              console.error('Error sending emergency alert:', error);
-              this.presentToast('Error sending emergency alert.', 'danger');
-            }
+          handler: async () => {
+            await this.submitEmergencyWithGps(emergencyType);
           },
         },
       ],
@@ -1109,47 +1246,110 @@ export class HomePage implements OnInit, ViewWillEnter {
   }
 
   getScheduleRoute(schedule: Schedule | null): string {
-    if (!schedule || !schedule.route) return 'N/A';
-    return schedule.route.name || `${schedule.route.start_location} to ${schedule.route.end_location}`;
+    return this.getScheduleLegTitle(schedule, 'outbound');
   }
 
   getScheduleDestination(schedule: Schedule | null): string {
-    if (!schedule || !schedule.route) return 'N/A';
-    return schedule.route.end_location || 'N/A';
+    return this.getScheduleLegDestination(schedule, 'outbound');
   }
 
-  /** Route label for the CURRENT active leg. */
+  /** Short uppercase label from a full address (e.g. "Danao City, …" → "DANAO"). */
+  private shortPlaceLabel(location: string | undefined): string {
+    if (!location?.trim()) {
+      return '';
+    }
+    const first = location.split(',')[0].trim();
+    const word = first.split(/\s+/)[0] || first;
+    return word.toUpperCase();
+  }
+
+  /** Title row: e.g. "CEBU to DANAO" or "DANAO to CEBU" for return leg. */
+  getScheduleLegTitle(
+    schedule: Schedule | null,
+    direction: 'outbound' | 'return'
+  ): string {
+    const r = schedule?.route;
+    if (!r) {
+      return 'N/A';
+    }
+    const from = this.shortPlaceLabel(r.start_location);
+    const to = this.shortPlaceLabel(r.end_location);
+    if (direction === 'return') {
+      return from && to ? `${to} to ${from}` : r.name || 'N/A';
+    }
+    return from && to ? `${from} to ${to}` : r.name || 'N/A';
+  }
+
+  /** Location row for the leg destination address. */
+  getScheduleLegDestination(
+    schedule: Schedule | null,
+    direction: 'outbound' | 'return'
+  ): string {
+    const r = schedule?.route;
+    if (!r) {
+      return 'N/A';
+    }
+    return direction === 'return'
+      ? r.start_location || 'N/A'
+      : r.end_location || 'N/A';
+  }
+
   getCurrentLegRoute(): string {
-    const r = this.currentSchedule?.route;
-    if (!r) return 'N/A';
-    if (this.legDirection === 'return') {
-      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
-    }
-    return r.name || `${r.start_location} to ${r.end_location}`;
+    return this.getScheduleLegTitle(this.currentSchedule, this.legDirection);
   }
 
-  /** Destination for the CURRENT active leg. */
   getCurrentLegDestination(): string {
-    const r = this.currentSchedule?.route;
-    if (!r) return 'N/A';
-    return this.legDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+    return this.getScheduleLegDestination(this.currentSchedule, this.legDirection);
   }
 
-  /** Route label for the NEXT upcoming leg. */
   getNextLegRoute(): string {
-    const r = this.currentSchedule?.route;
-    if (!r) return 'N/A';
-    if (this.nextLegDirection === 'return') {
-      return r.end_location && r.start_location ? `${r.end_location} to ${r.start_location}` : r.name;
-    }
-    return r.name || `${r.start_location} to ${r.end_location}`;
+    return this.getScheduleLegTitle(this.currentSchedule, this.nextLegDirection);
   }
 
-  /** Destination for the NEXT upcoming leg. */
   getNextLegDestination(): string {
-    const r = this.currentSchedule?.route;
-    if (!r) return 'N/A';
-    return this.nextLegDirection === 'return' ? (r.start_location || 'N/A') : (r.end_location || 'N/A');
+    return this.getScheduleLegDestination(this.currentSchedule, this.nextLegDirection);
+  }
+
+  /** Return leg window: starts when outbound ends, duration mirrors outbound. */
+  getReturnLegTime(schedule: Schedule | null): string {
+    if (!schedule) {
+      return 'N/A';
+    }
+    const returnStart = schedule.end_time;
+    const returnEnd = this.computeReturnLegEndTime(schedule);
+    return `${this.formatClockDisplay(returnStart)} - ${this.formatClockDisplay(returnEnd)}`;
+  }
+
+  private computeReturnLegEndTime(schedule: Schedule): string {
+    const startM = this.parseTimeToMinutes(schedule.start_time);
+    const endM = this.parseTimeToMinutes(schedule.end_time);
+    let duration = endM - startM;
+    if (duration <= 0) {
+      duration += 24 * 60;
+    }
+    let returnEndM = endM + duration;
+    if (returnEndM >= 24 * 60) {
+      returnEndM -= 24 * 60;
+    }
+    const h = Math.floor(returnEndM / 60);
+    const m = returnEndM % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  private parseTimeToMinutes(raw: string | undefined): number {
+    if (!raw) {
+      return 0;
+    }
+    let timePart = raw.trim();
+    if (timePart.includes('T')) {
+      timePart = timePart.split('T')[1] || '';
+    }
+    timePart = timePart.replace(/Z$/i, '').substring(0, 8);
+    const match = timePart.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) {
+      return 0;
+    }
+    return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
   }
 
   getReturnTripRoute(schedule: Schedule | null): string {

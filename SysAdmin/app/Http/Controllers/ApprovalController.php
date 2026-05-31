@@ -57,6 +57,10 @@ class ApprovalController extends Controller
                 'name' => $route->name,
                 'code' => $route->code,
                 'geometry' => $g,
+                'start_location' => $route->start_location ?? '',
+                'end_location' => $route->end_location ?? '',
+                'start_coordinates' => $route->start_coordinates ?? '',
+                'end_coordinates' => $route->end_coordinates ?? '',
                 'stops' => $block['stops'] ?? [],
             ];
         }
@@ -96,7 +100,9 @@ class ApprovalController extends Controller
             'is_read' => false,
         ]);
 
-        return back()->with('success', 'Approved. The bus operator was notified in their Notifications panel.');
+        return redirect()
+            ->route('sysadmin.approvals')
+            ->with('success', 'Approved. The bus operator was notified in their Notifications panel.');
     }
 
     public function decline(Request $request, RouteApprovalRequest $routeApprovalRequest)
@@ -130,7 +136,9 @@ class ApprovalController extends Controller
             'is_read' => false,
         ]);
 
-        return back()->with('success', 'Declined. The bus operator was notified.');
+        return redirect()
+            ->route('sysadmin.approvals')
+            ->with('success', 'Declined. The bus operator was notified.');
     }
 
     private function pendingItems(): Collection
@@ -138,7 +146,7 @@ class ApprovalController extends Controller
         $pending = RouteApprovalRequest::query()
             ->with('operator')
             ->where('status', 'pending_sysadmin')
-            ->orderByDesc('submitted_by_terminal_at')
+            ->orderByRaw('COALESCE(submitted_for_sysadmin_at, submitted_by_terminal_at) DESC')
             ->orderByDesc('created_at')
             ->get();
 
@@ -167,10 +175,22 @@ class ApprovalController extends Controller
 
     private function pollSignature(Collection $pending, Collection $history): string
     {
-        $p = $pending->map(fn (array $item) => $item['request']->id)->sort()->values()->implode(',');
-        $h = $history->pluck('id')->sort()->values()->implode(',');
+        $p = $pending->map(function (array $item) {
+            $r = $item['request'];
 
-        return md5($p.'|'.$h);
+            $submitted = $r->submitted_for_sysadmin_at ?? $r->submitted_by_terminal_at;
+
+            return $r->id.':'.($r->updated_at?->timestamp ?? 0).':'.($submitted?->timestamp ?? 0);
+        })->sort()->values()->implode(',');
+
+        $h = $history->map(fn (RouteApprovalRequest $r) => $r->id.':'.$r->status.':'.($r->decided_at?->timestamp ?? 0))
+            ->sort()
+            ->values()
+            ->implode(',');
+
+        $pendingCount = RouteApprovalRequest::query()->where('status', 'pending_sysadmin')->count();
+
+        return md5($p.'|'.$h.'|'.$pendingCount);
     }
 
     private function authorizePending(RouteApprovalRequest $routeApprovalRequest): void

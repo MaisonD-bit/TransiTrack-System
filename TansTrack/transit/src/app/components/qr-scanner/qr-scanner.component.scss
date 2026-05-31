@@ -1,0 +1,136 @@
+.scanner-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #000;
+  color: white;
+}
+
+.scanner-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.7);
+
+  .scanner-title {
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
+.mode-toggle {
+  display: flex;
+  background: rgba(255, 255, 255, 0.08);
+
+  button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+
+    ion-icon {
+      font-size: 18px;
+    }
+
+    &.active {
+      color: white;
+      border-bottom-color: #4ade80;
+    }
+  }
+}
+
+.qr-reader-container {
+  flex: 1;
+  width: 100%;
+  min-height: 50vh;
+  background: #000;
+
+  ::ng-deep {
+    video {
+      width: 100% !important;
+      object-fit: cover;
+    }
+    img[alt='Info icon'],
+    select,
+    #qr-reader__dashboard_section_swaplink {
+      display: none !important;
+    }
+  }
+}
+
+.upload-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  gap: 12px;
+  text-align: center;
+
+  .upload-icon {
+    font-size: 72px;
+    color: #4ade80;
+    opacity: 0.8;
+  }
+
+  p {
+    margin: 0;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  ion-button {
+    width: 100%;
+    margin-top: 8px;
+  }
+}
+
+.error-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 16px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #fca5a5;
+
+  ion-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+}
+
+.scan-hint {
+  padding: 12px 16px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+.retry-row {
+  padding: 0 16px 8px;
+
+  ion-button {
+    margin: 0;
+  }
+}
+
+.cancel-row {
+  padding: 8px 16px 16px;
+}

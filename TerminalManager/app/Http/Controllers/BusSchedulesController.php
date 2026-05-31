@@ -2,35 +2,23 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Schedule;
-use App\Models\User;
+use App\Models\Driver;
 use App\Models\Route;
+use App\Models\Schedule;
+use App\Support\ManagerTerminalScope;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class BusSchedulesController extends Controller
 {
+    use ManagerTerminalScope;
+
     public function index(Request $request)
     {
-        // Update statuses based on current time
         Schedule::updateStatuses();
 
-        // Start query with eager loading
         $query = Schedule::with(['bus', 'driver', 'route']);
+        $this->scopeSchedulesByTerminal($query);
 
-        // Filter by terminal for bus managers
-        $user = Auth::user();
-        if ($user && $user->role === 'northBusManager') {
-            $query->whereHas('bus', function ($q) {
-                $q->where('terminal', 'north');
-            });
-        } elseif ($user && $user->role === 'southBusManager') {
-            $query->whereHas('bus', function ($q) {
-                $q->where('terminal', 'south');
-            });
-        }
-
-        // Apply filters
         if ($request->filled('date')) {
             $query->whereDate('date', $request->input('date'));
         }
@@ -47,42 +35,41 @@ class BusSchedulesController extends Controller
             $query->where('route_id', $request->input('route_id'));
         }
 
-        // Searach functionality
         if ($request->filled('search')) {
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
-                $q->whereHas('bus', fn($q) => $q->where('plate_number', 'like', "%$search%"))
-                    ->orWhereHas('driver', fn($q) => $q->where('name', 'like', "%$search%"))
-                    ->orWhereHas('route', fn($q) => $q->where('name', 'like', "%$search%"));
+                $q->whereHas('bus', fn ($q) => $q->where('plate_number', 'like', "%$search%"))
+                    ->orWhereHas('driver', fn ($q) => $q->where('name', 'like', "%$search%"))
+                    ->orWhereHas('route', fn ($q) => $q->where('name', 'like', "%$search%"));
             });
         }
 
-        // Exclude schedules from inactive drivers or bus operators
-        $query->whereHas('driver', fn($q) => $q->where('status', 'active'))
-            ->whereHas('bus', fn($q) => $q->where('status', 'active'));
+        $query->whereHas('driver', fn ($q) => $q->where('status', 'active'))
+            ->whereHas('bus', fn ($q) => $q->whereIn('status', ['available', 'in_service']));
 
         $busSchedules = $query->orderBy('date', 'desc')->paginate(10)->withQueryString();
 
-        // Get drivers and filter by terminal for bus managers
-        $driverQuery = User::where('role', 'driver')->select('id', 'first_name', 'last_name', 'terminal');
-        if ($user && $user->role === 'northBusManager') {
-            $driverQuery->where('terminal', 'north');
-        } elseif ($user && $user->role === 'southBusManager') {
-            $driverQuery->where('terminal', 'south');
+        $driverQuery = Driver::query()
+            ->where('status', 'active')
+            ->select(['id', 'name'])
+            ->orderBy('name');
+
+        if ($this->managerTerminal()) {
+            $driverQuery->whereHas('user', function ($q) {
+                $this->scopeOperatorsByTerminal($q);
+            });
         }
+
         $drivers = $driverQuery->get();
 
-        // Filter routes by terminal for bus managers
         $routeQuery = Route::where('status', 'active');
-        if ($user && $user->role === 'northBusManager') {
-            $routeQuery->where('terminal', 'north');
-        } elseif ($user && $user->role === 'southBusManager') {
-            $routeQuery->where('terminal', 'south');
+        $terminal = $this->managerTerminal();
+        if ($terminal) {
+            $routeQuery->where('terminal', $terminal);
         }
         $routes = $routeQuery->get();
 
-        $statuses = ['scheduled', 'active', 'completed', 'cancelled'];
-
+        $statuses = ['scheduled', 'active', 'completed', 'cancelled', 'accepted', 'pending_decline'];
 
         return view('operations.bus-schedule', compact('busSchedules', 'drivers', 'routes', 'statuses'));
     }

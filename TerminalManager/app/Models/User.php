@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Support\PublicMediaUrl;
 use GetStream\StreamChat\Client as StreamChat;
 
 class User extends Authenticatable
@@ -138,7 +139,7 @@ class User extends Authenticatable
     {
         // Map your app roles to Stream Chat roles
         $streamRole = match ($this->role) {
-            'admin', 'northBusManager', 'southBusManager' => 'admin',
+            'admin', 'northBusManager', 'southBusManager', 'terminalManager' => 'admin',
             'bus_operator' => 'user',
             'driver' => 'driver',
             default => 'user',
@@ -148,7 +149,7 @@ class User extends Authenticatable
             'id' => $this->streamUserId(),
             'name' => $this->name,
             'role' => $streamRole,
-            'image' => $this->photo_url ?? null,
+            'image' => PublicMediaUrl::forProfilePhoto($this->photo_url),
         ];
     }
 }

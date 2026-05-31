@@ -7,9 +7,9 @@
     <div class="d-flex align-items-center mb-4">
         <i class="fas fa-code-branch me-3 text-primary fs-4"></i>
         <div>
-            <h2 class="mb-0 fw-bold">Routes for terminal &amp; sysadmin</h2>
+            <h2 class="mb-0 fw-bold">Routes for sysadmin approval</h2>
             <p class="text-muted small mb-0">
-                Choose routes to send to <strong>your</strong> registered terminal. The terminal manager adds bus stops, then TransiTrack sysadmin approves — you are notified when complete.
+                Choose routes for your terminal, then add bus stops on the map under <strong>Route stops</strong>. When ready, send to TransiTrack sysadmin for approval.
             </p>
         </div>
     </div>
@@ -29,7 +29,7 @@
     <div class="row g-4">
         <div class="col-lg-5">
             <div class="card border-0 shadow-sm h-100">
-                <div class="card-header bg-light"><strong>1. Bus operator</strong> — choose routes for your terminal</div>
+                <div class="card-header bg-light"><strong>1.</strong> Choose routes for your terminal</div>
                 <div class="card-body">
                     @if($operatorTerminal === 'north' || $operatorTerminal === 'south')
                         <div class="alert alert-light border py-2 small mb-3">
@@ -72,7 +72,7 @@
                             @endif
                         </div>
                         <button type="submit" class="btn btn-primary" @if($routes->isEmpty() || ! ($operatorTerminal === 'north' || $operatorTerminal === 'south')) disabled @endif>
-                            <i class="fas fa-paper-plane me-1"></i> Submit for terminal stops
+                            <i class="fas fa-paper-plane me-1"></i> Submit routes
                         </button>
                     </form>
                 </div>
@@ -83,7 +83,7 @@
                 <div class="card-header bg-light"><strong>2. Your submissions</strong> — status</div>
                 <div class="card-body">
                     <p class="small text-muted">
-                        After the terminal manager adds stops and sysadmin approves, these routes become available when you
+                        After you add stops and sysadmin approves, these routes become available when you
                         <a href="{{ route('schedule.panel') }}">schedule drivers</a>.
                     </p>
                     @if($requests->isEmpty())
@@ -123,10 +123,13 @@
                                             <td class="small text-muted">{{ $req->created_at->diffForHumans() }}</td>
                                             <td class="text-end text-nowrap">
                                                 @if($req->status === 'pending_stops')
+                                                    <a href="{{ route('route-stops.index') }}" class="btn btn-sm btn-primary me-1">
+                                                        <i class="fas fa-map-marker-alt me-1"></i> Add stops
+                                                    </a>
                                                     <form method="post"
                                                           action="{{ route('route-requests.destroy', $req) }}"
                                                           class="d-inline"
-                                                          onsubmit="return confirm('Cancel this submission? The terminal manager will no longer see it.');">
+                                                          onsubmit="return confirm('Cancel this submission?');">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="btn btn-sm btn-outline-danger">

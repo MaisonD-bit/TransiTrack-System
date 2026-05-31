@@ -1,23 +1,47 @@
-import { bootstrapApplication } from '@angular/platform-browser';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { ngrokSkipWarningInterceptor } from './app/interceptors/ngrok-skip-warning.interceptor';
-import { AppComponent } from './app/app.component';
-import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
-import { provideRouter, RouteReuseStrategy, withHashLocation } from '@angular/router';
-import { routes } from './app/app.routes';
+import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
 import { registerLocaleData } from '@angular/common';
 import localeEn from '@angular/common/locales/en';
 import { addIcons } from 'ionicons';
 import {
-  eyeOutline, eyeOffOutline, personAddOutline, busOutline, shareOutline,
-  saveOutline, logOutOutline,
-  navigateOutline, mapOutline, locationOutline, listOutline,
-  pricetagOutline, speedometerOutline, checkmarkCircleOutline,
-  ticketOutline, informationCircleOutline, personCircleOutline,
-  mailOutline, lockClosedOutline, cashOutline,
-  homeOutline, timeOutline, starOutline, helpCircleOutline, personOutline,
-  closeCircleOutline, flagOutline, location, bus, flag
+  eyeOutline,
+  eyeOffOutline,
+  personAddOutline,
+  busOutline,
+  shareOutline,
+  saveOutline,
+  logOutOutline,
+  navigateOutline,
+  mapOutline,
+  locationOutline,
+  listOutline,
+  pricetagOutline,
+  speedometerOutline,
+  checkmarkCircleOutline,
+  ticketOutline,
+  informationCircleOutline,
+  personCircleOutline,
+  mailOutline,
+  lockClosedOutline,
+  cashOutline,
+  homeOutline,
+  timeOutline,
+  starOutline,
+  helpCircleOutline,
+  personOutline,
+  closeCircleOutline,
+  flagOutline,
+  location,
+  bus,
+  flag,
+  receiptOutline,
+  checkmarkCircle,
+  close,
+  documentOutline,
+  trashOutline,
+  chevronForwardOutline,
 } from 'ionicons/icons';
+
+import { AppModule } from './app/app.module';
 
 registerLocaleData(localeEn);
 
@@ -49,16 +73,30 @@ addIcons({
   'person-outline': personOutline,
   'close-circle-outline': closeCircleOutline,
   'flag-outline': flagOutline,
-  'location': location,
-  'bus': bus,
-  'flag': flag
+  location,
+  bus,
+  flag,
+  'receipt-outline': receiptOutline,
+  'checkmark-circle': checkmarkCircle,
+  close,
+  'document-outline': documentOutline,
+  'trash-outline': trashOutline,
+  'chevron-forward-outline': chevronForwardOutline,
 });
 
-bootstrapApplication(AppComponent, {
-  providers: [
-    { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
-    provideRouter(routes, withHashLocation()),
-    provideIonicAngular({ animated: false }),
-    provideHttpClient(withInterceptors([ngrokSkipWarningInterceptor]))
-  ]
-}).catch(err => console.error(err));
+function showBootstrapFailure(err: unknown): void {
+  console.error(err);
+  const text = err instanceof Error ? `${err.message}\n\n${err.stack ?? ''}` : String(err);
+  const pre = document.createElement('pre');
+  pre.setAttribute('data-transitrack', 'bootstrap-error');
+  pre.style.cssText =
+    'box-sizing:border-box;margin:0;padding:12px;width:100%;min-height:100vh;' +
+    'white-space:pre-wrap;word-break:break-word;font:12px/1.4 system-ui,monospace;' +
+    'color:#fff;background:#7f1d1d;';
+  pre.textContent = `TransiTrack failed to start (Angular bootstrap).\n\n${text}`;
+  document.body.appendChild(pre);
+}
+
+platformBrowserDynamic()
+  .bootstrapModule(AppModule)
+  .catch((err: unknown) => showBootstrapFailure(err));

@@ -9,7 +9,7 @@
             <i class="fas fa-check-double me-3 text-primary fs-4"></i>
             <div>
                 <h2 class="mb-0 fw-bold">Route &amp; stop approvals</h2>
-                <p class="text-muted small mb-0">Approve packages submitted by terminal managers. This list refreshes automatically every few seconds.</p>
+                <p class="text-muted small mb-0">Approve route packages after bus operators add stops and submit for review. This list refreshes automatically every few seconds.</p>
             </div>
         </div>
     </div>
@@ -125,10 +125,11 @@
         } catch (e) { /* network / tab background */ }
     }
 
-    setInterval(pollApprovals, 5000);
+    setInterval(pollApprovals, 4000);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') pollApprovals();
     });
+    pollApprovals();
 })();
 </script>
 @endpush

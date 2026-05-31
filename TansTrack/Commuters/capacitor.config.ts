@@ -8,13 +8,19 @@ const config: CapacitorConfig = {
     allowMixedContent: true,
   },
   server: {
-    androidScheme: 'http',
+    allowNavigation: [
+      '*.paymaya.com',
+      '*.maya.ph',
+      'pg-sandbox.paymaya.com',
+      'payments.paymaya.com',
+    ],
   },
   plugins: {
+    // Match transit: native HTTP patching breaks Angular HttpClient + lazy chunks on Android.
     CapacitorHttp: {
-      enabled: true
-    }
-  }
+      enabled: false,
+    },
+  },
 };
 
 export default config;

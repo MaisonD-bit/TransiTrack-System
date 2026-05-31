@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   ActionSheetController,
@@ -18,6 +18,18 @@ import {
   RouteMapStop,
   RouteMapComponent,
 } from '../components/route-map/route-map.component';
+import { QrScannerComponent, ScannedTicket } from '../components/qr-scanner/qr-scanner.component';
+
+interface ManifestPassenger {
+  ticket_id: string;
+  commuter_name: string;
+  fare: number;
+  payment_method: string | null;
+  payment_status: string;
+  alighted: boolean;
+  boarding_stop_name?: string | null;
+  is_boarding_request?: boolean;
+}
 
 interface Schedule {
   id: number;
@@ -25,6 +37,7 @@ interface Schedule {
   start_time: string;
   end_time: string;
   status: string;
+  ends_next_day?: boolean;
   trip_leg?: number;
   leg_status?: string;
   leg_direction?: 'outbound' | 'return';
@@ -66,6 +79,9 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
   mapRouteGeoJson: { type: string; coordinates: number[][] } | null = null;
   mapRouteStops: RouteMapStop[] = [];
   mapBoardingPassengers: RouteMapBoardingPassenger[] = [];
+  manifestPassengers: ManifestPassenger[] = [];
+  showQrScanner = false;
+  qrScannerReady = false;
   selectedSegment: string = 'current';
   targetScheduleId: number | null = null;
   targetRouteId: number | null = null;
@@ -89,7 +105,8 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     private alertController: AlertController,
     private toastController: ToastController,
     private loadingController: LoadingController,
-    private mapService: MapService
+    private mapService: MapService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnDestroy() {
@@ -114,6 +131,16 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     this.apiService.getPassengerManifest(scheduleId).subscribe({
       next: (response) => {
         if (response?.success && Array.isArray(response?.passengers)) {
+          this.manifestPassengers = response.passengers.map((p: any) => ({
+            ticket_id: p.ticket_id,
+            commuter_name: p.commuter_name,
+            fare: p.fare,
+            payment_method: p.payment_method ?? null,
+            payment_status: p.payment_status ?? 'pending',
+            alighted: p.alighted === true,
+            boarding_stop_name: p.boarding_stop_name ?? null,
+            is_boarding_request: p.is_boarding_request === true,
+          }));
           this.mapBoardingPassengers = response.passengers.map((p: any) => ({
             public_ticket_id: p.ticket_id,
             fare: p.fare,
@@ -129,6 +156,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         }
 
         // Safe fallback: treat non-success / no passengers as empty list.
+        this.manifestPassengers = [];
         this.mapBoardingPassengers = [];
       },
       error: (err) => {
@@ -137,10 +165,158 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         // If schedule is missing on the backend, stop polling to avoid spamming errors.
         if (status === 404) {
           this.stopManifestPoll();
+          this.manifestPassengers = [];
           this.mapBoardingPassengers = [];
         }
       },
     });
+  }
+
+  openQrScanner(): void {
+    if (!this.currentSchedule?.id) {
+      void this.presentMapToast('Start or select an active route before scanning tickets.', 'warning');
+      return;
+    }
+    this.showQrScanner = true;
+  }
+
+  onQrModalPresent(): void {
+    this.qrScannerReady = true;
+  }
+
+  onQrModalDismiss(): void {
+    this.qrScannerReady = false;
+    this.showQrScanner = false;
+  }
+
+  async onTicketScanned(ticket: ScannedTicket): Promise<void> {
+    this.showQrScanner = false;
+    await new Promise((resolve) => setTimeout(resolve, 280));
+
+    const scheduleId = this.currentSchedule?.id;
+    if (!scheduleId) {
+      return;
+    }
+
+    const manifestRow = this.manifestPassengers.find(
+      (p) => p.ticket_id === ticket.ticketId && !p.is_boarding_request
+    );
+
+    if (!manifestRow) {
+      this.apiService.getPassengerManifest(scheduleId).subscribe({
+        next: (response) => {
+          if (response?.success && Array.isArray(response?.passengers)) {
+            this.manifestPassengers = response.passengers.map((p: any) => ({
+              ticket_id: p.ticket_id,
+              commuter_name: p.commuter_name,
+              fare: p.fare,
+              payment_method: p.payment_method ?? null,
+              payment_status: p.payment_status ?? 'pending',
+              alighted: p.alighted === true,
+              boarding_stop_name: p.boarding_stop_name ?? null,
+              is_boarding_request: p.is_boarding_request === true,
+            }));
+          }
+          const refreshed = this.manifestPassengers.find(
+            (p) => p.ticket_id === ticket.ticketId && !p.is_boarding_request
+          );
+          void this.showTicketDetailsAlert(ticket, refreshed ?? null);
+        },
+        error: () => void this.showTicketDetailsAlert(ticket, null),
+      });
+      return;
+    }
+
+    void this.showTicketDetailsAlert(ticket, manifestRow);
+  }
+
+  private async showTicketDetailsAlert(
+    ticket: ScannedTicket,
+    manifestRow: ManifestPassenger | null
+  ): Promise<void> {
+    const fareDisplay = `₱${(+ticket.fare).toFixed(2)}`;
+    const lines = [
+      `Ticket ID: ${ticket.ticketId}`,
+      `Route: ${ticket.routeName}`,
+      `Fare (QR): ${fareDisplay}`,
+    ];
+    if (ticket.issuedAt) {
+      lines.push(`Issued: ${ticket.issuedAt}`);
+    }
+
+    if (manifestRow) {
+      lines.push(`Passenger: ${manifestRow.commuter_name}`);
+      lines.push(`Payment: ${this.formatPaymentStatus(manifestRow)}`);
+      if (manifestRow.boarding_stop_name) {
+        lines.push(`Board at: ${manifestRow.boarding_stop_name}`);
+      }
+      if (manifestRow.alighted) {
+        lines.push('Status: Already alighted');
+      }
+    } else {
+      lines.push('Not found on this trip manifest — verify route and ticket.');
+    }
+
+    const canConfirmCash =
+      !!manifestRow &&
+      !!this.currentSchedule?.id &&
+      !manifestRow.alighted &&
+      manifestRow.payment_status !== 'paid' &&
+      (manifestRow.payment_method === 'cash' || !manifestRow.payment_method);
+
+    const buttons: { text: string; role?: string; handler?: () => void }[] = [
+      { text: 'Close', role: 'cancel' },
+    ];
+
+    if (canConfirmCash && this.currentSchedule?.id) {
+      const scheduleId = this.currentSchedule.id;
+      const publicTicketId = manifestRow!.ticket_id;
+      buttons.unshift({
+        text: 'Confirm cash',
+        handler: () => {
+          this.apiService.confirmCashPayment(scheduleId, publicTicketId).subscribe({
+            next: async () => {
+              await this.presentMapToast('Cash payment recorded.', 'success');
+              this.loadManifest(scheduleId);
+            },
+            error: async (err) => {
+              await this.presentMapToast(
+                err?.error?.message || 'Could not record cash payment.',
+                'danger'
+              );
+            },
+          });
+        },
+      });
+    }
+
+    const alert = await this.alertController.create({
+      header: 'E-Ticket details',
+      message: lines.join('\n'),
+      buttons,
+    });
+    await alert.present();
+  }
+
+  private formatPaymentStatus(p: ManifestPassenger): string {
+    const method = p.payment_method
+      ? p.payment_method.charAt(0).toUpperCase() + p.payment_method.slice(1)
+      : 'Cash';
+    const status =
+      p.payment_status === 'paid'
+        ? 'Paid'
+        : p.payment_status === 'pending'
+          ? 'Pending'
+          : p.payment_status;
+    return `${method} — ${status}`;
+  }
+
+  private async presentMapToast(
+    message: string,
+    color: 'success' | 'danger' | 'warning' = 'success'
+  ): Promise<void> {
+    const t = await this.toastController.create({ message, duration: 2800, color });
+    await t.present();
   }
 
   ngOnInit() {
@@ -301,7 +477,15 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const t = this.normalizeTime(schedule.end_time);
     if (!day || !t) return null;
     const d = new Date(`${day}T${t}`);
-    return isNaN(d.getTime()) ? null : d;
+    if (isNaN(d.getTime())) return null;
+    if (schedule.ends_next_day) {
+      d.setDate(d.getDate() + 1);
+    }
+    return d;
+  }
+
+  private isWorkableStatus(status: string): boolean {
+    return ['scheduled', 'accepted', 'active'].includes(status);
   }
 
   private isReturnLeg(schedule: Schedule | null): boolean {
@@ -336,13 +520,19 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const activeToday = todaySchedules.find((s) => st(s) === 'active');
     if (activeToday) return activeToday;
 
+    const returnReady = todaySchedules.find((s) => {
+      const rt = String(s.return_trip_status || '').toLowerCase();
+      return s.has_return_trip && ['accepted', 'active'].includes(rt) && this.isWorkableStatus(st(s));
+    });
+    if (returnReady) return returnReady;
+
     const inWindow = todaySchedules.find((s) => {
       if (this.scheduleDateKey(s) !== todayStr) return false;
       const start = this.parseScheduleStart(s);
       const end = this.parseScheduleEnd(s);
       if (!start || !end) return false;
       const status = st(s);
-      return (status === 'accepted' || status === 'active') && now >= start && now < end;
+      return this.isWorkableStatus(status) && now >= start && now < end;
     });
     if (inWindow) return inWindow;
 
@@ -350,7 +540,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       .filter((s) => {
         if (this.scheduleDateKey(s) !== todayStr) return false;
         const status = st(s);
-        if (status !== 'accepted' && status !== 'active') return false;
+        if (!this.isWorkableStatus(status)) return false;
         const end = this.parseScheduleEnd(s);
         return !end || now < end;
       })
@@ -369,10 +559,9 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     }
 
     return (
-      upcomingSchedules.find((s) => {
-        const status = st(s);
-        return status === 'accepted' || status === 'active';
-      }) || null
+      upcomingSchedules.find((s) => this.isWorkableStatus(st(s))) ||
+      todaySchedules.find((s) => this.isWorkableStatus(st(s))) ||
+      null
     );
   }
 
@@ -504,6 +693,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       );
       if (returnGeometry) {
         this.mapRouteGeoJson = returnGeometry;
+        this.cdr.markForCheck();
         return;
       }
 
@@ -521,15 +711,18 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       const retEnd = this.parseCoordPair(route.start_coordinates);
       if (retStart && retEnd) {
         await this.fetchRouteFromMapbox(retStart, retEnd);
+        this.cdr.markForCheck();
         return;
       }
 
       this.mapRouteGeoJson = null;
+      this.cdr.markForCheck();
       return;
     }
 
     if (this.isValidLineString(route.map_geometry as any)) {
       this.mapRouteGeoJson = this.cloneLineString(route.map_geometry as any);
+      this.cdr.markForCheck();
       return;
     }
 
@@ -540,6 +733,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
       } else {
         this.mapRouteGeoJson = fromField;
       }
+      this.cdr.markForCheck();
       return;
     }
 
@@ -547,15 +741,30 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
     const end = this.parseCoordPair(route.end_coordinates);
     if (start && end) {
       await this.fetchRouteFromMapbox(start, end);
+      this.cdr.markForCheck();
       return;
     }
 
-    if (this.mapRouteStops.length) {
-      this.mapRouteGeoJson = null;
-      return;
+    if (this.mapRouteStops.length >= 2) {
+      const waypoints = this.mapRouteStops
+        .map((stop) => {
+          const lng = stop.lng ?? stop.longitude;
+          const lat = stop.lat ?? stop.latitude;
+          if (typeof lng === 'number' && typeof lat === 'number' && !isNaN(lng) && !isNaN(lat)) {
+            return [lng, lat] as [number, number];
+          }
+          return null;
+        })
+        .filter((p): p is [number, number] => p !== null);
+      if (waypoints.length >= 2) {
+        await this.fetchDrivingRouteFromWaypoints(waypoints);
+        this.cdr.markForCheck();
+        return;
+      }
     }
 
     this.mapRouteGeoJson = null;
+    this.cdr.markForCheck();
   }
 
   getScheduleTime(schedule: Schedule): string {
@@ -563,10 +772,24 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
   }
 
   getScheduleRoute(schedule: Schedule): string {
-    if (this.isReturnTrip && schedule.route?.end_location && schedule.route?.start_location) {
-      return `${schedule.route.end_location} to ${schedule.route.start_location}`;
+    const r = schedule.route;
+    if (!r) {
+      return '';
     }
-    return schedule.route?.name || '';
+    const short = (loc?: string) => {
+      if (!loc?.trim()) return '';
+      const first = loc.split(',')[0].trim();
+      return (first.split(/\s+/)[0] || first).toUpperCase();
+    };
+    const from = short(r.start_location);
+    const to = short(r.end_location);
+    if (this.isReturnTrip && from && to) {
+      return `${to} to ${from}`;
+    }
+    if (from && to) {
+      return `${from} to ${to}`;
+    }
+    return r.name || '';
   }
 
   getScheduleDestination(schedule: Schedule): string {
@@ -781,6 +1004,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         coordinates: [startCoords, endCoords]
       };
     }
+    this.cdr.markForCheck();
   }
 
   private async fetchDrivingRouteFromWaypoints(waypoints: [number, number][]) {
@@ -805,6 +1029,7 @@ export class MapPage implements OnInit, OnDestroy, ViewWillEnter, ViewDidLeave {
         coordinates: waypoints
       };
     }
+    this.cdr.markForCheck();
   }
 }
 

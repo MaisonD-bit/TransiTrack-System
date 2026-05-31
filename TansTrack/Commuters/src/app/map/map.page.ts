@@ -9,6 +9,7 @@ import {
 import * as mapboxgl from 'mapbox-gl';
 import { environment } from '../../environments/environment';
 import { CommuterService, LiveRoute } from '../services/commuter.service';
+import { createMapBusMarkerElement } from '../utils/map-bus-marker';
 import { Subscription } from 'rxjs';
 
 @Component({
@@ -295,9 +296,14 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
     // Use Mapbox built-in marker for consistency and to avoid zoom/pan issues
     // Use route color or default orange for buses
     const busColor = this.getRouteColor(bus.routeId);
-    const marker = new mapboxgl.Marker({ 
-      color: busColor,
-      scale: 1.1 
+    const busEl = createMapBusMarkerElement({
+      scale: 1.1,
+      ringColor: busColor,
+      title: bus.licensePlate || 'Bus',
+    });
+    const marker = new mapboxgl.Marker({
+      element: busEl,
+      anchor: 'center',
     })
       .setLngLat([bus.currentLocation.lng, bus.currentLocation.lat])
       .setPopup(popup)

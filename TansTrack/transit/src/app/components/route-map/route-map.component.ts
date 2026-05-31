@@ -2,6 +2,8 @@ import { Component, Input, Output, EventEmitter, AfterViewInit, ElementRef, View
 import { CommonModule } from '@angular/common';
 import { IonicModule } from '@ionic/angular';
 
+import { createMapBusMarkerElement } from '../../utils/map-bus-marker';
+
 declare var mapboxgl: any;
 
 /** Terminal-approved stop (lng/lat), aligned with commuter API */
@@ -82,7 +84,7 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
           timeout: 20000,
         },
         trackUserLocation: true,
-        showUserLocation: true,
+        showUserLocation: false,
         showUserHeading: true,
       });
       this.map.addControl(this.geolocateControl, 'top-left');
@@ -218,9 +220,8 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
       });
       this.map.fitBounds(bounds, { padding: 40, maxZoom: 14 });
 
-      if (!this.routeStops || this.routeStops.length === 0) {
-        this.addPathEndpoints();
-      }
+      // Always show start (green) and end (red) pins when route geometry exists
+      this.addPathEndpoints();
     }
 
     this.addStopMarkers();
@@ -240,7 +241,12 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
     if (isNaN(lng) || isNaN(lat)) return;
 
     if (!this.driverMarker) {
-      this.driverMarker = new mapboxgl.Marker({ color: '#2563eb', scale: 1.1 })
+      const busEl = createMapBusMarkerElement({
+        scale: 1.1,
+        ringColor: '#2563eb',
+        title: 'Your bus',
+      });
+      this.driverMarker = new mapboxgl.Marker({ element: busEl, anchor: 'center' })
         .setLngLat([lng, lat])
         .setPopup(new mapboxgl.Popup().setHTML('<div style="padding:8px;"><strong>Your bus</strong><br>Live GPS</div>'))
         .addTo(this.map);
@@ -382,13 +388,23 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
     list.forEach((m) => m.remove());
   }
 
+  /** Pathway terminals — first/last coordinate on the blue line (not stop table order). */
+  private lineEndpoints(): { start: [number, number]; end: [number, number] } | null {
+    const coords = this.routeGeoJson?.coordinates;
+    if (!coords?.length) return null;
+    return {
+      start: coords[0] as [number, number],
+      end: coords[coords.length - 1] as [number, number],
+    };
+  }
+
   private addPathEndpoints() {
-    if (!this.routeGeoJson?.coordinates?.length) {
+    const endpoints = this.lineEndpoints();
+    if (!endpoints) {
       return;
     }
-    const coordinates = this.routeGeoJson.coordinates;
-    const startCoord = coordinates[0];
-    const startMarker = new mapboxgl.Marker({ color: '#22c55e', scale: 1.2 })
+    const startCoord = endpoints.start;
+    const startMarker = new mapboxgl.Marker({ color: '#a855f7', scale: 1.2 })
       .setLngLat(startCoord)
       .setPopup(
         new mapboxgl.Popup().setHTML(
@@ -398,8 +414,10 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
       .addTo(this.map);
     this.pathMarkers.push(startMarker);
 
-    if (coordinates.length > 1) {
-      const endCoord = coordinates[coordinates.length - 1];
+    const endCoord = endpoints.end;
+    const sameAsStart =
+      Math.abs(startCoord[0] - endCoord[0]) < 1e-6 && Math.abs(startCoord[1] - endCoord[1]) < 1e-6;
+    if (!sameAsStart) {
       const endMarker = new mapboxgl.Marker({ color: '#ef4444', scale: 1.2 })
         .setLngLat(endCoord)
         .setPopup(
@@ -412,6 +430,13 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
     }
   }
 
+  private isNearLineEndpoint(lng: number, lat: number, which: 'start' | 'end'): boolean {
+    const endpoints = this.lineEndpoints();
+    if (!endpoints) return false;
+    const target = which === 'start' ? endpoints.start : endpoints.end;
+    return this.haversineMeters([lng, lat], target) < 80;
+  }
+
   private stopLngLat(stop: RouteMapStop): [number, number] | null {
     const lng = stop.lng ?? stop.longitude;
     const lat = stop.lat ?? stop.latitude;
@@ -422,11 +447,12 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
   }
 
   private addStopMarkers() {
-    const total = (this.routeStops || []).length;
     (this.routeStops || []).forEach((stop, i) => {
-      if (total > 2 && (i === 0 || i === total - 1)) return;
       const ll = this.stopLngLat(stop);
       if (!ll) return;
+      if (this.isNearLineEndpoint(ll[0], ll[1], 'start') || this.isNearLineEndpoint(ll[0], ll[1], 'end')) {
+        return;
+      }
       const title = stop.name?.trim() || `Bus stop ${i + 1}`;
       const dist =
         stop.distance_km_from_start != null
@@ -450,24 +476,14 @@ export class RouteMapComponent implements AfterViewInit, OnChanges {
     );
     if (!waiting.length) return;
 
-    let fallback: [number, number] | null = this.routeGeoJson?.coordinates?.[0] ?? null;
-    if (!fallback && this.routeStops?.length) {
-      for (const s of this.routeStops) {
-        fallback = this.stopLngLat(s);
-        if (fallback) break;
-      }
-    }
-
     const groups = new Map<string, RouteMapBoardingPassenger[]>();
     for (const p of waiting) {
-      let lng: number;
-      let lat: number;
-      if (p.boarding_lng != null && p.boarding_lat != null) {
-        lng = p.boarding_lng;
-        lat = p.boarding_lat;
-      } else if (fallback) {
-        [lng, lat] = fallback;
-      } else {
+      if (p.boarding_lng == null || p.boarding_lat == null) {
+        continue;
+      }
+      const lng = p.boarding_lng;
+      const lat = p.boarding_lat;
+      if (this.isNearLineEndpoint(lng, lat, 'start') || this.isNearLineEndpoint(lng, lat, 'end')) {
         continue;
       }
       const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;

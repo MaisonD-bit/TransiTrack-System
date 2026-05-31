@@ -48,6 +48,6 @@ class TerminalOccupancyHistory extends Model
 
     public function company()
     {
-        return $this->belongsTo(User::class, 'company_id');
+        return $this->belongsTo(OperatorUser::class, 'company_id');
     }
 }

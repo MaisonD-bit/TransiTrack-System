@@ -15,11 +15,9 @@ class RouteController extends Controller
      */
     public function index(Request $request)
     {
-        $user = auth()->user();
-        $userId = $user->id;
-        $userTerminal = $user->terminal;
+        $userTerminal = auth()->user()->terminal;
 
-        $query = BusRoute::where('user_id', $userId)->where('terminal', $userTerminal);
+        $query = BusRoute::where('terminal', $userTerminal);
 
         if ($request->filled('search')) {
             $searchTerm = $request->search;
@@ -119,9 +117,7 @@ class RouteController extends Controller
     public function show($id)
     {
         try {
-            $user = auth()->user();
-            $route = BusRoute::where('user_id', $user->id)
-                ->where('terminal', $user->terminal) // ✅ Filter by terminal
+            $route = BusRoute::where('terminal', auth()->user()->terminal)
                 ->findOrFail($id);
 
             // Get geometry and stops data
@@ -201,7 +197,6 @@ class RouteController extends Controller
         try {
             $data = $request->all();
 
-            // ✅ Parse stops_data if it's a JSON string
             if (isset($data['stops_data']) && is_string($data['stops_data'])) {
                 $data['stops_data'] = json_decode($data['stops_data'], true);
             }
@@ -373,7 +368,7 @@ class RouteController extends Controller
      */
     public function getAvailableRoutes()
     {
-        $routes = BusRoute::where('user_id', Auth::id())
+        $routes = BusRoute::where('terminal', Auth::user()->terminal)
             ->where('status', 'active')
             ->select('id', 'name', 'code', 'start_location', 'end_location')
             ->orderBy('name')

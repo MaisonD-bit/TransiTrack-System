@@ -12,17 +12,16 @@ class RouteApprovalWebController extends Controller
     public function index()
     {
         $userId = Auth::id();
+        $operatorTerminal = Auth::user()->terminal;
+
         $requests = RouteApprovalRequest::query()
             ->where('operator_user_id', $userId)
             ->orderByDesc('created_at')
             ->get();
 
-        $routes = Route::query()
-            ->where('user_id', $userId)
+        $routes = $this->availableRoutesQuery($userId, $operatorTerminal)
             ->orderBy('name')
             ->get();
-
-        $operatorTerminal = Auth::user()->terminal;
 
         return view('panels.route-requests', compact('requests', 'routes', 'operatorTerminal'));
     }
@@ -45,8 +44,11 @@ class RouteApprovalWebController extends Controller
         ]);
 
         foreach ($data['route_ids'] as $rid) {
-            $owns = Route::query()->where('id', $rid)->where('user_id', $userId)->exists();
-            if (! $owns) {
+            $available = $this->availableRoutesQuery($userId, $terminal)
+                ->where('id', $rid)
+                ->exists();
+
+            if (! $available) {
                 return back()->withErrors(['route_ids' => 'Invalid route selection.'])->withInput();
             }
         }
@@ -61,9 +63,9 @@ class RouteApprovalWebController extends Controller
 
         $t = $terminal === 'north' ? 'North' : 'South';
 
-        return redirect()->route('route-requests.panel')->with(
+        return redirect()->route('route-stops.index')->with(
             'success',
-            "Routes submitted for the {$t} terminal. Only the {$t} terminal manager (Terminal Manager app) will see this — log in with that terminal’s account to add bus stops."
+            "Routes submitted for the {$t} terminal. Open Route stops to add bus stops on the map, then send to sysadmin when ready."
         );
     }
 
@@ -74,7 +76,7 @@ class RouteApprovalWebController extends Controller
         if ($routeApprovalRequest->status !== 'pending_stops') {
             return redirect()->route('route-requests.panel')->with(
                 'error',
-                'Only submissions still waiting for terminal stops can be cancelled.'
+                'Only submissions still waiting for bus stops can be cancelled.'
             );
         }
 
@@ -86,5 +88,16 @@ class RouteApprovalWebController extends Controller
     private function authorizeOperator(RouteApprovalRequest $routeApprovalRequest): void
     {
         abort_if($routeApprovalRequest->operator_user_id !== Auth::id(), 403);
+    }
+
+    private function availableRoutesQuery(int $userId, ?string $terminal)
+    {
+        return Route::query()
+            ->where('terminal', $terminal)
+            ->where('status', 'active')
+            ->where(function ($query) use ($userId) {
+                $query->whereNull('user_id')
+                    ->orWhere('user_id', $userId);
+            });
     }
 }

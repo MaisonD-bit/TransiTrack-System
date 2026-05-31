@@ -127,6 +127,8 @@
   justify-content: center;
   padding: 24px 24px 16px;
   gap: 16px;
+  position: relative;
+  z-index: 2;
 
   .eticket-qr-wrap {
     display: flex;

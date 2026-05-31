@@ -1,7 +1,10 @@
 <div class="sidebar">
     <div class="logo">
         <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
-        <h1>TransiTrack</h1>
+        <div>
+            <h1 class="mb-0">TransiTrack</h1>
+            <small class="text-white-50">Bus Operator</small>
+        </div>
     </div>
     <div class="nav-links">
         <a href="{{ route('operator.panel') }}" class="nav-item {{ request()->routeIs('operator.panel') ? 'active' : '' }}">
@@ -44,9 +47,9 @@
             <i class="fas fa-comments"></i>
             <span>Chat</span>
         </a>
-        <a href="#" class="nav-item">
-            <i class="fas fa-cog"></i>
-            <span>Settings</span>
+        <a href="{{ route('route-stops.index') }}" class="nav-item {{ request()->routeIs('route-stops.*') ? 'active' : '' }}">
+            <i class="fas fa-route"></i>
+            <span>Route stops</span>
         </a>
     </div>
     <div class="sidebar-footer">

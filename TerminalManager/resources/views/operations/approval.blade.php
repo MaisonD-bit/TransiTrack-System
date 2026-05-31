@@ -145,15 +145,6 @@
         background: #15a05e;
     }
 
-    .btn-reject {
-        background: #dc3545;
-        color: white;
-    }
-
-    .btn-reject:hover {
-        background: #c82333;
-    }
-
     .btn-view {
         background: #17a2b8;
         color: white;
@@ -164,12 +155,12 @@
     }
 
     .btn-deactivate {
-        background: #ffc107;
-        color: #333;
+        background: #dc3545;
+        color: white;
     }
 
     .btn-deactivate:hover {
-        background: #e0a800;
+        background: #c82333;
     }
 
     .empty-message {
@@ -262,6 +253,83 @@
         flex: 1;
         line-height: 1.4;
     }
+
+    .modal-message {
+        color: #555;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        margin-bottom: 1rem;
+    }
+
+    .reason-label {
+        display: block;
+        font-weight: 600;
+        color: #555;
+        font-size: 0.85rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .reason-input {
+        width: 100%;
+        min-height: 95px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 0.7rem;
+        resize: vertical;
+        font: inherit;
+        font-size: 0.9rem;
+    }
+
+    .reason-input:focus {
+        border-color: #2b7be4;
+        box-shadow: 0 0 0 0.2rem rgba(43, 123, 228, 0.15);
+        outline: none;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.65rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+
+    .btn-modal {
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 0.55rem 0.9rem;
+        transition: all 0.3s ease;
+    }
+
+    .btn-modal-primary {
+        background: #2b7be4;
+        color: white;
+    }
+
+    .btn-modal-primary:hover {
+        background: #1e5fae;
+    }
+
+    .btn-modal-danger {
+        background: #dc3545;
+        color: white;
+    }
+
+    .btn-modal-danger:hover {
+        background: #c82333;
+    }
+
+    .btn-modal-secondary {
+        background: #f8f9fa;
+        color: #555;
+        border: 1px solid #ddd;
+    }
+
+    .btn-modal-secondary:hover {
+        background: #e9ecef;
+    }
 </style>
 
 <div class="approval-page">
@@ -276,10 +344,10 @@
     <!-- Filter Section -->
     <div class="filter-section">
         <button class="filter-btn active" data-filter="inactive">
-            <i class="fas fa-hourglass-half me-2"></i>Pending
+            <i class="fas fa-hourglass-half me-2"></i>Pending / Inactive
         </button>
         <button class="filter-btn" data-filter="active">
-            <i class="fas fa-check me-2"></i>Approved
+            <i class="fas fa-check me-2"></i>Approved / Active
         </button>
         <button class="filter-btn" data-filter="all">
             <i class="fas fa-list me-2"></i>All
@@ -355,6 +423,29 @@
                     <span class="status-badge" id="modalOperatorStatus">N/A</span>
                 </div>
             </div>
+            <div class="detail-row" id="modalStatusReasonRow" style="display: none;">
+                <div class="detail-label">Status Reason:</div>
+                <div class="detail-value" id="modalStatusReason">N/A</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reason Modal -->
+<div class="modal" id="statusReasonModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span id="statusReasonTitle">Add Reason</span>
+            <button class="modal-close-btn" onclick="closeStatusReasonModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-message" id="statusReasonMessage"></p>
+            <label class="reason-label" for="statusReasonInput" id="statusReasonLabel">Reason</label>
+            <textarea class="reason-input" id="statusReasonInput" maxlength="500" placeholder="Enter the reason..."></textarea>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-modal btn-modal-secondary" onclick="closeStatusReasonModal()">Cancel</button>
+            <button type="button" class="btn-modal btn-modal-primary" id="statusReasonSubmit" onclick="submitStatusReason()">Submit</button>
         </div>
     </div>
 </div>

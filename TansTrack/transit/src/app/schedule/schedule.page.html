@@ -145,7 +145,7 @@
             <div class="action-buttons">
               <ion-button *ngIf="canAccept(schedule)" expand="block" color="success" (click)="acceptSchedule(schedule)">
                 <ion-icon slot="start" name="checkmark-circle"></ion-icon>
-                Accept
+                {{ acceptScheduleLabel(schedule) }}
               </ion-button>
 
               <ion-button *ngIf="canDecline(schedule)" expand="block" color="danger" fill="outline" (click)="declineSchedule(schedule)">
@@ -252,9 +252,9 @@
           <!-- Action Buttons -->
           <div class="action-buttons">
             <ion-button *ngIf="canAccept(schedule)" expand="block" color="success" (click)="acceptSchedule(schedule)">
-              <ion-icon slot="start" name="checkmark-circle"></ion-icon>
-              Accept
-            </ion-button>
+                <ion-icon slot="start" name="checkmark-circle"></ion-icon>
+                {{ acceptScheduleLabel(schedule) }}
+              </ion-button>
 
             <ion-button *ngIf="canDecline(schedule)" expand="block" color="danger" fill="outline" (click)="declineSchedule(schedule)">
               <ion-icon slot="start" name="close-circle"></ion-icon>
@@ -332,9 +332,9 @@
           <!-- Action Buttons for Past Schedules -->
           <div class="action-buttons">
             <ion-button *ngIf="canAccept(schedule)" expand="block" color="success" (click)="acceptSchedule(schedule)">
-              <ion-icon slot="start" name="checkmark-circle"></ion-icon>
-              Accept (Late)
-            </ion-button>
+                <ion-icon slot="start" name="checkmark-circle"></ion-icon>
+                {{ acceptScheduleLabel(schedule) }}
+              </ion-button>
 
             <ion-button *ngIf="canDecline(schedule)" expand="block" color="danger" fill="outline" (click)="declineSchedule(schedule)">
               <ion-icon slot="start" name="close-circle"></ion-icon>

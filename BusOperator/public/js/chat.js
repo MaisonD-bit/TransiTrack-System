@@ -6,6 +6,110 @@ let chatClient;
 let currentChannel;
 let channels = [];
 let displayedMessageIds = new Set(); // Track displayed message IDs to prevent duplicates
+let channelMessageHandler = null;
+let channelMessageUpdatedHandler = null;
+let channelMessageDeletedHandler = null;
+
+async function chatConfirm(message, confirmLabel = 'Confirm', cancelLabel = 'Cancel') {
+    if (typeof showSpaceConfirm === 'function') {
+        return showSpaceConfirm(message, confirmLabel, cancelLabel);
+    }
+    return confirm(message);
+}
+
+function chatAlert(message, type = 'info') {
+    if (typeof showSpaceAlert === 'function') {
+        showSpaceAlert(message, type);
+    } else {
+        alert(message);
+    }
+}
+
+function isOwnMessage(message) {
+    return message.user && String(message.user.id) === String(window.userId);
+}
+
+function isMessageEdited(message) {
+    if (!message.updated_at || !message.created_at) {
+        return false;
+    }
+    return new Date(message.updated_at).getTime() > new Date(message.created_at).getTime() + 1000;
+}
+
+function canEditMessage(message) {
+    if (!isOwnMessage(message) || message.deleted_at) {
+        return false;
+    }
+    const text = (message.text || '').trim();
+    if (!text) {
+        return false;
+    }
+    return !shouldSuppressRedundantAttachmentCaption(text, message.attachments);
+}
+
+function canDeleteMessage(message) {
+    return isOwnMessage(message) && !!message.id && !message.deleted_at;
+}
+
+function getMessageById(messageId) {
+    if (!currentChannel || !messageId) {
+        return null;
+    }
+    return currentChannel.state.messages.find(m => m.id === messageId) || null;
+}
+
+function updateChannelListPreview() {
+    if (!currentChannel) {
+        return;
+    }
+    const channelItem = document.querySelector(`[data-channel-id="${currentChannel.id}"]`);
+    if (!channelItem) {
+        return;
+    }
+    const previewEl = channelItem.querySelector('.channel-last-message');
+    if (!previewEl) {
+        return;
+    }
+    const messages = currentChannel.state.messages || [];
+    const lastMessage = messages[messages.length - 1];
+    previewEl.textContent = channelPreviewText(lastMessage);
+}
+
+function getChannelDisplayName(channel) {
+    const explicit = (channel?.data?.name || '').trim();
+    if (explicit) {
+        return explicit;
+    }
+
+    const members = channel?.state?.members ? Object.values(channel.state.members) : [];
+    const otherNames = members
+        .filter((member) => member.user_id && String(member.user_id) !== String(window.userId))
+        .map((member) => (member.user?.name || '').trim())
+        .filter(Boolean);
+
+    if (otherNames.length === 1) {
+        return otherNames[0];
+    }
+    if (otherNames.length > 1) {
+        return otherNames.join(', ');
+    }
+
+    const channelId = String(channel?.id || '');
+    const driverMatch = channelId.match(/^driver(\d+)-op/i);
+    if (driverMatch) {
+        return `Driver #${driverMatch[1]}`;
+    }
+
+    return 'Unnamed Channel';
+}
+
+function updateChannelListItemName(channel) {
+    const channelItem = document.querySelector(`[data-channel-id="${channel.id}"]`);
+    const nameEl = channelItem?.querySelector('.channel-name');
+    if (nameEl) {
+        nameEl.textContent = getChannelDisplayName(channel);
+    }
+}
 
 // Initialize chat
 async function initChat() {
@@ -91,8 +195,8 @@ async function loadChannels() {
 
             channelDiv.innerHTML = `
                 <div class="channel-content">
-                    <div class="channel-name">${channel.data.name || 'Unnamed Channel'}</div>
-                    <div class="channel-last-message">${lastMessageText}</div>
+                    <div class="channel-name">${escapeHtml(getChannelDisplayName(channel))}</div>
+                    <div class="channel-last-message">${escapeHtml(lastMessageText)}</div>
                 </div>
             `;
 
@@ -128,7 +232,7 @@ async function loadChannel(channel) {
         document.querySelector(`[data-channel-id="${channel.id}"]`)?.classList.add('active');
 
         // Update header
-        document.getElementById('channel-name').textContent = channel.data.name || 'Chat';
+        document.getElementById('channel-name').textContent = getChannelDisplayName(channel);
 
         const memberCount = Object.keys(channel.state.members).length;
         document.getElementById('channel-members').textContent = `${memberCount} members`;
@@ -146,13 +250,36 @@ async function loadChannel(channel) {
 
         // Load messages
         const state = await channel.watch();
+        updateChannelListItemName(channel);
+        document.getElementById('channel-name').textContent = getChannelDisplayName(channel);
         displayMessages(state.messages);
 
-        // Listen for new messages
-        channel.off('message.new'); // Remove previous listeners
-        channel.on('message.new', event => {
+        if (channelMessageHandler) {
+            channel.off('message.new', channelMessageHandler);
+        }
+        channelMessageHandler = (event) => {
             appendMessage(event.message);
-        });
+            updateChannelListPreview();
+        };
+        channel.on('message.new', channelMessageHandler);
+
+        if (channelMessageUpdatedHandler) {
+            channel.off('message.updated', channelMessageUpdatedHandler);
+        }
+        channelMessageUpdatedHandler = (event) => {
+            refreshMessageInDom(event.message);
+            updateChannelListPreview();
+        };
+        channel.on('message.updated', channelMessageUpdatedHandler);
+
+        if (channelMessageDeletedHandler) {
+            channel.off('message.deleted', channelMessageDeletedHandler);
+        }
+        channelMessageDeletedHandler = (event) => {
+            removeMessageFromDom(event.message.id);
+            updateChannelListPreview();
+        };
+        channel.on('message.deleted', channelMessageDeletedHandler);
 
     } catch (error) {
         console.error('Error loading channel:', error);
@@ -226,61 +353,320 @@ function shouldSuppressRedundantAttachmentCaption(textTrim, attachments) {
     return false;
 }
 
-// Append single message
-function appendMessage(message) {
-    // Prevent duplicate messages from appearing
-    if (displayedMessageIds.has(message.id)) {
-        console.log('Skipping duplicate message:', message.id);
-        return;
+function resolveChatMediaUrl(url) {
+    if (!url || typeof url !== 'string') {
+        return '';
     }
+    const trimmed = url.trim();
+    if (!trimmed || /^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+    }
+    const boBase = (window.busOperatorAppUrl || window.location.origin || '').replace(/\/$/, '');
+    const tmBase = (window.terminalManagerAppUrl || 'http://localhost:8001').replace(/\/$/, '');
+    if (trimmed.startsWith('/storage/')) {
+        return boBase + trimmed;
+    }
+    if (trimmed.startsWith('storage/')) {
+        return boBase + '/' + trimmed;
+    }
+    if (trimmed.startsWith('operators/') || trimmed.startsWith('drivers/')) {
+        return boBase + '/storage/' + trimmed;
+    }
+    if (trimmed.startsWith('managers/')) {
+        return tmBase + '/storage/' + trimmed;
+    }
+    return boBase + '/storage/' + trimmed.replace(/^\//, '');
+}
 
-    displayedMessageIds.add(message.id);
-
-    const container = document.getElementById('messages-container');
-    const div = document.createElement('div');
-    const isOwn = message.user.id === window.userId;
-
-    div.className = `message-item ${isOwn ? 'own' : ''}`;
-    div.dataset.messageId = message.id; // Add message ID to DOM for tracking
-
-    // Build message content with attachments (Stream stores CDN URLs after upload)
+function buildAttachmentHtml(message) {
     let attachmentHtml = '';
-    if (message.attachments && message.attachments.length > 0) {
-        message.attachments.forEach(att => {
-            if (att.type === 'image') {
-                const src = att.image_url || att.thumb_url || att.asset_url || '';
-                if (src) {
-                    attachmentHtml += `<img src="${escapeHtml(src)}" alt="" class="message-image" loading="lazy">`;
-                }
-            } else if (att.type === 'file') {
-                const fileName = att.title || att.fallback || 'File';
-                const href = att.asset_url || att.url || '#';
-                attachmentHtml += `<div class="message-attachment"><i class="bi bi-file-earmark"></i><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a></div>`;
-            } else if (att.type === 'link') {
-                attachmentHtml += `<div class="message-link"><a href="${escapeHtml(att.url)}" target="_blank" rel="noopener">${escapeHtml(att.url)}</a></div>`;
-            }
-        });
+    if (!message.attachments || !message.attachments.length) {
+        return attachmentHtml;
     }
+    message.attachments.forEach(att => {
+        if (att.type === 'image') {
+            const src = resolveChatMediaUrl(att.image_url || att.thumb_url || att.asset_url || '');
+            if (src) {
+                attachmentHtml += `<img src="${escapeHtml(src)}" alt="" class="message-image" loading="lazy">`;
+            }
+        } else if (att.type === 'file') {
+            const fileName = att.title || att.fallback || 'File';
+            const href = resolveChatMediaUrl(att.asset_url || att.url || '') || '#';
+            attachmentHtml += `<div class="message-attachment"><i class="bi bi-file-earmark"></i><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a></div>`;
+        } else if (att.type === 'link') {
+            attachmentHtml += `<div class="message-link"><a href="${escapeHtml(att.url)}" target="_blank" rel="noopener">${escapeHtml(att.url)}</a></div>`;
+        }
+    });
+    return attachmentHtml;
+}
 
+function closeAllMessageMenus() {
+    document.querySelectorAll('.message-menu.open').forEach((menu) => {
+        menu.classList.remove('open');
+        const dropdown = menu.querySelector('.message-menu-dropdown');
+        const trigger = menu.querySelector('.message-menu-trigger');
+        if (dropdown) {
+            dropdown.hidden = true;
+        }
+        if (trigger) {
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+    });
+}
+
+function buildMessageMenuHtml(message, isOwn) {
+    if (!isOwn || !message.id || message.deleted_at) {
+        return '';
+    }
+    const items = [];
+    if (canEditMessage(message)) {
+        items.push('<button type="button" class="message-menu-item" data-action="edit">Edit</button>');
+    }
+    if (canDeleteMessage(message)) {
+        items.push('<button type="button" class="message-menu-item message-menu-item-danger" data-action="delete">Delete</button>');
+    }
+    if (!items.length) {
+        return '';
+    }
+    return `
+        <div class="message-menu" data-message-id="${escapeHtml(message.id)}">
+            <button type="button" class="message-menu-trigger" aria-label="Message options" aria-expanded="false" aria-haspopup="true">
+                <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+            </button>
+            <div class="message-menu-dropdown" hidden>
+                ${items.join('')}
+            </div>
+        </div>
+    `;
+}
+
+function buildMessageBubbleHtml(message) {
+    const isOwn = isOwnMessage(message);
     const rawText = message.text || '';
     const textTrim = rawText.trim();
     const suppressText = shouldSuppressRedundantAttachmentCaption(textTrim, message.attachments);
     const textBlock = textTrim && !suppressText
         ? `<div class="message-text">${escapeHtml(rawText)}</div>`
         : '';
+    const timeLabel = isMessageEdited(message)
+        ? `${formatTime(message.created_at)} · edited`
+        : formatTime(message.created_at);
 
-    div.innerHTML = `
-        <div class="message-bubble">
-            ${!isOwn ? `<div class="message-author">${escapeHtml(message.user.name || '')}</div>` : ''}
+    return `
+        <div class="message-bubble" data-message-id="${escapeHtml(message.id || '')}">
+            ${!isOwn ? `<div class="message-author">${escapeHtml(message.user?.name || '')}</div>` : ''}
             ${textBlock}
-            ${attachmentHtml}
-            <div class="message-time">${formatTime(message.created_at)}</div>
+            ${buildAttachmentHtml(message)}
+            <div class="message-time">${timeLabel}</div>
         </div>
     `;
+}
+
+function buildMessageItemInnerHtml(message) {
+    const isOwn = isOwnMessage(message);
+    return buildMessageMenuHtml(message, isOwn) + buildMessageBubbleHtml(message);
+}
+
+function refreshMessageInDom(message) {
+    if (!message?.id) {
+        return;
+    }
+    const bubble = document.querySelector(`.message-bubble[data-message-id="${CSS.escape(message.id)}"]`);
+    const item = bubble?.closest('.message-item');
+    if (!item) {
+        return;
+    }
+    closeAllMessageMenus();
+    item.innerHTML = buildMessageItemInnerHtml(message);
+}
+
+function removeMessageFromDom(messageId) {
+    if (!messageId) {
+        return;
+    }
+    const bubble = document.querySelector(`.message-bubble[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!bubble) {
+        return;
+    }
+    const item = bubble.closest('.message-item');
+    if (item) {
+        item.remove();
+    }
+    displayedMessageIds.delete(messageId);
+}
+
+function startEditMessage(messageId) {
+    const message = getMessageById(messageId);
+    if (!message || !canEditMessage(message)) {
+        return;
+    }
+    const bubble = document.querySelector(`.message-bubble[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!bubble || bubble.classList.contains('is-editing')) {
+        return;
+    }
+    const textEl = bubble.querySelector('.message-text');
+    if (!textEl) {
+        return;
+    }
+    const currentText = (message.text || '').trim();
+    bubble.classList.add('is-editing');
+    const menu = bubble.closest('.message-item')?.querySelector('.message-menu');
+    if (menu) {
+        menu.style.visibility = 'hidden';
+    }
+    const form = document.createElement('div');
+    form.className = 'message-edit-form';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'message-edit-input';
+    textarea.rows = 3;
+    textarea.maxLength = 5000;
+    textarea.value = currentText;
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'message-edit-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-sm btn-light message-edit-cancel';
+    cancelBtn.textContent = 'Cancel';
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn btn-sm btn-primary message-edit-save';
+    saveBtn.textContent = 'Save';
+    actionsRow.append(cancelBtn, saveBtn);
+    form.append(textarea, actionsRow);
+    textEl.replaceWith(form);
+    const input = bubble.querySelector('.message-edit-input');
+    if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+    }
+    bubble.querySelector('.message-edit-cancel')?.addEventListener('click', () => {
+        refreshMessageInDom(message);
+    });
+    bubble.querySelector('.message-edit-save')?.addEventListener('click', () => {
+        saveEditedMessage(messageId);
+    });
+    input?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            saveEditedMessage(messageId);
+        }
+        if (e.key === 'Escape') {
+            refreshMessageInDom(message);
+        }
+    });
+}
+
+async function saveEditedMessage(messageId) {
+    const message = getMessageById(messageId);
+    const bubble = document.querySelector(`.message-bubble[data-message-id="${CSS.escape(messageId)}"]`);
+    const input = bubble?.querySelector('.message-edit-input');
+    if (!message || !input || !chatClient) {
+        return;
+    }
+    const newText = input.value.trim();
+    if (!newText) {
+        chatAlert('Message cannot be empty.', 'warning');
+        return;
+    }
+    if (newText === (message.text || '').trim()) {
+        refreshMessageInDom(message);
+        return;
+    }
+    try {
+        await chatClient.updateMessage({
+            id: messageId,
+            text: newText,
+        });
+    } catch (error) {
+        console.error('Error updating message:', error);
+        chatAlert('Failed to update message. You may only edit your own messages.', 'error');
+        refreshMessageInDom(message);
+    }
+}
+
+async function deleteChatMessage(messageId) {
+    const message = getMessageById(messageId);
+    if (!message || !canDeleteMessage(message)) {
+        return;
+    }
+    const confirmed = await chatConfirm('Delete this message? This cannot be undone.');
+    if (!confirmed) {
+        return;
+    }
+    try {
+        await chatClient.deleteMessage(messageId);
+        removeMessageFromDom(messageId);
+        updateChannelListPreview();
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        chatAlert('Failed to delete message.', 'error');
+    }
+}
+
+function appendMessage(message) {
+    const container = document.getElementById('messages-container');
+    if (!container || !message.user) {
+        return;
+    }
+    if (message.id && displayedMessageIds.has(message.id)) {
+        refreshMessageInDom(message);
+        return;
+    }
+    if (message.id) {
+        displayedMessageIds.add(message.id);
+    }
+    const div = document.createElement('div');
+    const isOwn = isOwnMessage(message);
+
+    div.className = `message-item ${isOwn ? 'own' : ''}`;
+    div.dataset.messageId = message.id || '';
+    div.innerHTML = buildMessageItemInnerHtml(message);
 
     container.appendChild(div);
     scrollToBottom();
 }
+
+
+const messagesContainerEl = document.getElementById('messages-container');
+if (messagesContainerEl) {
+    messagesContainerEl.addEventListener('click', (e) => {
+        const trigger = e.target.closest('.message-menu-trigger');
+        if (trigger) {
+            e.stopPropagation();
+            const menu = trigger.closest('.message-menu');
+            const dropdown = menu?.querySelector('.message-menu-dropdown');
+            const isOpen = menu?.classList.contains('open');
+            closeAllMessageMenus();
+            if (!isOpen && menu && dropdown) {
+                menu.classList.add('open');
+                dropdown.hidden = false;
+                trigger.setAttribute('aria-expanded', 'true');
+            }
+            return;
+        }
+
+        const item = e.target.closest('.message-menu-item');
+        if (!item) {
+            return;
+        }
+        e.stopPropagation();
+        const menu = item.closest('.message-menu');
+        const messageId = menu?.dataset.messageId;
+        closeAllMessageMenus();
+        if (!messageId) {
+            return;
+        }
+        if (item.dataset.action === 'edit') {
+            startEditMessage(messageId);
+        } else if (item.dataset.action === 'delete') {
+            deleteChatMessage(messageId);
+        }
+    });
+}
+
+document.addEventListener('click', () => {
+    closeAllMessageMenus();
+});
 
 // Send message
 document.getElementById('message-form').addEventListener('submit', async (e) => {
@@ -310,7 +696,7 @@ document.getElementById('message-form').addEventListener('submit', async (e) => 
             input.value = '';
         } catch (error) {
             console.error('Error sending message:', error);
-            alert('Failed to send message');
+            chatAlert('Failed to send message', 'error');
         }
     }
 });
@@ -327,19 +713,19 @@ function channelPreviewText(lastMessage) {
             return '📷 Image';
         }
         if (a.type === 'file') {
-            return '📎 ' + (a.title || a.fallback || 'File');
+            return 'Attachment';
         }
     }
     if (t) {
-        return lastMessage.text;
+        return t.length > 60 ? t.slice(0, 60) + '…' : t;
     }
     if (atts && atts.length) {
         const a = atts[0];
         if (a.type === 'image') {
-            return '📷 Image';
+            return 'Image';
         }
         if (a.type === 'file') {
-            return '📎 ' + (a.title || a.fallback || 'File');
+            return 'Attachment';
         }
         if (a.type === 'link') {
             return '🔗 Link';
@@ -368,7 +754,7 @@ async function uploadAndSendImage(file) {
         });
     } catch (error) {
         console.error('Error sending image:', error);
-        alert('Failed to send image. Use a smaller image or check your connection.');
+        chatAlert('Failed to send image. Use a smaller image or check your connection.', 'error');
     }
 }
 
@@ -395,7 +781,7 @@ async function uploadAndSendFile(file) {
         });
     } catch (error) {
         console.error('Error sending file:', error);
-        alert('Failed to send file. It may be too large or blocked.');
+        chatAlert('Failed to send file. It may be too large or blocked.', 'error');
     }
 }
 
@@ -429,19 +815,52 @@ async function loadUsers() {
         const response = await fetch('/chat/users');
         const users = await response.json();
 
-        const select = document.getElementById('members-select');
-        select.innerHTML = '';
-
-        users.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.id;
-            const formattedRole = formatRole(user.role, user.terminal, user.formatted_role);
-            option.textContent = `${user.name} (${formattedRole})`;
-            select.appendChild(option);
-        });
+        const picker = document.getElementById('members-select');
+        renderMemberPicker(picker, users, 'No users available');
     } catch (error) {
         console.error('Error loading users:', error);
+        const picker = document.getElementById('members-select');
+        if (picker) {
+            picker.innerHTML = '<p class="chat-member-picker-empty text-muted mb-0">Error loading users</p>';
+        }
     }
+}
+
+function renderMemberPicker(container, users, emptyMessage) {
+    if (!container) {
+        return;
+    }
+    container.innerHTML = '';
+    if (!users.length) {
+        container.innerHTML = `<p class="chat-member-picker-empty text-muted mb-0">${escapeHtml(emptyMessage)}</p>`;
+        return;
+    }
+    users.forEach((user) => {
+        const label = document.createElement('label');
+        label.className = 'chat-member-picker-item';
+        const formattedRole = formatRole(user.role, user.terminal, user.formatted_role);
+        label.innerHTML = `
+            <input type="checkbox" class="form-check-input" value="${escapeHtml(String(user.id))}">
+            <span class="chat-member-picker-label">${escapeHtml(user.name)} <span class="text-muted">(${escapeHtml(formattedRole)})</span></span>
+        `;
+        container.appendChild(label);
+    });
+}
+
+function getSelectedMemberIds(container) {
+    if (!container) {
+        return [];
+    }
+    return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value);
+}
+
+function clearMemberPicker(container) {
+    if (!container) {
+        return;
+    }
+    container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+        cb.checked = false;
+    });
 }
 
 // Helper function to format roles
@@ -470,11 +889,11 @@ document.getElementById('createChannelBtn').addEventListener('click', () => {
 // Create channel submit
 document.getElementById('create-channel-submit').addEventListener('click', async () => {
     const channelName = document.getElementById('channel-name-input').value;
-    const select = document.getElementById('members-select');
-    const selectedMembers = Array.from(select.selectedOptions).map(opt => opt.value);
+    const picker = document.getElementById('members-select');
+    const selectedMembers = getSelectedMemberIds(picker);
 
     if (!channelName || selectedMembers.length === 0) {
-        alert('Please enter a channel name and select at least one member');
+        chatAlert('Please enter a channel name and select at least one member', 'warning');
         return;
     }
 
@@ -511,7 +930,7 @@ document.getElementById('create-channel-submit').addEventListener('click', async
         }
         
         console.log('Channel created successfully:', responseData);
-        alert(`Channel "${channelName}" created successfully! Note: You (the creator) have been automatically added to the channel.`);
+        chatAlert(`Channel "${channelName}" created successfully! Note: You (the creator) have been automatically added to the channel.`, 'success');
 
         // Close modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('createChannelModal'));
@@ -519,7 +938,7 @@ document.getElementById('create-channel-submit').addEventListener('click', async
 
         // Clear form
         document.getElementById('channel-name-input').value = '';
-        document.getElementById('members-select').selectedIndex = -1;
+        clearMemberPicker(document.getElementById('members-select'));
 
         // Reload channels
         await loadChannels();
@@ -530,7 +949,7 @@ document.getElementById('create-channel-submit').addEventListener('click', async
 
     } catch (error) {
         console.error('Error creating channel:', error);
-        alert(error.message || 'Failed to create channel');
+        chatAlert(error.message || 'Failed to create channel', 'error');
     }
 });
 
@@ -566,7 +985,7 @@ function scrollToBottom() {
 // Leave channel function
 async function leaveChannel() {
     if (!currentChannel) {
-        alert('No channel selected');
+        chatAlert('No channel selected', 'warning');
         return;
     }
 
@@ -582,18 +1001,17 @@ async function leaveChannel() {
             confirmMessage = 'Are you sure you want to leave this channel?';
         }
 
-        if (!confirm(confirmMessage)) {
+        const confirmed = await chatConfirm(confirmMessage);
+        if (!confirmed) {
             return;
         }
 
         if (isCreator) {
-            // Creator is leaving - delete the entire channel
             await currentChannel.delete();
-            alert('Channel has been permanently deleted');
+            chatAlert('Channel has been permanently deleted', 'success');
         } else {
-            // Regular member leaving - just remove from channel
             await currentChannel.removeMembers([window.userId]);
-            alert('You have left the channel');
+            chatAlert('You have left the channel', 'success');
         }
 
         // Clear the chat area
@@ -604,7 +1022,7 @@ async function leaveChannel() {
 
     } catch (error) {
         console.error('Error leaving channel:', error);
-        alert('Failed to leave channel: ' + error.message);
+        chatAlert('Failed to leave channel: ' + error.message, 'error');
     }
 }
 
@@ -629,7 +1047,7 @@ function clearChatArea() {
 // Add members button
 document.getElementById('add-members-btn').addEventListener('click', async () => {
     if (!currentChannel) {
-        alert('No channel selected');
+        chatAlert('No channel selected', 'warning');
         return;
     }
 
@@ -643,15 +1061,15 @@ document.getElementById('add-members-btn').addEventListener('click', async () =>
 // Add members submit
 document.getElementById('add-members-submit').addEventListener('click', async () => {
     if (!currentChannel) {
-        alert('No channel selected');
+        chatAlert('No channel selected', 'warning');
         return;
     }
 
-    const select = document.getElementById('new-members-select');
-    const selectedMembers = Array.from(select.selectedOptions).map(opt => opt.value);
+    const picker = document.getElementById('new-members-select');
+    const selectedMembers = getSelectedMemberIds(picker);
 
     if (selectedMembers.length === 0) {
-        alert('Please select at least one member to add');
+        chatAlert('Please select at least one member to add', 'warning');
         return;
     }
 
@@ -680,7 +1098,7 @@ document.getElementById('add-members-submit').addEventListener('click', async ()
         modal.hide();
 
         // Clear form
-        document.getElementById('new-members-select').selectedIndex = -1;
+        clearMemberPicker(document.getElementById('new-members-select'));
 
         // Refresh channel to get updated member list
         await currentChannel.watch();
@@ -690,11 +1108,11 @@ document.getElementById('add-members-submit').addEventListener('click', async ()
         document.getElementById('channel-members').textContent = `${memberCount} members`;
         populateMembersList(currentChannel);
 
-        alert(`Successfully added ${selectedMembers.length} member(s) to the channel`);
+        chatAlert(`Successfully added ${selectedMembers.length} member(s) to the channel`, 'success');
 
     } catch (error) {
         console.error('Error adding members:', error);
-        alert('Failed to add members: ' + error.message);
+        chatAlert('Failed to add members: ' + error.message, 'error');
     }
 });
 
@@ -723,49 +1141,28 @@ async function loadAvailableUsers() {
             console.log(`User ${index}:`, user.id, user.name, user.role);
         });
 
-        const select = document.getElementById('new-members-select');
-        select.innerHTML = '';
+        const picker = document.getElementById('new-members-select');
 
         // Get current channel member IDs
         const currentMemberIds = currentChannel ?
             Object.keys(currentChannel.state.members) : [];
-        
-        console.log('Current channel members:', currentMemberIds);
 
-        // Filter out users who are already members
-        // The backend already filters by terminal in ChatController@getUsers
-        const availableUsers = users.filter(user => {
-            const isAlreadyMember = currentMemberIds.includes(user.id.toString());
-            console.log(`User ${user.name} (${user.id}): already member = ${isAlreadyMember}`);
-            return !isAlreadyMember;
-        });
+        const availableUsers = users.filter((user) =>
+            !currentMemberIds.includes(String(user.id))
+        );
 
-        console.log('Available users after filtering:', availableUsers.length);
-        availableUsers.forEach(user => {
-            console.log('  -', user.name, '(' + user.role + ')');
-        });
-
-        if (availableUsers.length === 0) {
-            console.warn('No available users to add');
-            select.innerHTML = '<option value="" disabled selected>All users from your terminal are already members</option>';
-            return;
-        }
-
-        availableUsers.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.id;
-            const formattedRole = formatRole(user.role, user.terminal, user.formatted_role);
-            option.textContent = `${user.name} (${formattedRole})`;
-            select.appendChild(option);
-        });
-        
-        console.log('Successfully populated', availableUsers.length, 'users in dropdown');
+        renderMemberPicker(
+            picker,
+            availableUsers,
+            'All users from your terminal are already members'
+        );
     } catch (error) {
         console.error('Error loading available users:', error);
-        console.error('Error stack:', error.stack);
-        const select = document.getElementById('new-members-select');
-        select.innerHTML = '<option value="" disabled selected>Error loading users: ' + error.message + '</option>';
-        alert('Failed to load available users: ' + error.message);
+        const picker = document.getElementById('new-members-select');
+        if (picker) {
+            picker.innerHTML = `<p class="chat-member-picker-empty text-muted mb-0">Error loading users: ${escapeHtml(error.message)}</p>`;
+        }
+        chatAlert('Failed to load available users: ' + error.message, 'error');
     }
 }
 

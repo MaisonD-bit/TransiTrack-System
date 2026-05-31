@@ -26,10 +26,17 @@ class ScheduleController extends Controller
             $userId = auth()->id();
             Log::info("Current user ID: " . $userId);
 
-            // Only routes that completed approval (terminal stops + sysadmin)
+            // Only routes that completed approval (operator stops + sysadmin)
             $approvedRouteIds = $this->approvedRouteIdsForOperator((int) $userId);
-            $routes = Route::where('user_id', $userId)
-                ->whereIn('id', $approvedRouteIds)
+            $operatorTerminal = auth()->user()->terminal;
+            $routes = Route::where('terminal', $operatorTerminal)
+                ->where('status', 'active')
+                ->where(function ($q) use ($userId, $approvedRouteIds) {
+                    $q->whereNull('user_id')
+                        ->orWhere(function ($q2) use ($userId, $approvedRouteIds) {
+                            $q2->where('user_id', $userId)->whereIn('id', $approvedRouteIds);
+                        });
+                })
                 ->get();
             $buses = Bus::where('terminal', auth()->user()->terminal)
                 ->where('bus_company', auth()->user()->company_name)
@@ -541,9 +548,6 @@ class ScheduleController extends Controller
                 if (!$route || !$bus) {
                     throw new \Exception('Invalid route or bus ID.');
                 }
-                if ((int) $route->user_id !== (int) auth()->id()) {
-                    throw new \Exception('Invalid route for your account.');
-                }
                 $this->ensureRouteApprovedForOperator((int) $route->id, (int) auth()->id());
                 
                 // Calculate fare based on route fare if available, otherwise use regular/aircon prices
@@ -702,20 +706,20 @@ class ScheduleController extends Controller
             $candidates->where('id', '!=', $excludeId);
         }
 
-        foreach ($candidates->cursor() as $existing) {
-            $d = $existing->date instanceof \Carbon\CarbonInterface
-                ? $existing->date->format('Y-m-d')
-                : Carbon::parse((string) $existing->date)->format('Y-m-d');
-            $st = $existing->start_time instanceof \Carbon\CarbonInterface
-                ? $existing->start_time->format('H:i')
-                : Carbon::parse((string) $existing->start_time)->format('H:i');
-            $en = $existing->end_time instanceof \Carbon\CarbonInterface
-                ? $existing->end_time->format('H:i')
-                : Carbon::parse((string) $existing->end_time)->format('H:i');
-            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+        foreach ($candidates->get() as $existingSchedule) {
+            $d = $existingSchedule->date instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->date->format('Y-m-d')
+                : Carbon::parse((string) $existingSchedule->date)->format('Y-m-d');
+            $st = $existingSchedule->start_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->start_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->start_time)->format('H:i');
+            $en = $existingSchedule->end_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->end_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existingSchedule->ends_next_day ?? false));
 
             if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
-                return $existing->loadMissing(['driver', 'route']);
+                return $existingSchedule->loadMissing(['driver', 'route']);
             }
         }
 
@@ -749,8 +753,8 @@ class ScheduleController extends Controller
 
     /**
      * Human-readable trip window for messages (12-hour clock, AM/PM).
-     * Same calendar day: "May 15, 2026 2:56 AM to 4:15 AM".
-     * Spans midnight: includes full end date when different from start day.
+     * Same calendar day: "2:56 AM to 4:15 AM" (date is stated separately in the message).
+     * Spans midnight: includes full start/end dates when different days.
      */
     private function formatScheduleClockRangeForMessage(Schedule $schedule): string
     {
@@ -766,12 +770,12 @@ class ScheduleController extends Controller
             (bool) ($schedule->ends_next_day ?? false)
         );
 
-        $startPart = $startAt->format('F j, Y').' '.$startAt->format('g:i A');
         if ($startAt->isSameDay($endAt)) {
-            return $startPart.' to '.$endAt->format('g:i A');
+            return $startAt->format('g:i A').' to '.$endAt->format('g:i A');
         }
 
-        return $startPart.' to '.$endAt->format('F j, Y').' '.$endAt->format('g:i A');
+        return $startAt->format('F j, Y').' '.$startAt->format('g:i A')
+            .' to '.$endAt->format('F j, Y').' '.$endAt->format('g:i A');
     }
 
     private function busOverlapMessage(string $action, Schedule $conflict, string $newDateYmd): string
@@ -833,20 +837,20 @@ class ScheduleController extends Controller
             $candidates->where('id', '!=', $excludeScheduleId);
         }
 
-        foreach ($candidates->cursor() as $existing) {
-            $d = $existing->date instanceof \Carbon\CarbonInterface
-                ? $existing->date->format('Y-m-d')
-                : Carbon::parse((string) $existing->date)->format('Y-m-d');
-            $st = $existing->start_time instanceof \Carbon\CarbonInterface
-                ? $existing->start_time->format('H:i')
-                : Carbon::parse((string) $existing->start_time)->format('H:i');
-            $en = $existing->end_time instanceof \Carbon\CarbonInterface
-                ? $existing->end_time->format('H:i')
-                : Carbon::parse((string) $existing->end_time)->format('H:i');
-            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existing->ends_next_day ?? false));
+        foreach ($candidates->get() as $existingSchedule) {
+            $d = $existingSchedule->date instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->date->format('Y-m-d')
+                : Carbon::parse((string) $existingSchedule->date)->format('Y-m-d');
+            $st = $existingSchedule->start_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->start_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->start_time)->format('H:i');
+            $en = $existingSchedule->end_time instanceof \Carbon\CarbonInterface
+                ? $existingSchedule->end_time->format('H:i')
+                : Carbon::parse((string) $existingSchedule->end_time)->format('H:i');
+            [$exStart, $exEnd] = $this->resolveScheduleWindowBounds($d, $st, $en, (bool) ($existingSchedule->ends_next_day ?? false));
 
             if ($newStart->lt($exEnd) && $newEnd->gt($exStart)) {
-                return $existing->loadMissing(['driver', 'route', 'bus']);
+                return $existingSchedule->loadMissing(['driver', 'route', 'bus']);
             }
         }
 
@@ -1078,20 +1082,30 @@ class ScheduleController extends Controller
     public function acceptSchedule(Request $request, $id)
     {
         try {
-            $schedule = Schedule::findOrFail($id);
-            $legStatus = $schedule->leg_status ?? 'pending';
+            $schedule = Schedule::with('route')->findOrFail($id);
+            $status    = strtolower(trim((string) $schedule->status));
+            $legStatus = $this->normalizeScheduleLegStatus($schedule->leg_status);
 
-            if ($schedule->status === 'scheduled' && $legStatus === 'pending') {
-                // Initial acceptance of the day's schedule
+            if ($status === 'scheduled' && $legStatus === 'pending') {
                 $schedule->status     = 'accepted';
                 $schedule->leg_status = 'accepted';
-            } elseif ($schedule->status === 'active' && $legStatus === 'pending') {
-                // Accepting the next leg in a vice-versa cycle
+            } elseif ($status === 'scheduled' && $legStatus === 'accepted') {
+                // Recovery: leg already accepted but status not updated
+                $schedule->status = 'accepted';
+            } elseif ($status === 'accepted' && $legStatus === 'pending') {
                 $schedule->leg_status = 'accepted';
+            } elseif ($status === 'active' && $legStatus === 'pending') {
+                // Next leg (e.g. return) after completing the previous leg
+                $schedule->leg_status = 'accepted';
+                $this->syncReturnTripAccepted($schedule);
             } else {
+                $hint = ($status === 'active' && $legStatus === 'active')
+                    ? ' Start or complete the current leg first.'
+                    : '';
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot accept schedule in its current state.',
+                    'message' => "Cannot accept schedule in its current state (status: {$status}, leg: {$legStatus}).{$hint}",
                 ], 400);
             }
 
@@ -1100,7 +1114,7 @@ class ScheduleController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule accepted successfully.',
-                'schedule' => $schedule,
+                'schedule' => $this->enrichScheduleForDriver($schedule->fresh(['route', 'bus', 'tickets.commuter'])),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -1182,10 +1196,6 @@ class ScheduleController extends Controller
         return response()->json(['success' => true, 'message' => 'Decline rejected. Schedule restored.']);
     }
 
-    /**
-     * Start the current leg (API)
-     * Works for any leg (outbound or return) — checks leg_status='accepted'.
-     */
     public function startSchedule($scheduleId): JsonResponse
     {
         try {
@@ -1198,10 +1208,14 @@ class ScheduleController extends Controller
                 return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
             }
 
-            $legStatus = $schedule->leg_status ?? '';
+            $legStatus = $schedule->leg_status ?? 'pending';
             $tripLeg   = $schedule->trip_leg  ?? 1;
 
-            if ($legStatus !== 'accepted') {
+            // Normal path: driver accepted the leg. Recovery: cron/legacy set status=active but never started leg.
+            $canStartLeg = $legStatus === 'accepted'
+                || ($legStatus === 'pending' && $schedule->status === 'active');
+
+            if (! $canStartLeg) {
                 return response()->json([
                     'success' => false,
                     'message' => "Cannot start: leg must be accepted first. Current leg_status: {$legStatus}",
@@ -1295,11 +1309,15 @@ class ScheduleController extends Controller
                 return response()->json(['success' => true, 'message' => 'Schedule already completed']);
             }
 
-            $legStatus = $schedule->leg_status ?? '';
+            $legStatus = $schedule->leg_status ?? 'pending';
             if ($legStatus !== 'active') {
+                $hint = in_array($legStatus, ['accepted', 'pending'], true)
+                    ? ' Tap "Start Trip" on this schedule before completing.'
+                    : '';
+
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}",
+                    'message' => "Cannot complete: leg is not active. Current leg_status: {$legStatus}.{$hint}",
                 ], 400);
             }
 
@@ -1362,13 +1380,26 @@ class ScheduleController extends Controller
 
     public function acceptReturnTrip($id): JsonResponse
     {
-        $schedule = Schedule::findOrFail($id);
-        if ($schedule->return_trip_status !== 'pending') {
-            return response()->json(['success' => false, 'message' => 'Return trip is not awaiting acceptance.'], 400);
+        // Unified with leg-based accept (vice-versa round trips)
+        return $this->acceptSchedule(request(), $id);
+    }
+
+    private function normalizeScheduleLegStatus(?string $legStatus): string
+    {
+        $s = strtolower(trim((string) ($legStatus ?? '')));
+
+        return $s === '' ? 'pending' : $s;
+    }
+
+    private function syncReturnTripAccepted(Schedule $schedule): void
+    {
+        if (! $schedule->route || empty($schedule->route->return_geometry)) {
+            return;
         }
-        $schedule->return_trip_status = 'accepted';
-        $schedule->save();
-        return response()->json(['success' => true, 'message' => 'Return trip accepted.', 'schedule' => $schedule]);
+        $rts = strtolower(trim((string) ($schedule->return_trip_status ?? '')));
+        if ($rts === '' || $rts === 'pending') {
+            $schedule->return_trip_status = 'accepted';
+        }
     }
 
     public function declineReturnTrip($id): JsonResponse
@@ -1646,17 +1677,22 @@ class ScheduleController extends Controller
 
     private function ensureRouteApprovedForOperator(int $routeId, int $operatorUserId): void
     {
-        $route = Route::where('user_id', $operatorUserId)->where('id', $routeId)->first();
+        $operatorTerminal = auth()->user()->terminal;
+        $route = Route::where('id', $routeId)->where('terminal', $operatorTerminal)->first();
         if (! $route) {
             throw ValidationException::withMessages([
-                'route_id' => ['Invalid route for your account.'],
+                'route_id' => ['Invalid route for your terminal.'],
             ]);
+        }
+
+        if ($route->user_id === null) {
+            return;
         }
 
         $approved = $this->approvedRouteIdsForOperator($operatorUserId);
         if (! in_array((int) $routeId, $approved, true)) {
             throw ValidationException::withMessages([
-                'route_id' => ['This route is not approved for scheduling yet. Complete terminal stops and sysadmin approval first.'],
+                'route_id' => ['This route is not approved for scheduling yet. Add bus stops and complete sysadmin approval first.'],
             ]);
         }
     }

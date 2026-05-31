@@ -143,16 +143,16 @@
             </a>
         </div>
 
-        <!-- Chat Messages -->
+        <!-- Pending Approvals -->
         <div class="col-12 col-sm-6 col-md-3">
-            <a href="{{ route('chat') }}" class="clickable-card">
+            <a href="{{ route('approval') }}" class="clickable-card">
                 <div class="card border-indigo dashboard-card">
                     <div class="dashboard-icon icon-purple">
-                        <i class="bi bi-envelope-fill"></i>
+                        <i class="bi bi-person-check-fill"></i>
                     </div>
                     <div>
-                        <div class="dashboard-label">New Messages</div>
-                        <div class="dashboard-value">{{ $stats['new_messages'] }}</div>
+                        <div class="dashboard-label">Pending Approvals</div>
+                        <div class="dashboard-value">{{ $stats['pending_approvals'] }}</div>
                     </div>
                 </div>
             </a>
@@ -283,6 +283,14 @@
                 <h1 class="mb-4 fw-bold" style="font-size:2rem;">Analytics</h1>
             </div>
 
+            @php
+                $dashboardChartData = [
+                    'status_counts' => $analytics['status_counts'] ?? [],
+                    'occupancy_by_hour' => $analytics['occupancy_by_hour'] ?? [],
+                ];
+            @endphp
+            <script type="application/json" id="dashboard-chart-data">@json($dashboardChartData)</script>
+
             <div class="row g-3">
                 <!-- Schedule Status Distribution -->
                 <div class="col-12 col-lg-6">
@@ -291,7 +299,7 @@
                             <h5 class="mb-0"><i class="fas fa-pie-chart me-2"></i>Schedule Status Distribution</h5>
                         </div>
                         <div class="card-body d-flex justify-content-center align-items-center" style="min-height: 350px;">
-                            <canvas id="scheduleStatusChart" style="max-height: 300px; max-width: 300px;" data-status="@json($analytics['status_counts'] ?? [])" data-occupancy="@json($analytics['occupancy_by_hour'] ?? [])"></canvas>
+                            <canvas id="scheduleStatusChart" style="max-height: 300px; max-width: 300px;"></canvas>
                         </div>
                     </div>
                 </div>
@@ -458,6 +466,10 @@
                 </div>
             </div>
 
-            <script src="{{ asset('js/chart.js') }}"></script>
         </div>
-        @endsection
+    </div>
+@endsection
+
+@push('scripts')
+<script src="{{ asset('js/chart.js') }}"></script>
+@endpush

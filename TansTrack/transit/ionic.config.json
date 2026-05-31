@@ -1,5 +1,9 @@
 {
   "name": "transitrack",
   "integrations": {},
-  "type": "angular"
+  "type": "angular",
+  "serve": {
+    "host": "localhost",
+    "port": 8100
+  }
 }

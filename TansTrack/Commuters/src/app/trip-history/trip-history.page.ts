@@ -32,6 +32,7 @@ export class TripHistoryPage implements OnInit, OnDestroy, ViewWillEnter {
   displayedTrips: Trip[] = [];
   selectedTrip: Trip | null = null;
   showDetails: boolean = false;
+  showReceipt = false;
   isLoading: boolean = false;
   filterStatus: string = 'all'; // all, completed, cancelled, in-progress
   searchQuery: string = '';
@@ -140,7 +141,38 @@ export class TripHistoryPage implements OnInit, OnDestroy, ViewWillEnter {
 
   closeDetails() {
     this.showDetails = false;
+    this.showReceipt = false;
     this.selectedTrip = null;
+  }
+
+  openReceipt(): void {
+    if (!this.selectedTrip) return;
+    this.showReceipt = true;
+  }
+
+  closeReceipt(): void {
+    this.showReceipt = false;
+  }
+
+  getReceiptPaidAt(trip: Trip): string {
+    const receipt = this.getReceipt(trip.id);
+    if (receipt?.paidAt) {
+      return new Date(receipt.paidAt).toLocaleString('en-PH', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    }
+    return this.formatTripDate(trip.tripDate);
+  }
+
+  getReceiptReference(trip: Trip): string {
+    const receipt = this.getReceipt(trip.id);
+    return receipt?.transactionRef || trip.id || '—';
+  }
+
+  getReceiptPaymentMethod(trip: Trip): string {
+    const receipt = this.getReceipt(trip.id);
+    return receipt?.paymentMethod || trip.paymentMethod || 'Cash';
   }
 
   async shareTripInfo() {
@@ -193,33 +225,8 @@ Status: ${this.selectedTrip.status}
     }
   }
 
-  async downloadReceipt() {
-    if (!this.selectedTrip) return;
-    const receipt = this.getReceipt(this.selectedTrip.id);
-
-    const paidAt = receipt?.paidAt
-      ? new Date(receipt.paidAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
-      : this.formatTripDate(this.selectedTrip.tripDate);
-
-    const method = receipt?.paymentMethod || this.selectedTrip.paymentMethod || 'Cash';
-    const ref = receipt?.transactionRef || '—';
-
-    const alert = await this.alertController.create({
-      header: 'Payment Receipt',
-      message: `
-        <div style="text-align:left;line-height:1.8">
-          <b>Route:</b> ${this.selectedTrip.routeName}<br>
-          <b>From:</b> ${this.selectedTrip.departure}<br>
-          <b>To:</b> ${this.selectedTrip.arrival}<br>
-          <b>Date Paid:</b> ${paidAt}<br>
-          <b>Method:</b> ${method}<br>
-          <b>Reference:</b> ${ref}<br>
-          <b>Amount:</b> ₱${this.selectedTrip.fare}
-        </div>
-      `,
-      buttons: ['Close']
-    });
-    await alert.present();
+  openReceiptFromDetails(): void {
+    this.openReceipt();
   }
 
   getStatusColor(status: string): string {

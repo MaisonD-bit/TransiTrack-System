@@ -8,11 +8,13 @@ use App\Models\Schedule;
 use App\Models\Route as BusRoute;
 use App\Models\Bus;
 use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 class DriverController extends Controller
@@ -61,8 +63,30 @@ class DriverController extends Controller
         ];
 
         $routes = BusRoute::all();
+        $busOperators = $this->assignableBusOperators();
 
-        return view('panels.drivers', compact('drivers', 'stats', 'routes'));
+        return view('panels.drivers', compact('drivers', 'stats', 'routes', 'busOperators'));
+    }
+
+    private function assignableBusOperators()
+    {
+        $terminal = auth()->user()?->terminal;
+
+        return User::query()
+            ->where('role', 'bus_operator')
+            ->where('status', 'active')
+            ->when($terminal, fn ($query) => $query->where('terminal', $terminal))
+            ->orderBy('company_name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'company_name', 'terminal']);
+    }
+
+    private function assignableBusOperatorIds(): array
+    {
+        return $this->assignableBusOperators()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     /**
@@ -82,7 +106,9 @@ class DriverController extends Controller
             'emergency_name' => 'string|max:255|nullable',
             'emergency_relation' => 'string|max:100|nullable',
             'emergency_contact' => 'string|max:20|nullable',
-            'status' => 'required|string|in:active,inactive,pending',
+            'user_id' => ['required', 'integer', Rule::in($this->assignableBusOperatorIds())],
+            'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
+            'suspension_days' => 'required_if:status,suspended|nullable|integer|min:1|max:365',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
@@ -104,7 +130,10 @@ class DriverController extends Controller
                 $photoUrl = 'drivers/' . $fileName;
             }
 
-            //   FIX: Automatically set user_id to logged-in user
+            $suspendedUntil = $request->status === 'suspended'
+                ? Carbon::now()->addDays((int) $request->suspension_days)
+                : null;
+
             $driver = Driver::create([
                 'name' => $request->name,
                 'email' => $request->email,
@@ -119,11 +148,12 @@ class DriverController extends Controller
                 'emergency_relation' => $request->emergency_relation,
                 'emergency_contact' => $request->emergency_contact,
                 'status' => $request->status,
+                'suspended_until' => $suspendedUntil,
                 'photo_url' => $photoUrl,
                 'app_registered' => false,
                 'registration_source' => 'web_admin',
                 'notes' => $request->notes,
-                'user_id' => auth()->id(), //   Automatically set to logged-in user
+                'user_id' => (int) $request->user_id,
             ]);
 
             Log::info('Driver created successfully from web', [
@@ -187,6 +217,7 @@ class DriverController extends Controller
             'emergency_name' => $driver->emergency_name,
             'emergency_relation' => $driver->emergency_relation,
             'emergency_contact' => $driver->emergency_contact,
+            'user_id' => $driver->user_id,
             'status' => $driver->status,
             'suspended_until' => $driver->suspended_until ? $driver->suspended_until->toIso8601String() : null,
             'photo_url' => $driver->photo_url,
@@ -230,6 +261,7 @@ class DriverController extends Controller
             'emergency_name' => 'string|max:255|nullable',
             'emergency_relation' => 'string|max:100|nullable',
             'emergency_contact' => 'string|max:20|nullable',
+            'user_id' => ['required', 'integer', Rule::in($this->assignableBusOperatorIds())],
             'status' => 'required|string|in:active,inactive,pending,suspended,on_leave',
             'suspension_days' => 'nullable|integer|min:1|max:365',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -261,7 +293,7 @@ class DriverController extends Controller
             $updateData = $request->only([
                 'name', 'email', 'contact_number', 'date_of_birth', 'gender',
                 'address', 'license_number', 'license_expiry', 'emergency_name',
-                'emergency_relation', 'emergency_contact', 'status', 'notes'
+                'emergency_relation', 'emergency_contact', 'user_id', 'status', 'notes'
             ]);
 
             if (($updateData['status'] ?? '') === 'suspended') {
@@ -303,9 +335,6 @@ class DriverController extends Controller
                 $photo->move(public_path('storage/drivers'), $fileName);
                 $updateData['photo_url'] = 'drivers/' . $fileName;
             }
-
-            //   Ensure user_id is not changed during update
-            $updateData['user_id'] = $driver->user_id;
 
             $driver->update($updateData);
 

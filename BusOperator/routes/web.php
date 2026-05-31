@@ -14,6 +14,7 @@ use App\Http\Controllers\TripController;
 use App\Http\Controllers\RouteApprovalWebController;
 use App\Http\Controllers\SupportTicketWebController;
 use App\Http\Controllers\DriverLocationController;
+use App\Http\Controllers\RouteStopsController;
 
 // Maya payment callbacks — public GET routes, no auth or CSRF needed
 Route::get('/payments/maya/success', [MayaController::class, 'paymentSuccess']);
@@ -61,6 +62,13 @@ Route::middleware('auth')->group(function () {
     // Driver profile route
     Route::get('/panel/profile/{id}', [DriverController::class, 'profile'])->name('drivers.profile');
 
+    //Route Stops
+    Route::get('/panel/route-stops', [RouteStopsController::class, 'index'])->name('route-stops.index');
+    Route::get('/panel/route-stops/poll', [RouteStopsController::class, 'pollList'])->name('route-stops.poll');
+    Route::get('/panel/route-stops/{routeApprovalRequest}/routes/{route}/edit', [RouteStopsController::class, 'editRoute'])->name('route-stops.edit');
+    Route::put('/panel/route-stops/{routeApprovalRequest}/stops', [RouteStopsController::class, 'updateStops'])->name('route-stops.update');
+    Route::post('/panel/route-stops/{routeApprovalRequest}/submit-sysadmin', [RouteStopsController::class, 'submitToSysadmin'])->name('route-stops.submit');
+
     // Notification action routes
     Route::get('/notifications/unread-count', [NotificationsController::class, 'getUnreadCount']);
     Route::get('/notifications/recent', [NotificationsController::class, 'getRecent']);
@@ -94,20 +102,17 @@ Route::middleware('auth')->group(function () {
     // Route management routes
     Route::prefix('routes')->group(function () {
         Route::get('/', [RouteController::class, 'index'])->name('routes.index');
-        Route::post('/', [RouteController::class, 'store'])->name('routes.store');
         Route::get('/{id}', [RouteController::class, 'show'])->name('routes.show');
-        Route::put('/{id}', [RouteController::class, 'update'])->name('routes.update');
-        Route::delete('/{id}', [RouteController::class, 'destroy'])->name('routes.destroy');
     });
 
     // Bus management routes
     Route::prefix('buses')->group(function () {
         Route::post('/', [BusController::class, 'store'])->name('buses.store');
+        Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('buses.available');
+        Route::get('/search', [BusController::class, 'search'])->name('buses.search');
         Route::get('/{id}', [BusController::class, 'show'])->name('buses.show');
         Route::put('/{id}', [BusController::class, 'update'])->name('buses.update');
         Route::delete('/{id}', [BusController::class, 'destroy'])->name('buses.destroy');
-        Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('buses.available');
-        Route::get('/search', [BusController::class, 'search'])->name('buses.search');
     });
 
     // Chat panel routes
@@ -130,9 +135,9 @@ Route::middleware('auth')->group(function () {
         
         // Bus API routes
         Route::prefix('buses')->group(function () {
-            Route::get('/{id}', [BusController::class, 'show'])->name('api.buses.show');
             Route::get('/stats', [BusController::class, 'getBusStats'])->name('api.buses.stats');
             Route::get('/available', [BusController::class, 'getAvailableBuses'])->name('api.buses.available');
+            Route::get('/{id}', [BusController::class, 'show'])->name('api.buses.show');
         });
         
         // Route API routes

@@ -53,10 +53,8 @@ class UpdateScheduleStatuses extends Command
 
                 [$startAt, $endAt] = $schedule->windowBounds();
 
-                if ($schedule->status === 'scheduled' && $now->gte($startAt) && $now->lte($endAt)) {
-                    $schedule->update(['status' => 'active', 'updated_at' => now()]);
-                    $updatedToActive++;
-                } elseif ($schedule->status === 'active' && $now->gt($endAt)) {
+                // Do not auto-set status=active — driver must accept and start (leg_status=active).
+                if ($schedule->status === 'active' && $now->gt($endAt)) {
                     $schedule->update(['status' => 'completed', 'updated_at' => now()]);
                     $updatedToCompleted++;
                 }
@@ -89,13 +87,7 @@ class UpdateScheduleStatuses extends Command
             ? $schedule->end_time->format('H:i:s')
             : Carbon::parse((string) $schedule->end_time)->format('H:i:s');
 
-        if ($schedule->status === 'scheduled'
-            && $dateYmd === $today
-            && $startStr <= $currentTime
-            && $endStr >= $currentTime) {
-            $schedule->update(['status' => 'active', 'updated_at' => now()]);
-            $updatedToActive++;
-        } elseif ($schedule->status === 'active'
+        if ($schedule->status === 'active'
             && $dateYmd === $today
             && $endStr < $currentTime) {
             $schedule->update(['status' => 'completed', 'updated_at' => now()]);

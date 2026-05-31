@@ -12,12 +12,14 @@ class MayaController extends Controller
     private string $secretKey;
     private string $publicKey;
     private string $baseUrl;
+    private bool $devMock;
 
     public function __construct()
     {
         $this->secretKey = config('services.maya.secret_key', '');
         $this->publicKey = config('services.maya.public_key', '');
         $this->baseUrl   = config('services.maya.base_url', 'https://pg-sandbox.paymaya.com');
+        $this->devMock   = (bool) config('services.maya.dev_mock', false);
     }
 
     /**
@@ -34,17 +36,36 @@ class MayaController extends Controller
             'amount'           => ['required', 'numeric', 'min:1'],
             'route_name'       => ['nullable', 'string', 'max:128'],
             'commuter_name'    => ['nullable', 'string', 'max:128'],
+            'return_url'       => ['nullable', 'string', 'max:512'],
         ]);
-
-        if (! $this->secretKey) {
-            Log::error('[Maya] Secret key not configured');
-            return response()->json(['success' => false, 'message' => 'Maya is not configured.'], 500);
-        }
 
         $appUrl    = rtrim(config('services.maya.callback_url', config('app.url')), '/');
         $ticketId  = $data['public_ticket_id'] ?? null;
         $ticketRef = urlencode($ticketId ?? 'verify');
         $amount    = round((float) $data['amount'], 2);
+        $returnQ   = ! empty($data['return_url'])
+            ? '&return=' . urlencode($data['return_url'])
+            : '';
+
+        // Create Checkout uses PUBLIC key (Basic auth: publicKey + empty password). See developers.maya.ph
+        if (! $this->publicKey) {
+            if ($this->devMock && app()->environment('local')) {
+                Log::info('[Maya] Using dev mock checkout (MAYA_DEV_MOCK=true)');
+
+                return response()->json([
+                    'success'      => true,
+                    'checkout_id'  => 'MOCK-' . uniqid(),
+                    'checkout_url' => "{$appUrl}/payments/maya/mock?ticket={$ticketRef}&amount={$amount}{$returnQ}",
+                    'mock'         => true,
+                ]);
+            }
+
+            Log::error('[Maya] Public API key not configured');
+            return response()->json([
+                'success' => false,
+                'message' => 'Maya is not configured. Set MAYA_PUBLIC_KEY (and MAYA_SECRET_KEY) in BusOperator .env, then run: php artisan config:clear',
+            ], 503);
+        }
 
         $payload = [
             'totalAmount' => [
@@ -54,8 +75,11 @@ class MayaController extends Controller
             ],
             'buyer' => [
                 'firstName' => $data['commuter_name'] ?? 'Commuter',
-                'lastName'  => '',
-                'contact'   => ['email' => 'commuter@transitrackph.com'],
+                'lastName'  => 'TransiTrack',
+                'contact'   => [
+                    'email' => 'commuter@transitrackph.com',
+                    'phone' => '+639171234567',
+                ],
             ],
             'items' => [
                 [
@@ -68,9 +92,9 @@ class MayaController extends Controller
                 ],
             ],
             'redirectUrl' => [
-                'success' => "{$appUrl}/payments/maya/success?ticket={$ticketRef}",
-                'failure' => "{$appUrl}/payments/maya/failure?ticket={$ticketRef}",
-                'cancel'  => "{$appUrl}/payments/maya/cancel?ticket={$ticketRef}",
+                'success' => "{$appUrl}/payments/maya/success?ticket={$ticketRef}{$returnQ}",
+                'failure' => "{$appUrl}/payments/maya/failure?ticket={$ticketRef}{$returnQ}",
+                'cancel'  => "{$appUrl}/payments/maya/cancel?ticket={$ticketRef}{$returnQ}",
             ],
             'requestReferenceNumber' => 'TRANSIT-' . strtoupper(substr($ticketId ?? ('VFY' . time()), -12)),
             'metadata'               => (object) [],
@@ -114,6 +138,23 @@ class MayaController extends Controller
     }
 
     /**
+     * Local/dev mock checkout page (no PayMaya API keys required).
+     */
+    public function mockCheckout(Request $request)
+    {
+        if (! $this->devMock || ! app()->environment('local')) {
+            abort(404);
+        }
+
+        return view('maya-mock-checkout', [
+            'ticket_id' => $request->query('ticket', 'verify'),
+            'amount'    => $request->query('amount', '0'),
+            'success_url' => rtrim(config('services.maya.callback_url', config('app.url')), '/')
+                . '/payments/maya/success?ticket=' . urlencode($request->query('ticket', 'verify')),
+        ]);
+    }
+
+    /**
      * Maya redirects here after a successful payment.
      * Marks the ticket as paid and renders a popup-close page.
      */
@@ -129,10 +170,11 @@ class MayaController extends Controller
         }
 
         return view('maya-callback', [
-            'status'    => 'success',
-            'ticket_id' => $ticketId,
-            'message'   => 'Payment successful!',
-            'sub'       => 'Your fare has been paid via Maya.',
+            'status'     => 'success',
+            'ticket_id'  => $ticketId,
+            'message'    => 'Payment successful!',
+            'sub'        => 'Your fare has been paid via Maya.',
+            'return_url' => $request->query('return'),
         ]);
     }
 
@@ -142,10 +184,11 @@ class MayaController extends Controller
     public function paymentFailure(Request $request)
     {
         return view('maya-callback', [
-            'status'    => 'failed',
-            'ticket_id' => $request->query('ticket'),
-            'message'   => 'Payment failed.',
-            'sub'       => 'Your Maya payment could not be processed. Please try again.',
+            'status'     => 'failed',
+            'ticket_id'  => $request->query('ticket'),
+            'message'    => 'Payment failed.',
+            'sub'        => 'Your Maya payment could not be processed. Please try again.',
+            'return_url' => $request->query('return'),
         ]);
     }
 
@@ -155,10 +198,11 @@ class MayaController extends Controller
     public function paymentCancel(Request $request)
     {
         return view('maya-callback', [
-            'status'    => 'cancelled',
-            'ticket_id' => $request->query('ticket'),
-            'message'   => 'Payment cancelled.',
-            'sub'       => 'You cancelled the Maya payment.',
+            'status'     => 'cancelled',
+            'ticket_id'  => $request->query('ticket'),
+            'message'    => 'Payment cancelled.',
+            'sub'        => 'You cancelled the Maya payment.',
+            'return_url' => $request->query('return'),
         ]);
     }
 }

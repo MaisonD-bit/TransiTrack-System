@@ -20,6 +20,32 @@
     <div class="hero-time">{{ currentTime }}</div>
   </div>
 
+  <!-- PayMaya success -->
+  <div class="section-wrapper payment-success-wrapper" *ngIf="showPaymentSuccess && paymentSuccessUi">
+    <div class="payment-success-card">
+      <ion-icon name="checkmark-circle" color="success" class="payment-success-icon"></ion-icon>
+      <h2 class="payment-success-title">Payment successful</h2>
+      <p class="payment-success-subtitle">Your PayMaya payment was received and your ticket is registered with the operator.</p>
+      <div class="payment-success-details">
+        <div class="payment-success-row" *ngIf="paymentSuccessUi.routeName">
+          <span class="label">Route</span>
+          <span class="value">{{ paymentSuccessUi.routeName }}</span>
+        </div>
+        <div class="payment-success-row">
+          <span class="label">Ticket ID</span>
+          <span class="value mono">{{ paymentSuccessUi.ticketId }}</span>
+        </div>
+        <div class="payment-success-row">
+          <span class="label">Amount paid</span>
+          <span class="value">₱{{ paymentSuccessUi.fare | number:'1.2-2' }}</span>
+        </div>
+      </div>
+      <ion-button expand="block" class="payment-success-dismiss" (click)="dismissPaymentSuccess()">
+        Continue
+      </ion-button>
+    </div>
+  </div>
+
   <!-- Route Selection (hidden during post-trip flow) -->
   <div class="section-wrapper" *ngIf="!showTripComplete">
     <div class="section-label">
@@ -28,81 +54,98 @@
     </div>
 
     <div class="route-card">
-      <ion-select
-        class="route-select"
-        [(ngModel)]="commuterTerminal"
-        (ionChange)="onTerminalChange()"
-        interface="popover"
-        label="Service area (terminal)"
-        labelPlacement="stacked">
-        <ion-select-option value="north">North terminal</ion-select-option>
-        <ion-select-option value="south">South terminal</ion-select-option>
-      </ion-select>
+      <ion-item class="route-field" lines="none">
+        <ion-select
+          class="route-select"
+          [(ngModel)]="commuterTerminal"
+          (ionChange)="onTerminalChange()"
+          interface="action-sheet"
+          label="Service area (terminal)"
+          labelPlacement="stacked">
+          <ion-select-option value="north">North terminal</ion-select-option>
+          <ion-select-option value="south">South terminal</ion-select-option>
+        </ion-select>
+      </ion-item>
 
-      <ion-segment [(ngModel)]="busType" (ionChange)="onBusTypeChange()" class="ion-margin-top">
-        <ion-segment-button value="regular">
-          <ion-label>Regular</ion-label>
-        </ion-segment-button>
-        <ion-segment-button value="aircon">
-          <ion-label>Air-con</ion-label>
-        </ion-segment-button>
-      </ion-segment>
+      <div class="bus-type-toggle ion-margin-top" role="group" aria-label="Bus type">
+        <button
+          type="button"
+          class="bus-type-option"
+          [class.active]="busType === 'regular'"
+          (click)="selectBusType('regular')">
+          Regular
+        </button>
+        <button
+          type="button"
+          class="bus-type-option"
+          [class.active]="busType === 'aircon'"
+          (click)="selectBusType('aircon')">
+          Air-con
+        </button>
+      </div>
 
-      <ion-select
-        class="route-select ion-margin-top"
-        [(ngModel)]="selectedRouteId"
-        (ionChange)="onRouteSelected()"
-        placeholder="Select your destination"
-        interface="popover"
-        label="Route"
-        labelPlacement="stacked">
-        <ion-select-option *ngFor="let route of routes" [value]="route.id">
-          {{ route.name }}
-        </ion-select-option>
-      </ion-select>
+      <ion-item class="route-field ion-margin-top" lines="none">
+        <ion-select
+          class="route-select"
+          [(ngModel)]="selectedRouteId"
+          (ionChange)="onRouteSelected()"
+          placeholder="Select your destination"
+          interface="action-sheet"
+          label="Route"
+          labelPlacement="stacked">
+          <ion-select-option *ngFor="let route of routes" [value]="route.id">
+            {{ route.name }}
+          </ion-select-option>
+        </ion-select>
+      </ion-item>
 
       <ng-container *ngIf="selectedRoute?.stops?.length && selectedRoute!.stops!.length >= 2">
+        <ion-item class="route-field ion-margin-top" lines="none">
+          <ion-select
+            class="route-select"
+            [(ngModel)]="fromStopIndex"
+            (ionChange)="onSegmentStopsChange()"
+            interface="action-sheet"
+            label="Board at"
+            labelPlacement="stacked">
+            <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
+              {{ s.name || ('Stop ' + (i + 1)) }}
+            </ion-select-option>
+          </ion-select>
+        </ion-item>
+
+        <ion-item class="route-field ion-margin-top" lines="none">
+          <ion-select
+            class="route-select"
+            [(ngModel)]="toStopIndex"
+            (ionChange)="onSegmentStopsChange()"
+            interface="action-sheet"
+            label="Alight at"
+            labelPlacement="stacked">
+            <ion-select-option
+              *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
+              [value]="i"
+              [disabled]="i === fromStopIndex">
+              {{ s.name || ('Stop ' + (i + 1)) }}
+            </ion-select-option>
+          </ion-select>
+        </ion-item>
+      </ng-container>
+
+      <ion-item *ngIf="selectedRoute?.stops?.length === 1" class="route-field ion-margin-top" lines="none">
         <ion-select
-          class="route-select ion-margin-top"
-          [(ngModel)]="fromStopIndex"
-          (ionChange)="onSegmentStopsChange()"
-          interface="popover"
-          label="Board at"
+          class="route-select"
+          [(ngModel)]="stopChoice"
+          (ionChange)="onStopChoiceChange()"
+          interface="action-sheet"
+          label="Alight at (fare by distance)"
           labelPlacement="stacked">
+          <ion-select-option value="terminus">Final stop — full route fare</ion-select-option>
           <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
             {{ s.name || ('Stop ' + (i + 1)) }}
           </ion-select-option>
         </ion-select>
-
-        <ion-select
-          class="route-select ion-margin-top"
-          [(ngModel)]="toStopIndex"
-          (ionChange)="onSegmentStopsChange()"
-          interface="popover"
-          label="Alight at"
-          labelPlacement="stacked">
-          <ion-select-option
-            *ngFor="let s of (selectedRoute?.stops ?? []); let i = index"
-            [value]="i"
-            [disabled]="i === fromStopIndex">
-            {{ s.name || ('Stop ' + (i + 1)) }}
-          </ion-select-option>
-        </ion-select>
-      </ng-container>
-
-      <ion-select
-        *ngIf="selectedRoute?.stops?.length === 1"
-        class="route-select ion-margin-top"
-        [(ngModel)]="stopChoice"
-        (ionChange)="onStopChoiceChange()"
-        interface="popover"
-        label="Alight at (fare by distance)"
-        labelPlacement="stacked">
-        <ion-select-option value="terminus">Final stop — full route fare</ion-select-option>
-        <ion-select-option *ngFor="let s of (selectedRoute?.stops ?? []); let i = index" [value]="i">
-          {{ s.name || ('Stop ' + (i + 1)) }}
-        </ion-select-option>
-      </ion-select>
+      </ion-item>
 
       <div class="live-buses-block ion-margin-top" *ngIf="selectedRoute">
         <div class="live-buses-heading">
@@ -138,7 +181,7 @@
             <ion-badge *ngIf="b.is_full" color="danger" slot="end">Full</ion-badge>
             <ion-icon
               *ngIf="selectedScheduleId === b.schedule_id && !b.is_full"
-              name="checkmark-outline"
+              name="checkmark"
               color="success"
               slot="end">
             </ion-icon>
@@ -195,12 +238,14 @@
           [mapId]="'home-route-map'"
           [height]="'380px'"
           [routeGeoJson]="mapRouteGeometry"
-          [startCoord]="selectedRoute.startCoord"
-          [endCoord]="selectedRoute.endCoord"
+          [startCoord]="mapRouteStartCoord || mapBoardingStartCoord || selectedRoute.startCoord"
+          [endCoord]="mapDestinationCoord || selectedRoute.endCoord"
           [stopPins]="stopPinsForMap"
           [liveBusMarkers]="liveBusMapPins"
           [disableSimulator]="true"
-          [commuterBoardingPin]="commuterBoardingPinForMap">
+          [simplifiedTracking]="mapSimplifiedTracking"
+          [commuterLocation]="commuterGpsLocation"
+          [commuterBoardingPin]="commuterGpsLocation ? null : commuterBoardingPinForMap">
         </app-route-map>
       </div>
 
