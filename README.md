@@ -39,7 +39,7 @@ Versions below are taken from each app’s `composer.json` / `package.json` at t
 |---------|-------------|-----------------|----------|
 | Vite | ^7.0.4 | ^7.0.4 | ^7.0.4 |
 | Tailwind CSS | ^4.0.0 | ^4.0.0 | ^4.0.0 |
-| mapbox-gl (BusOperator only) | ^3.24.0 | — | — |
+| mapbox-gl | ^3.24.0 | — | — |
 
 ### Mobile apps
 
