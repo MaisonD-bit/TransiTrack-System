@@ -227,12 +227,6 @@
             margin-bottom: 0;
         }
 
-        .logo small {
-            display: block;
-            font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.5);
-        }
-
         .content-wrapper {
             padding-left: 2rem;
         }
@@ -288,8 +282,8 @@
         <div class="logo">
             <img src="{{ asset('images/transitrack_logo.png') }}" alt="TransiTrack Logo" class="logo-img">
             <div>
-                <h1>TransiTrack</h1>
-                <small>Terminal Manager</small>
+                <h1 class="mb-0">TransiTrack</h1>
+                <small class="text-white-50">Terminal Manager</small>
             </div>
         </div>
 

@@ -31,7 +31,7 @@
         @if(Auth::check())
             <div class="user-details text-end">
                 <h4 class="mb-0">{{ Auth::user()->name }}</h4>
-                <p class="mb-0">{{ ucfirst(Auth::user()->role) }}</p>
+                <p class="mb-0">{{ ucwords(str_replace('_', ' ', Auth::user()->role)) }}</p>
                 <p class="mb-0 small text-muted">{{ Auth::user()->company_name ?? '' }}</p>
             </div>
         @endif
